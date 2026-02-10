@@ -1,0 +1,31 @@
+// Variables
+$discord-dark: #36393f;
+$discord-darker: #2f3136;
+$discord-light: #40444b;
+$discord-accent: #5865f2;
+$text-color: #dcddde;
+
+// Mixins
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app {
+  display: flex;
+  height: 100vh;
+  background-color: $discord-dark;
+  color: $text-color;
+
+  .main-content {
+    display: flex;
+    flex: 1;
+
+    .chat-area {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+  }
+}

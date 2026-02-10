@@ -1,0 +1,14 @@
+// MessageInput styles
+.message-input {
+  padding: 16px;
+  border-top: 1px solid #202225;
+
+  .input {
+    width: 100%;
+    padding: 8px;
+    background-color: $discord-light;
+    border: none;
+    border-radius: 4px;
+    color: $text-color;
+  }
+}

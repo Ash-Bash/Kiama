@@ -1,0 +1,16 @@
+// UserList styles
+.user-list {
+  width: 240px;
+  background-color: $discord-darker;
+  padding: 16px;
+
+  h3 {
+    margin: 0 0 8px 0;
+    color: $text-color;
+  }
+
+  .user-item {
+    padding: 4px 0;
+    color: $text-color;
+  }
+}

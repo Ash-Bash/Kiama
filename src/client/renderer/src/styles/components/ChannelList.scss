@@ -1,0 +1,26 @@
+// ChannelList styles
+.channel-list {
+  width: 240px;
+  background-color: $discord-darker;
+  padding: 16px;
+
+  h3 {
+    margin: 0 0 8px 0;
+    color: $text-color;
+  }
+
+  .channel-item {
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    color: $text-color;
+
+    &.active {
+      background-color: $discord-light;
+    }
+
+    &:hover {
+      background-color: $discord-light;
+    }
+  }
+}

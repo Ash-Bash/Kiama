@@ -1,0 +1,33 @@
+{
+  "name": "kiama",
+  "version": "1.0.0",
+  "description": "A decentralized Discord-like chat app",
+  "main": "dist/server/index.js",
+  "scripts": {
+    "build": "npm run build:server && npm run build:client",
+    "build:server": "cd src/server && npm run build",
+    "build:client": "cd src/client && npm run build",
+    "start:server": "cd src/server && npm start",
+    "start:client": "cd src/client && npm start",
+    "dev:server": "cd src/server && npm run dev",
+    "dev:client": "cd src/client && npm run dev",
+    "install:all": "npm install && cd src/server && npm install && cd ../client && npm install"
+  },
+  "keywords": [
+    "chat",
+    "decentralized",
+    "discord-clone"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "commander": "^14.0.3",
+    "express": "^5.2.1",
+    "multer": "^2.0.2",
+    "socket.io": "^4.8.3",
+    "uuid": "^13.0.0"
+  }
+}
