@@ -7,11 +7,14 @@
     "build": "npm run build:server && npm run build:client",
     "build:server": "cd src/server && npm run build",
     "build:client": "cd src/client && npm run build",
+    "build:auth": "cd src/auth && npm run build",
     "start:server": "cd src/server && npm start",
     "start:client": "cd src/client && npm start",
+    "start:auth": "cd src/auth && npm start",
     "dev:server": "cd src/server && npm run dev",
     "dev:client": "cd src/client && npm run dev",
-    "install:all": "npm install && cd src/server && npm install && cd ../client && npm install"
+    "dev:auth": "cd src/auth && npm run dev",
+    "install:all": "npm install && cd src/server && npm install && cd ../client && npm install && cd ../auth && npm install"
   },
   "keywords": [
     "chat",
@@ -21,11 +24,18 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/express": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/uuid": "^10.0.0",
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "bcrypt": "^5.1.1",
+    "bcryptjs": "^3.0.3",
     "commander": "^14.0.3",
     "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "socket.io": "^4.8.3",
     "uuid": "^13.0.0"
