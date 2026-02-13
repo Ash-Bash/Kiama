@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import io from 'socket.io-client';
 import PluginManager from './utils/PluginManager';
 import { TypedMessage, Channel, ChannelSection } from './types/plugin';
+import { ModalProvider, useModal } from './components/Modal';
+import LoadingScreen from './components/LoadingScreen';
 import './styles/App.scss';
 
 const socket = io('http://localhost:3000');
@@ -25,12 +27,31 @@ interface User {
   role?: string;
 }
 
-function App() {
+function AppContent() {
+  const { openModal, closeModal } = useModal();
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<Map<string, Message[]>>(new Map());
+  const [messages, setMessages] = useState<Map<string, Message[]>>(new Map([
+    ['general', [
+      { id: '1', user: 'Alice', content: 'Welcome to the general channel!', type: 'text', timestamp: new Date(), serverId: 'home', channelId: 'general' },
+      { id: '2', user: 'Bob', content: 'Hey everyone!', type: 'text', timestamp: new Date(), serverId: 'home', channelId: 'general' },
+      { id: '3', user: 'You', content: 'Hello!', type: 'text', timestamp: new Date(), serverId: 'home', channelId: 'general' }
+    ]],
+    ['random', [
+      { id: '4', user: 'Charlie', content: 'This is the random channel', type: 'text', timestamp: new Date(), serverId: 'home', channelId: 'random' }
+    ]]
+  ]));
   const [currentChannelId, setCurrentChannelId] = useState<string>('general');
-  const [channels, setChannels] = useState<Channel[]>([]);
-  const [sections, setSections] = useState<ChannelSection[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([
+    { id: 'general', name: 'general', type: 'text', position: 0, serverId: 'home', sectionId: 'text-channels', createdAt: new Date(), updatedAt: new Date() },
+    { id: 'random', name: 'random', type: 'text', position: 1, serverId: 'home', sectionId: 'text-channels', createdAt: new Date(), updatedAt: new Date() },
+    { id: 'announcements', name: 'announcements', type: 'announcement', position: 2, serverId: 'home', sectionId: 'text-channels', createdAt: new Date(), updatedAt: new Date() },
+    { id: 'general-voice', name: 'General', type: 'voice', position: 0, serverId: 'home', sectionId: 'voice-channels', createdAt: new Date(), updatedAt: new Date() },
+    { id: 'music', name: 'Music', type: 'voice', position: 1, serverId: 'home', sectionId: 'voice-channels', createdAt: new Date(), updatedAt: new Date() }
+  ]);
+  const [sections, setSections] = useState<ChannelSection[]>([
+    { id: 'text-channels', name: 'TEXT CHANNELS', serverId: 'home', position: 0, createdAt: new Date(), updatedAt: new Date() },
+    { id: 'voice-channels', name: 'VOICE CHANNELS', serverId: 'home', position: 1, createdAt: new Date(), updatedAt: new Date() }
+  ]);
   const [currentServer, setCurrentServer] = useState<string>(SERVER_ID);
   const [servers, setServers] = useState<Server[]>([
     { id: 'home', name: 'Home', url: SERVER_URL }
@@ -49,6 +70,24 @@ function App() {
   const [userListCollapsed, setUserListCollapsed] = useState(false);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [isResizingUserList, setIsResizingUserList] = useState(false);
+  const [showMessageOptions, setShowMessageOptions] = useState(false);
+  const [isSwitchingServer, setIsSwitchingServer] = useState(false);
+
+  // Generate server initials like Discord (first letters of words, max 2 chars)
+  const generateServerInitials = (serverName: string): string => {
+    if (!serverName || serverName.trim() === '') {
+      return '?'; // Fallback for empty names
+    }
+
+    const words = serverName.trim().split(/\s+/);
+    const initials = words
+      .map(word => word.charAt(0).toUpperCase())
+      .slice(0, 2) // Limit to 2 characters max
+      .join('');
+
+    return initials;
+  };
+
   const [pluginManager] = useState(() => new PluginManager({
     addMessageHandler: (handler) => {
       // Store handlers
@@ -68,14 +107,19 @@ function App() {
     // Discover and install server plugins
     pluginManager.discoverServerPlugins(SERVER_URL, currentServer);
 
-    // Load channels and sections
-    loadChannelsAndSections();
+    // Load channels and sections will be called when socket connects
+    // loadChannelsAndSections();
 
     // Join default channel
     socket.emit('join_channel', { channelId: 'general' });
   }, [pluginManager, currentServer]);
 
   useEffect(() => {
+    socket.on('connect', () => {
+      console.log('Connected to server');
+      loadChannelsAndSections();
+    });
+
     socket.on('message', (msg: Message) => {
       // Apply plugin handlers based on message type
       const plugin = pluginManager.getEnabledPluginForMessage(msg);
@@ -154,7 +198,10 @@ function App() {
 
   const switchServer = (serverId: string) => {
     const server = servers.find(s => s.id === serverId);
-    if (!server) return;
+    if (!server || serverId === currentServerId) return;
+
+    // Set loading state
+    setIsSwitchingServer(true);
 
     // Disconnect from current server
     socket.disconnect();
@@ -167,10 +214,12 @@ function App() {
     setCurrentServer(server.id === 'home' ? SERVER_ID : server.id);
     setCurrentChannelId('general'); // Reset to general channel
 
-    // Reconnect socket (simplified - in real app you'd handle this better)
+    // Simulate loading delay, then hide loading
     setTimeout(() => {
-      window.location.reload(); // Simple way to reconnect - in production use proper socket management
-    }, 100);
+      setIsSwitchingServer(false);
+      // Reconnect socket (simplified - in real app you'd handle this better)
+      // For demo purposes, we'll just hide the loading
+    }, 1500); // Show loading for 1.5 seconds
   };
 
   const addServer = () => {
@@ -253,14 +302,193 @@ function App() {
       options: ['Option 1', 'Option 2', 'Option 3']
     };
     sendMessage('poll', pollData);
+    setShowMessageOptions(false);
   };
 
-  const createChannel = async (name: string, type: 'text' | 'voice' | 'announcement' = 'text') => {
+  const handleFileUpload = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '*/*';
+    input.onchange = (e) => {
+      const files = (e.target as HTMLInputElement).files;
+      if (files) {
+        Array.from(files).forEach(file => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            sendMessage('file', {
+              name: file.name,
+              size: file.size,
+              type: file.type,
+              data: reader.result
+            });
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+    };
+    input.click();
+    setShowMessageOptions(false);
+  };
+
+  const handleImageUpload = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          sendMessage('image', {
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            data: reader.result
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+    input.click();
+    setShowMessageOptions(false);
+  };
+
+  const openEmojiPicker = () => {
+    // For now, just insert a simple emoji
+    setMessage(prev => prev + '😀');
+    setShowMessageOptions(false);
+  };
+
+  const openGifPicker = () => {
+    // For now, just insert a GIF placeholder
+    sendMessage('gif', { url: 'https://media.giphy.com/media/l0MYt5jWTGrZVjRPq/giphy.gif' });
+    setShowMessageOptions(false);
+  };
+
+  const openAccountSettings = () => {
+    openModal(
+      <div className="account-settings-modal">
+        <h2>Account Settings</h2>
+        <div className="settings-section">
+          <h3>User Profile</h3>
+          <div className="setting-item">
+            <label>Display Name</label>
+            <input type="text" defaultValue="You" />
+          </div>
+          <div className="setting-item">
+            <label>Status</label>
+            <select defaultValue="online">
+              <option value="online">Online</option>
+              <option value="idle">Idle</option>
+              <option value="dnd">Do Not Disturb</option>
+              <option value="offline">Offline</option>
+            </select>
+          </div>
+        </div>
+        <div className="settings-section">
+          <h3>Appearance</h3>
+          <div className="setting-item">
+            <label>Theme</label>
+            <select defaultValue="dark">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </div>
+        </div>
+        <div className="modal-actions">
+          <button onClick={closeModal} className="cancel-btn">Cancel</button>
+          <button onClick={() => { closeModal(); alert('Settings saved!'); }} className="save-btn">Save Changes</button>
+        </div>
+      </div>
+    );
+  };
+
+  const openCreateChannelModal = (sectionId?: string) => {
+    const modalContent = (
+      <div className="create-channel-modal">
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.target as HTMLFormElement);
+          const name = formData.get('name') as string;
+          const type = formData.get('type') as 'text' | 'voice' | 'announcement';
+          
+          if (name.trim()) {
+            await createChannel(name, type, sectionId);
+            closeModal();
+            loadChannelsAndSections(); // Refresh the list
+          }
+        }}>
+          <div className="form-group">
+            <label htmlFor="channel-name">Channel Name</label>
+            <input
+              type="text"
+              id="channel-name"
+              name="name"
+              placeholder="new-channel"
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="channel-type">Channel Type</label>
+            <select id="channel-type" name="type" defaultValue="text">
+              <option value="text">Text Channel</option>
+              <option value="voice">Voice Channel</option>
+              <option value="announcement">Announcement Channel</option>
+            </select>
+          </div>
+          <div className="modal-actions">
+            <button type="button" onClick={closeModal}>Cancel</button>
+            <button type="submit">Create Channel</button>
+          </div>
+        </form>
+      </div>
+    );
+    
+    openModal(modalContent, { title: 'Create Channel', size: 'small' });
+  };
+
+  const openCreateSectionModal = () => {
+    const modalContent = (
+      <div className="create-section-modal">
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.target as HTMLFormElement);
+          const name = formData.get('name') as string;
+          
+          if (name.trim()) {
+            await createSection(name);
+            closeModal();
+            loadChannelsAndSections(); // Refresh the list
+          }
+        }}>
+          <div className="form-group">
+            <label htmlFor="section-name">Section Name</label>
+            <input
+              type="text"
+              id="section-name"
+              name="name"
+              placeholder="New Section"
+              required
+            />
+          </div>
+          <div className="modal-actions">
+            <button type="button" onClick={closeModal}>Cancel</button>
+            <button type="submit">Create Section</button>
+          </div>
+        </form>
+      </div>
+    );
+    
+    openModal(modalContent, { title: 'Create Section', size: 'small' });
+  };
+
+  const createChannel = async (name: string, type: 'text' | 'voice' | 'announcement' = 'text', sectionId?: string) => {
     try {
       const response = await fetch(`${SERVER_URL}/channels`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, type })
+        body: JSON.stringify({ name, type, sectionId })
       });
       if (!response.ok) throw new Error('Failed to create channel');
     } catch (error) {
@@ -279,6 +507,17 @@ function App() {
     } catch (error) {
       console.error('Error creating section:', error);
     }
+  };
+
+  const deleteMessage = (messageId: string) => {
+    // In a real implementation, you'd send a delete request to the server
+    // For now, we'll just remove it from local state
+    setMessages(prev => {
+      const newMessages = new Map(prev);
+      const channelMessages = newMessages.get(currentChannelId) || [];
+      newMessages.set(currentChannelId, channelMessages.filter(msg => msg.id !== messageId));
+      return newMessages;
+    });
   };
 
   const renderMessage = (msg: Message) => {
@@ -316,7 +555,20 @@ function App() {
 
     // Default rendering
     return (
-      <div key={msg.id} className="message">
+      <div 
+        key={msg.id} 
+        className="message"
+        onContextMenu={(e) => {
+          // Only show context menu for user's own messages
+          if (msg.user === 'You') {
+            e.preventDefault();
+            const deleteOption = confirm('Delete this message?');
+            if (deleteOption) {
+              deleteMessage(msg.id);
+            }
+          }
+        }}
+      >
         <span className="username">{msg.user}:</span>
         <span className="content">{msg.content}</span>
         {msg.type !== 'text' && <span className="message-type">[{msg.type}]</span>}
@@ -348,12 +600,14 @@ function App() {
     return React.createElement(type, { ...otherProps, key }, ...renderedChildren);
   };
 
-  const currentChannel = channels.find(c => c.id === currentChannelId);
+  const currentServerObj = servers.find(s => s.id === currentServerId);
+  const currentServerName = currentServerObj?.name || 'Home';
+  const currentChannel = channels.find(c => c.id === currentChannelId && c.serverId === currentServerId);
   const currentMessages = messages.get(currentChannelId) || [];
 
   // Group channels by section
   const channelsBySection = sections.reduce((acc, section) => {
-    acc[section.id] = channels.filter(c => c.sectionId === section.id);
+    acc[section.id] = channels.filter(c => c.sectionId === section.id && c.serverId === currentServerId);
     return acc;
   }, {} as Record<string, Channel[]>);
 
@@ -362,69 +616,93 @@ function App() {
   return (
     <div className="app">
       <div className="server-list">
-        {servers.map(server => (
-          <div
-            key={server.id}
-            className={`server-item ${server.id === currentServerId ? 'active' : ''} ${server.id === 'home' ? 'home' : ''}`}
-            onClick={() => switchServer(server.id)}
-            title={server.name}
-          >
-            {server.id !== 'home' && (
-              <span className="server-name">{server.name}</span>
-            )}
-            {server.icon ? (
-              <img src={server.icon} alt={server.name} className="server-icon" />
-            ) : server.id !== 'home' ? (
-              <span className="server-icon">{server.name.charAt(0).toUpperCase()}</span>
-            ) : null}
+        <div className="server-items">
+          {servers.map(server => (
+            <div
+              key={server.id}
+              className={`server-item ${server.id === currentServerId ? 'active' : ''} ${server.id === 'home' ? 'home' : ''}`}
+              onClick={() => switchServer(server.id)}
+              title={server.name}
+            >
+              {server.id !== 'home' && (
+                <span className="server-name">{server.name}</span>
+              )}
+              {server.icon ? (
+                <img src={server.icon} alt={server.name} className="server-icon" />
+              ) : (
+                <span className="server-icon">{generateServerInitials(server.name)}</span>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="server-list-bottom">
+          <div className="add-server" onClick={addServer} title="Add Server">
+            <span className="add-server-icon">+</span>
           </div>
-        ))}
-        <div className="add-server" onClick={addServer} title="Add Server"></div>
+          <div className="account-btn" onClick={openAccountSettings} title="Account">
+            <i className="fas fa-user"></i>
+          </div>
+        </div>
       </div>
 
       {!sidebarCollapsed && (
         <>
           <div className="sidebar" style={{ width: `${sidebarWidth}px` }}>
             <div className="server-header">
-              <h2>{currentServer}</h2>
-              <button className="collapse-btn" onClick={toggleSidebar} title="Collapse Sidebar">‹</button>
+              <h2>{currentServerName}</h2>
+              <button className="collapse-btn" onClick={toggleSidebar} title="Collapse Sidebar">
+                <i className="fas fa-chevron-left"></i>
+              </button>
             </div>
 
             <div className="channels-list">
               {sections
+                .filter(section => section.serverId === currentServerId)
                 .sort((a, b) => a.position - b.position)
-                .map(section => (
-                  <div key={section.id} className="channel-section">
-                    <div className="section-header">
-                      <span className="section-name">{section.name}</span>
+                .map(section => {
+                  const sectionChannels = channelsBySection[section.id] || [];
+                  return (
+                    <div key={section.id} className="channel-section">
+                      <div className="section-header">
+                        <span className="section-name">{section.name}</span>
+                        <button 
+                          className="section-plus-btn" 
+                          onClick={() => {
+                            const name = prompt('Channel name:');
+                            if (name) createChannel(name, 'text', section.id).then(() => loadChannelsAndSections());
+                          }}
+                          title="Add Channel"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <div className="section-channels">
+                        {sectionChannels
+                          .sort((a, b) => a.position - b.position)
+                          .map(channel => (
+                            <div
+                              key={channel.id}
+                              className={`channel ${channel.id === currentChannelId ? 'active' : ''} ${channel.settings?.nsfw ? 'nsfw' : ''}`}
+                              onClick={() => joinChannel(channel.id)}
+                            >
+                              <span className="channel-icon">
+                                {channel.type === 'text' && '#'}
+                                {channel.type === 'voice' && '🔊'}
+                                {channel.type === 'announcement' && '📢'}
+                              </span>
+                              <span className="channel-name">
+                                {channel.name}
+                                {channel.settings?.nsfw && <span className="nsfw-indicator">🔞</span>}
+                              </span>
+                              {channel.messageCount && channel.messageCount > 0 && (
+                                <span className="message-count">({channel.messageCount})</span>
+                              )}
+                            </div>
+                          ))}
+                      </div>
                     </div>
-                    <div className="section-channels">
-                      {channelsBySection[section.id]
-                        ?.sort((a, b) => a.position - b.position)
-                        .map(channel => (
-                          <div
-                            key={channel.id}
-                            className={`channel ${channel.id === currentChannelId ? 'active' : ''} ${channel.settings?.nsfw ? 'nsfw' : ''}`}
-                            onClick={() => joinChannel(channel.id)}
-                          >
-                            <span className="channel-icon">
-                              {channel.type === 'text' && '#'}
-                              {channel.type === 'voice' && '🔊'}
-                              {channel.type === 'announcement' && '📢'}
-                            </span>
-                            <span className="channel-name">
-                              {channel.name}
-                              {channel.settings?.nsfw && <span className="nsfw-indicator">🔞</span>}
-                            </span>
-                            {channel.messageCount && channel.messageCount > 0 && (
-                              <span className="message-count">({channel.messageCount})</span>
-                            )}
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                ))}
-
+                  );
+                })}
               {unsectionedChannels.length > 0 && (
                 <div className="channel-section">
                   <div className="section-channels">
@@ -456,11 +734,12 @@ function App() {
             </div>
 
             <div className="channel-actions">
-              <button onClick={() => createChannel(prompt('Channel name:') || '')}>
-                + Add Channel
-              </button>
-              <button onClick={() => createSection(prompt('Section name:') || '')}>
-                + Add Section
+              <button className="add-section-btn" onClick={() => {
+                const name = prompt('Section name:');
+                if (name) createSection(name).then(() => loadChannelsAndSections());
+              }} title="Add Section">
+                <span className="plus-icon">+</span>
+                Add Section
               </button>
             </div>
           </div>
@@ -473,11 +752,16 @@ function App() {
 
       {sidebarCollapsed && (
         <div className="sidebar-collapsed">
-          <button className="expand-btn" onClick={toggleSidebar} title="Expand Sidebar">›</button>
+          <button className="expand-btn" onClick={toggleSidebar} title="Expand Sidebar">
+            <i className="fas fa-chevron-right"></i>
+          </button>
         </div>
       )}
 
       <div className="main-content">
+        {isSwitchingServer && (
+          <LoadingScreen type="server-switch" />
+        )}
         <div className="channel-header">
           <h3>
             {currentChannel && (
@@ -498,14 +782,44 @@ function App() {
         </div>
 
         <div className="message-input">
-          <input
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-            placeholder={`Message #${currentChannel?.name || 'general'}`}
-          />
-          <button onClick={() => sendMessage()}>Send Text</button>
-          <button onClick={sendPollMessage}>Send Poll</button>
+          <div className="message-input-container">
+            <button 
+              className="message-options-btn"
+              onClick={() => setShowMessageOptions(!showMessageOptions)}
+              title="Message Options"
+            >
+              <i className="fas fa-plus"></i>
+            </button>
+            <input
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+              placeholder={`Message #${currentChannel?.name || 'general'}`}
+            />
+            <button className="send-btn" onClick={() => sendMessage()} title="Send Message">
+              <i className="fas fa-paper-plane"></i>
+            </button>
+          </div>
+          
+          {showMessageOptions && (
+            <div className="message-options-menu">
+              <button onClick={openEmojiPicker} title="Add Emoji">
+                <i className="fas fa-smile"></i> Emoji
+              </button>
+              <button onClick={openGifPicker} title="Add GIF">
+                <i className="fas fa-film"></i> GIF
+              </button>
+              <button onClick={handleImageUpload} title="Upload Image">
+                <i className="fas fa-image"></i> Upload Image
+              </button>
+              <button onClick={handleFileUpload} title="Attach File">
+                <i className="fas fa-paperclip"></i> Attach File
+              </button>
+              <button onClick={sendPollMessage} title="Create Poll">
+                <i className="fas fa-chart-bar"></i> Create Poll
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -518,7 +832,9 @@ function App() {
           <div className="user-list" style={{ width: `${userListWidth}px` }}>
             <div className="user-list-header">
               <h3>Online — {users.filter(u => u.status !== 'offline').length}</h3>
-              <button className="collapse-btn" onClick={toggleUserList} title="Collapse User List">›</button>
+              <button className="collapse-btn" onClick={toggleUserList} title="Collapse User List">
+                <i className="fas fa-chevron-right"></i>
+              </button>
             </div>
             <div className="user-list-content">
               {users
@@ -548,10 +864,35 @@ function App() {
 
       {userListCollapsed && (
         <div className="user-list-collapsed">
-          <button className="expand-btn" onClick={toggleUserList} title="Expand User List">‹</button>
+          <button className="expand-btn" onClick={toggleUserList} title="Expand User List">
+            <i className="fas fa-chevron-left"></i>
+          </button>
         </div>
       )}
     </div>
+  );
+}
+
+function App() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Simulate app initialization time
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 2500); // Show loading screen for 2.5 seconds
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
+
+  return (
+    <ModalProvider>
+      <AppContent />
+    </ModalProvider>
   );
 }
 

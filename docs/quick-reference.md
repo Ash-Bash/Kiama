@@ -35,8 +35,10 @@ npm run build:client  # Build client only
 - `src/server/src/index.ts` - CLI entry point
 
 ### Build Outputs
-- `dist/client/` - Client application
-- `dist/server/` - Server application
+- `dist/client/bundle.js` - Main client application (plugins excluded)
+- `dist/client/plugins/` - Individual compiled client plugin files
+- `dist/server/kiama-server-x.x.x.js` - Main server application (plugins excluded)
+- `dist/server/plugins/` - Individual compiled server plugin files
 
 ### Configuration Files
 - `src/client/webpack.config.js` - Client bundling
@@ -56,10 +58,10 @@ npm run build:client  # Build client only
 3. Test with client
 
 ### Create Plugin
-1. Create plugin file in appropriate plugins directory
-2. Implement plugin interface
-3. Export as default
-4. Plugin loads automatically
+1. Create plugin file in appropriate plugins directory (`src/client/renderer/src/plugins/` or `src/server/src/plugins/`)
+2. Implement plugin interface with proper exports
+3. Build project to compile plugin separately
+4. Plugin loads automatically at runtime (no bundling with main app)
 
 ### Modify Styling
 1. Edit SCSS files in `src/client/renderer/src/styles/`

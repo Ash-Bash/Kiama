@@ -96,7 +96,8 @@ Kiama/
 │   │   │   │   │   ├── MessageList.tsx
 │   │   │   │   │   └── UserList.tsx
 │   │   │   │   ├── plugins/      # Client plugins
-│   │   │   │   │   └── linkEmbed.ts
+│   │   │   │   │   └── messageFormatter.ts
+│   │   │   │   │   └── darkModeToggle.tsx
 │   │   │   │   ├── styles/       # SCSS styles
 │   │   │   │   │   ├── components/
 │   │   │   │   │   └── App.scss
@@ -119,7 +120,10 @@ Kiama/
 │       │   │   └── plugin.ts
 │       │   ├── utils/            # Server utilities
 │       │   │   └── PluginManager.ts
-│       │   └── plugins/          # Server plugins (empty)
+│       │   └── plugins/          # Server plugins
+│       │       └── messageLogger.ts
+│       │       └── pollServer.js
+│       │       └── poll-client.js
 │       ├── tsconfig.json         # Server TypeScript config
 │       └── package.json          # Server dependencies
 ├── assets/                        # Static assets (emotes, etc.)
@@ -215,9 +219,23 @@ The client automatically connects to `http://localhost:3000`. To change this, mo
 
 KIAMA features an extensible plugin architecture for both client and server, with support for server-provided client plugins that can be downloaded on a per-server basis.
 
+### Plugin Compilation
+
+Plugins are compiled separately from the main application code for better modularity:
+
+- **Client Plugins**: Source in `src/client/renderer/src/plugins/`, compiled to `dist/client/plugins/`
+- **Server Plugins**: Source in `src/server/src/plugins/`, compiled to `dist/server/plugins/`
+- **Main Applications**: Core code bundled into single files without plugin code
+
+This separation allows plugins to be developed, updated, and distributed independently.
+
 ### Client Plugins
 
 Located in `src/client/renderer/src/plugins/`
+
+Current client plugins:
+- `messageFormatter.ts` - Formats messages with basic markdown-like syntax
+- `darkModeToggle.tsx` - Adds a theme toggle button and responds to theme commands
 
 ```typescript
 interface ClientPlugin {
@@ -239,6 +257,9 @@ interface PluginAPI {
 ### Server Plugins
 
 Located in `src/server/src/plugins/`
+
+Current server plugins:
+- `messageLogger.ts` - Logs all messages to console for debugging
 
 ```typescript
 interface ServerPlugin {
@@ -272,7 +293,7 @@ interface ClientPluginMetadata {
 }
 ```
 
-**Example**: A server can provide a poll plugin that clients download automatically when connecting.
+**Example**: A server can provide a poll plugin that clients download automatically when connecting. The poll client plugin is located in `src/server/src/plugins/poll-client.js`.
 
 ### Plugin Management
 

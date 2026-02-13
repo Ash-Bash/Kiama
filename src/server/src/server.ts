@@ -6,7 +6,7 @@ import multer from 'multer';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import ServerPluginManager from './utils/PluginManager';
+import SecurePluginManager from './utils/PluginManager';
 import { ClientPluginMetadata } from './types/plugin';
 
 export interface TypedMessage {
@@ -92,11 +92,12 @@ export class Server {
   private serverId: string;
   private whitelist: Set<string> = new Set();
   private blacklist: Set<string> = new Set();
-  private pluginManager: ServerPluginManager;
+  private pluginManager: SecurePluginManager;
   private emotes: Map<string, string> = new Map(); // name -> filename
   private channels: Map<string, Channel> = new Map();
   private sections: Map<string, ChannelSection> = new Map();
   private messages: Map<string, TypedMessage[]> = new Map(); // channelId -> messages[]
+  private messageHandlers: ((message: any) => any)[] = []; // Plugin message handlers
   private systemStats: SystemStats | null = null;
   private statsInterval: NodeJS.Timeout | null = null;
 
@@ -107,16 +108,50 @@ export class Server {
     this.app = express();
     this.server = http.createServer(this.app);
     this.io = new SocketServer(this.server);
-    this.pluginManager = new ServerPluginManager({
+    this.pluginManager = new SecurePluginManager({
       addMessageHandler: (handler) => {
-        // Store handlers
+        // Store handlers with logging
+        console.log('Plugin registered message handler');
+        this.messageHandlers.push(handler);
       },
       addRoute: (path, handler) => {
+        console.log(`Plugin registered route: ${path}`);
         this.app.use(path, handler);
       },
-      getIO: () => this.io,
+      getIO: () => {
+        // Intentionally not provided for security
+        throw new Error('Direct socket.io access not allowed for security');
+      },
       registerClientPlugin: (metadata: ClientPluginMetadata) => {
         this.pluginManager.registerClientPlugin(metadata);
+      },
+      onMessage: (handler) => {
+        // Alias for addMessageHandler
+        console.log('Plugin registered message handler via onMessage');
+        this.messageHandlers.push(handler);
+      },
+      sendMessage: (message) => {
+        // Send message via socket.io
+        console.log('Plugin sending message:', message);
+        this.io.to(message.channelId).emit('message', message);
+        // Also store in messages array
+        if (!this.messages.has(message.channelId)) {
+          this.messages.set(message.channelId, []);
+        }
+        this.messages.get(message.channelId)!.push(message);
+      },
+      modifyMessage: (messageId, modifiedMessage) => {
+        // Find and modify message
+        console.log('Plugin modifying message:', messageId);
+        for (const [channelId, messages] of this.messages) {
+          const messageIndex = messages.findIndex(msg => msg.id === messageId);
+          if (messageIndex !== -1) {
+            messages[messageIndex] = { ...messages[messageIndex], ...modifiedMessage };
+            // Emit update to clients
+            this.io.to(channelId).emit('message-update', { messageId, modifiedMessage });
+            break;
+          }
+        }
       }
     });
 
@@ -286,6 +321,15 @@ export class Server {
       });
     });
 
+    // Plugin UI configuration endpoint
+    this.app.get('/plugin-ui-config', (req, res) => {
+      const uiConfig = this.pluginManager.getPluginUIConfig();
+      res.json({
+        serverId: this.serverId,
+        uiConfig: uiConfig
+      });
+    });
+
     // Plugin management endpoints
     this.app.post('/plugins/server/:pluginName/enable', (req, res) => {
       const { pluginName } = req.params;
@@ -317,6 +361,13 @@ export class Server {
         serverPlugins: this.pluginManager.getEnabledPlugins().map(p => ({ name: p.name, enabled: p.enabled !== false })),
         clientPlugins: this.pluginManager.getEnabledClientPlugins().map(p => ({ name: p.name, enabled: p.enabled !== false }))
       });
+    });
+
+    // Emergency plugin shutdown (kill switch)
+    this.app.post('/plugins/emergency-shutdown', (req, res) => {
+      console.log('EMERGENCY PLUGIN SHUTDOWN REQUESTED');
+      this.pluginManager.emergencyShutdown();
+      res.json({ success: true, message: 'All plugins have been disabled for security' });
     });
 
     // System stats endpoint

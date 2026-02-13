@@ -12,9 +12,35 @@
     margin: 12px;
     cursor: pointer;
     @include flex-center;
+    position: relative;
+    overflow: hidden;
 
     &.active {
       background-color: $discord-accent;
+    }
+
+    .server-image {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+    }
+
+    .server-initials {
+      color: white;
+      font-weight: 600;
+      font-size: 14px;
+      text-align: center;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+
+      &.hidden {
+        display: none;
+      }
     }
   }
 }

@@ -12,12 +12,17 @@ class PluginManager {
   }
 
   async loadPlugins() {
-    // Load global plugins
-    try {
-      const linkEmbedPlugin = await import('../plugins/linkEmbed');
-      this.registerPlugin(linkEmbedPlugin.default);
-    } catch (error) {
-      console.error('Failed to load plugin:', error);
+    // Load global plugins dynamically from built files
+    const pluginNames = ['messageFormatter', 'darkModeToggle'];
+    const require = (window as any).require;
+
+    for (const name of pluginNames) {
+      try {
+        const pluginModule = require(`./plugins/${name}.js`);
+        this.registerPlugin(pluginModule.default || pluginModule);
+      } catch (error) {
+        console.error(`Failed to load plugin ${name}:`, error);
+      }
     }
   }
 

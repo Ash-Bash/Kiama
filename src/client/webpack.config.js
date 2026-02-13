@@ -1,9 +1,28 @@
 const path = require('path');
+const fs = require('fs');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+
+// Dynamically create entries for main app and plugins
+const entries = {
+  'bundle': './renderer/src/index.tsx', // Main client entry
+};
+
+// Add client plugins as separate entries
+const pluginsDir = path.resolve(__dirname, 'renderer/src/plugins');
+if (fs.existsSync(pluginsDir)) {
+  const pluginFiles = fs.readdirSync(pluginsDir).filter(file =>
+    file.endsWith('.tsx') || file.endsWith('.ts')
+  );
+
+  pluginFiles.forEach(file => {
+    const name = path.basename(file, path.extname(file));
+    entries[`plugins/${name}`] = `./renderer/src/plugins/${file}`;
+  });
+}
 
 module.exports = {
   mode: 'development',
-  entry: './renderer/src/index.tsx',
+  entry: entries,
   target: 'electron-renderer',
   devtool: 'source-map',
   module: {
@@ -23,8 +42,11 @@ module.exports = {
     extensions: ['.tsx', '.ts', '.js'],
   },
   output: {
-    filename: 'bundle.js',
+    filename: '[name].js',
     path: path.resolve(__dirname, '../../dist/client'),
+    library: {
+      type: 'umd',
+    },
   },
   plugins: [
     new HtmlWebpackPlugin({

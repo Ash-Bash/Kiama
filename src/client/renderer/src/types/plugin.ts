@@ -53,6 +53,7 @@ export interface Channel {
   name: string;
   type: 'text' | 'voice' | 'announcement';
   sectionId?: string;
+  serverId: string;
   position: number;
   permissions?: ChannelPermissions;
   settings?: ChannelSettings;
@@ -64,6 +65,7 @@ export interface Channel {
 export interface ChannelSection {
   id: string;
   name: string;
+  serverId: string;
   position: number;
   permissions?: SectionPermissions;
   createdAt: Date;

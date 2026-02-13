@@ -132,6 +132,28 @@ Check plugin status via API:
 curl http://localhost:3000/plugins/status
 ```
 
+### Plugin Compilation
+
+KIAMA uses separate compilation for plugins to maintain modularity:
+
+**Client Plugins:**
+- Located in `src/client/renderer/src/plugins/`
+- Compiled to individual files in `dist/client/plugins/`
+- Loaded dynamically at runtime using `require()`
+- Not bundled with main client code
+
+**Server Plugins:**
+- Located in `src/server/src/plugins/`
+- Compiled to individual files in `dist/server/plugins/`
+- Loaded dynamically at runtime using `require()`
+- Not bundled with main server code
+
+**Benefits:**
+- Plugins can be updated independently
+- Smaller main application bundles
+- Better separation of concerns
+- Easier plugin distribution
+
 ### Modifying the Build System
 
 **Client Build:**

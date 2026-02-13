@@ -8,6 +8,9 @@ $text-color: #dcddde;
 $sidebar-width: 240px;
 $server-list-width: 72px;
 
+// Component imports
+@import './LoadingScreen.scss';
+
 // Reset html/body padding
 html, body {
   margin: 0;
@@ -18,6 +21,144 @@ html, body {
 
 // Component styles
 @import 'components/poll';
+
+// Modal styles
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+
+  .modal-content {
+    background-color: $discord-darker;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+
+    &.small { width: 400px; }
+    &.medium { width: 600px; }
+    &.large { width: 800px; }
+
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid $discord-light;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+
+      h2 {
+        margin: 0;
+        color: $text-color;
+        font-size: 18px;
+        font-weight: 600;
+      }
+
+      .modal-close {
+        background: none;
+        border: none;
+        color: rgba($text-color, 0.6);
+        font-size: 24px;
+        cursor: pointer;
+        padding: 0;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        transition: background-color 0.2s, color 0.2s;
+
+        &:hover {
+          background-color: rgba($text-color, 0.1);
+          color: $text-color;
+        }
+      }
+    }
+
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      flex: 1;
+    }
+  }
+}
+
+// Modal form styles
+.create-channel-modal,
+.create-section-modal {
+  .form-group {
+    margin-bottom: 16px;
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: $text-color;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid $discord-light;
+      border-radius: 4px;
+      background-color: $discord-dark;
+      color: $text-color;
+      font-size: 14px;
+
+      &:focus {
+        outline: none;
+        border-color: $discord-accent;
+      }
+    }
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 20px;
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s;
+
+      &:first-child {
+        background-color: $discord-light;
+        color: $text-color;
+
+        &:hover {
+          background-color: lighten($discord-light, 10%);
+        }
+      }
+
+      &:last-child {
+        background-color: $discord-accent;
+        color: white;
+
+        &:hover {
+          background-color: lighten($discord-accent, 10%);
+        }
+      }
+    }
+  }
+}
 
 // Mixins
 @mixin flex-center {
@@ -41,88 +182,137 @@ html, body {
   flex-direction: column;
   align-items: center;
   padding: 8px 0;
+  position: relative;
+  height: 100vh;
+  box-sizing: border-box;
 
-  .server-item {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background-color: $discord-darker;
-    margin-bottom: 8px;
-    cursor: pointer;
+  .server-items {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    transition: border-radius 0.2s, background-color 0.2s;
-    position: relative;
+    width: 100%;
 
-    &:hover {
-      border-radius: 16px;
-      background-color: $discord-accent;
-    }
-
-    &.active {
-      border-radius: 16px;
-      background-color: $discord-accent;
-    }
-
-    &.home {
-      background-color: $discord-accent;
+    .server-item {
+      width: 48px;
+      height: 48px;
       border-radius: 50%;
+      background-color: $discord-light;
+      margin: 8px 0;
+      cursor: pointer;
+      @include flex-center;
+      position: relative;
+      overflow: hidden;
+      transition: background-color 0.2s;
 
-      &::before {
-        content: '🏠';
-        font-size: 20px;
+      &:hover {
+        background-color: lighten($discord-light, 10%);
       }
-    }
 
-    .server-icon {
-      font-size: 18px;
-      color: $text-color;
-    }
+      &.active {
+        background-color: $discord-accent;
 
-    .server-name {
-      position: absolute;
-      left: 60px;
-      top: 50%;
-      transform: translateY(-50%);
-      background-color: #18191c;
-      color: $text-color;
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 14px;
-      white-space: nowrap;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.2s;
-      z-index: 1000;
-    }
+        &:hover {
+          background-color: lighten($discord-accent, 10%);
+        }
+      }
 
-    &:hover .server-name {
-      opacity: 1;
+      &.home {
+        background-color: $discord-darker;
+        border: 2px solid $discord-light;
+
+        &:hover {
+          background-color: rgba($discord-light, 0.1);
+        }
+
+        &.active {
+          background-color: $discord-accent;
+          border-color: $discord-accent;
+        }
+      }
+
+      .server-name {
+        display: none; // Hide the text name, only show icon/initials
+      }
+
+      .server-icon {
+        width: 100%;
+        height: 100%;
+        @include flex-center;
+        color: white;
+        font-weight: 600;
+        font-size: 14px;
+        text-align: center;
+        user-select: none;
+
+        img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          border-radius: 50%;
+        }
+      }
     }
   }
 
+  // Remove the old add-server styles that conflict
   .add-server {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background-color: $discord-darker;
-    border: 2px dashed $discord-light;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background-color 0.2s;
+    display: none; // Hide the old one
+  }
 
-    &:hover {
-      background-color: $discord-green;
-      border-color: $discord-green;
+  .server-list-bottom {
+    margin-top: auto; // Push to bottom
+    padding: 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    align-items: center;
+
+    .add-server {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background-color: $discord-darker;
+      border: 2px dashed $discord-light;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 0.2s, border-color 0.2s;
+
+      &:hover {
+        background-color: $discord-green;
+        border-color: $discord-green;
+      }
+
+      .add-server-icon {
+        font-size: 24px;
+        color: $discord-green;
+        font-weight: bold;
+      }
     }
 
-    &::before {
-      content: '+';
-      font-size: 24px;
-      color: $discord-green;
+    .account-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background-color: $discord-darker;
+      border: 2px solid transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 0.2s, border-color 0.2s;
+
+      &:hover {
+        background-color: $discord-accent;
+        border-color: $discord-accent;
+      }
+
+      i {
+        font-size: 20px;
+        color: $text-color;
+      }
     }
   }
 }
@@ -371,6 +561,35 @@ html, body {
         text-transform: uppercase;
         color: rgba($text-color, 0.6);
         letter-spacing: 0.5px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+
+        .section-name {
+          flex: 1;
+        }
+
+        .section-plus-btn {
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          background-color: transparent;
+          border: 1px solid rgba($text-color, 0.3);
+          color: rgba($text-color, 0.6);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 12px;
+          font-weight: bold;
+          transition: all 0.2s;
+
+          &:hover {
+            background-color: $discord-accent;
+            border-color: $discord-accent;
+            color: white;
+          }
+        }
       }
 
       .section-channels {
@@ -467,6 +686,7 @@ html, body {
   display: flex;
   flex-direction: column;
   background-color: $discord-dark;
+  position: relative;
 
   .channel-header {
     padding: 16px;
@@ -522,42 +742,318 @@ html, body {
     padding: 16px;
     border-top: 1px solid $discord-light;
     background-color: $discord-darker;
-    display: flex;
-    gap: 8px;
+    position: relative;
 
-    input {
-      flex: 1;
-      padding: 12px;
+    .message-input-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .message-options-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background-color: $discord-light;
+        border: none;
+        color: $text-color;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        font-weight: bold;
+        transition: background-color 0.2s;
+
+        &:hover {
+          background-color: $discord-accent;
+          color: white;
+        }
+      }
+
+      input {
+        flex: 1;
+        padding: 12px;
+        border: 1px solid $discord-light;
+        border-radius: 4px;
+        background-color: $discord-dark;
+        color: $text-color;
+        font-size: 14px;
+
+        &:focus {
+          outline: none;
+          border-color: $discord-accent;
+        }
+
+        &::placeholder {
+          color: rgba($text-color, 0.5);
+        }
+      }
+
+      .send-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background-color: $discord-accent;
+        border: none;
+        color: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        transition: background-color 0.2s;
+
+        &:hover {
+          background-color: lighten($discord-accent, 10%);
+        }
+      }
+    }
+
+    .message-options-menu {
+      position: absolute;
+      bottom: 60px;
+      left: 16px;
+      background-color: $discord-darker;
       border: 1px solid $discord-light;
       border-radius: 4px;
-      background-color: $discord-dark;
-      color: $text-color;
-      font-size: 14px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      z-index: 100;
+      min-width: 150px;
 
-      &:focus {
-        outline: none;
-        border-color: $discord-accent;
-      }
+      button {
+        width: 100%;
+        padding: 8px 12px;
+        background: none;
+        border: none;
+        color: $text-color;
+        text-align: left;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background-color 0.2s;
 
-      &::placeholder {
-        color: rgba($text-color, 0.5);
+        &:hover {
+          background-color: rgba($discord-accent, 0.1);
+        }
+
+        &:first-child {
+          border-radius: 4px 4px 0 0;
+        }
+
+        &:last-child {
+          border-radius: 0 0 4px 4px;
+        }
+
+        &:not(:last-child) {
+          border-bottom: 1px solid rgba($discord-light, 0.3);
+        }
       }
     }
+  }
+}
+
+// Account Settings Modal
+.account-settings-modal {
+  background-color: $discord-darker;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 500px;
+  width: 100%;
+  color: $text-color;
+
+  h2 {
+    margin: 0 0 24px 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #ffffff;
+  }
+
+  .settings-section {
+    margin-bottom: 32px;
+
+    h3 {
+      margin: 0 0 16px 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: #ffffff;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .setting-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+
+      label {
+        font-size: 14px;
+        font-weight: 500;
+        color: $text-color;
+        flex: 1;
+      }
+
+      input, select {
+        background-color: $discord-dark;
+        border: 1px solid $discord-light;
+        border-radius: 4px;
+        padding: 8px 12px;
+        color: $text-color;
+        font-size: 14px;
+        min-width: 150px;
+
+        &:focus {
+          outline: none;
+          border-color: $discord-accent;
+          box-shadow: 0 0 0 2px rgba($discord-accent, 0.2);
+        }
+
+        option {
+          background-color: $discord-darker;
+          color: $text-color;
+        }
+      }
+    }
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 24px;
 
     button {
-      padding: 12px 16px;
-      background-color: $discord-accent;
-      color: white;
-      border: none;
+      padding: 8px 16px;
       border-radius: 4px;
-      cursor: pointer;
       font-size: 14px;
       font-weight: 500;
+      cursor: pointer;
       transition: background-color 0.2s;
 
-      &:hover {
-        background-color: lighten($discord-accent, 10%);
+      &.cancel-btn {
+        background-color: transparent;
+        border: 1px solid $discord-light;
+        color: $text-color;
+
+        &:hover {
+          background-color: rgba($discord-light, 0.1);
+        }
+      }
+
+      &.save-btn {
+        background-color: $discord-accent;
+        border: 1px solid $discord-accent;
+        color: #ffffff;
+
+        &:hover {
+          background-color: lighten($discord-accent, 10%);
+        }
       }
     }
+  }
+}
+
+// Plugin UI Components
+.dark-mode-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: $discord-darker;
+  border: 2px solid $discord-light;
+  color: $text-color;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  transition: all 0.2s;
+
+  &:hover {
+    background-color: $discord-accent;
+    border-color: $discord-accent;
+    transform: scale(1.05);
+  }
+
+  &:active {
+    transform: scale(0.95);
+  }
+}
+
+// Dark theme styles
+[data-theme="dark"] {
+  .app {
+    background-color: #0f0f0f;
+    color: #e0e0e0;
+  }
+
+  .server-list {
+    background-color: #1a1a1a;
+  }
+
+  .sidebar {
+    background-color: #1a1a1a;
+    border-right-color: #333;
+  }
+
+  .main-content {
+    background-color: #0f0f0f;
+  }
+
+  .channel-header {
+    background-color: #1a1a1a;
+    border-bottom-color: #333;
+  }
+
+  .message-input {
+    background-color: #1a1a1a;
+    border-top-color: #333;
+  }
+
+  .user-list {
+    background-color: #1a1a1a;
+    border-left-color: #333;
+  }
+
+  .modal-overlay .modal-content {
+    background-color: #1a1a1a;
+  }
+
+  input, select, textarea {
+    background-color: #1a1a1a;
+    border-color: #333;
+    color: #e0e0e0;
+
+    &::placeholder {
+      color: #888;
+    }
+  }
+
+  .server-item {
+    background-color: #333;
+
+    &:hover {
+      background-color: #444;
+    }
+
+    &.active {
+      background-color: $discord-accent;
+    }
+  }
+
+  .channel {
+    &:hover {
+      background-color: rgba($discord-accent, 0.1);
+    }
+
+    &.active {
+      background-color: $discord-accent;
+    }
+  }
+
+  .user-item:hover {
+    background-color: rgba($discord-accent, 0.1);
   }
 }
