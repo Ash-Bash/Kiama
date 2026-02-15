@@ -3,7 +3,9 @@ import io from 'socket.io-client';
 import PluginManager from './utils/PluginManager';
 import { TypedMessage, Channel, ChannelSection } from './types/plugin';
 import { ModalProvider, useModal } from './components/Modal';
+import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import LoadingScreen from './components/LoadingScreen';
+import Login from './components/Login';
 import './styles/App.scss';
 
 const socket = io('http://localhost:3000');
@@ -27,8 +29,10 @@ interface User {
   role?: string;
 }
 
-function AppContent() {
+function AppContent({ token, user, onLogout }: { token: string; user: any; onLogout: () => void }) {
   const { openModal, closeModal } = useModal();
+  const { currentMode, setMode, availableThemes, currentThemeId, setThemeById } = useTheme();
+  const socketRef = React.useRef<any>(null);
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Map<string, Message[]>>(new Map([
     ['general', [
@@ -72,6 +76,14 @@ function AppContent() {
   const [isResizingUserList, setIsResizingUserList] = useState(false);
   const [showMessageOptions, setShowMessageOptions] = useState(false);
   const [isSwitchingServer, setIsSwitchingServer] = useState(false);
+  const [settingsThemeMode, setSettingsThemeMode] = useState<'light' | 'dark'>(currentMode);
+  const [settingsSelectedTheme, setSettingsSelectedTheme] = useState<string>(currentThemeId);
+
+  // Sync settings with current values
+  React.useEffect(() => {
+    setSettingsThemeMode(currentMode);
+    setSettingsSelectedTheme(currentThemeId);
+  }, [currentMode, currentThemeId]);
 
   // Generate server initials like Discord (first letters of words, max 2 chars)
   const generateServerInitials = (serverName: string): string => {
@@ -95,11 +107,26 @@ function AppContent() {
     addUIComponent: (component) => {
       // Add to UI
     },
-    getSocket: () => socket,
+    getSocket: () => socketRef.current,
     registerMessageType: (type: string, component: React.ComponentType) => {
       pluginManager.registerMessageTypeComponent(type, component);
     }
   }));
+
+  useEffect(() => {
+    // Initialize socket with auth
+    socketRef.current = io('http://localhost:3000', {
+      auth: {
+        token: token
+      }
+    });
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, [token]);
 
   useEffect(() => {
     pluginManager.loadPlugins();
@@ -111,16 +138,20 @@ function AppContent() {
     // loadChannelsAndSections();
 
     // Join default channel
-    socket.emit('join_channel', { channelId: 'general' });
-  }, [pluginManager, currentServer]);
+    if (socketRef.current) {
+      socketRef.current.emit('join_channel', { channelId: 'general' });
+    }
+  }, [pluginManager, currentServer, token]);
 
   useEffect(() => {
-    socket.on('connect', () => {
+    if (!socketRef.current) return;
+
+    socketRef.current.on('connect', () => {
       console.log('Connected to server');
       loadChannelsAndSections();
     });
 
-    socket.on('message', (msg: Message) => {
+    socketRef.current.on('message', (msg: Message) => {
       // Apply plugin handlers based on message type
       const plugin = pluginManager.getEnabledPluginForMessage(msg);
       if (plugin) {
@@ -138,7 +169,7 @@ function AppContent() {
       });
     });
 
-    socket.on('channel_history', (data: { channelId: string, messages: Message[] }) => {
+    socketRef.current.on('channel_history', (data: { channelId: string, messages: Message[] }) => {
       setMessages(prev => {
         const newMessages = new Map(prev);
         newMessages.set(data.channelId, data.messages);
@@ -146,16 +177,16 @@ function AppContent() {
       });
     });
 
-    socket.on('channels_list', (data: { channels: Channel[], sections: ChannelSection[], serverId: string }) => {
+    socketRef.current.on('channels_list', (data: { channels: Channel[], sections: ChannelSection[], serverId: string }) => {
       setChannels(data.channels);
       setSections(data.sections);
     });
 
-    socket.on('channel_created', (channel: Channel) => {
+    socketRef.current.on('channel_created', (channel: Channel) => {
       setChannels(prev => [...prev, channel]);
     });
 
-    socket.on('channel_deleted', (data: { channelId: string }) => {
+    socketRef.current.on('channel_deleted', (data: { channelId: string }) => {
       setChannels(prev => prev.filter(c => c.id !== data.channelId));
       setMessages(prev => {
         const newMessages = new Map(prev);
@@ -164,35 +195,41 @@ function AppContent() {
       });
     });
 
-    socket.on('section_created', (section: ChannelSection) => {
+    socketRef.current.on('section_created', (section: ChannelSection) => {
       setSections(prev => [...prev, section]);
     });
 
-    socket.on('section_deleted', (data: { sectionId: string }) => {
+    socketRef.current.on('section_deleted', (data: { sectionId: string }) => {
       setSections(prev => prev.filter(s => s.id !== data.sectionId));
     });
 
     return () => {
-      socket.off('message');
-      socket.off('channel_history');
-      socket.off('channels_list');
-      socket.off('channel_created');
-      socket.off('channel_deleted');
-      socket.off('section_created');
-      socket.off('section_deleted');
+      if (socketRef.current) {
+        socketRef.current.off('message');
+        socketRef.current.off('channel_history');
+        socketRef.current.off('channels_list');
+        socketRef.current.off('channel_created');
+        socketRef.current.off('channel_deleted');
+        socketRef.current.off('section_created');
+        socketRef.current.off('section_deleted');
+      }
     };
-  }, [pluginManager]);
+  }, [pluginManager, token]);
 
   const loadChannelsAndSections = () => {
-    socket.emit('get_channels');
+    if (socketRef.current) {
+      socketRef.current.emit('get_channels');
+    }
   };
 
   const joinChannel = (channelId: string) => {
-    // Leave current channel
-    socket.emit('leave_channel', { channelId: currentChannelId });
+    if (socketRef.current) {
+      // Leave current channel
+      socketRef.current.emit('leave_channel', { channelId: currentChannelId });
 
-    // Join new channel
-    socket.emit('join_channel', { channelId });
+      // Join new channel
+      socketRef.current.emit('join_channel', { channelId });
+    }
     setCurrentChannelId(channelId);
   };
 
@@ -292,7 +329,9 @@ function AppContent() {
       channelId: currentChannelId
     };
 
-    socket.emit('message', messageData);
+    if (socketRef.current) {
+      socketRef.current.emit('message', messageData);
+    }
     setMessage('');
   };
 
@@ -367,6 +406,8 @@ function AppContent() {
   };
 
   const openAccountSettings = () => {
+    setSettingsThemeMode(currentMode); // Reset to current
+    setSettingsSelectedTheme(currentThemeId); // Reset to current
     openModal(
       <div className="account-settings-modal">
         <h2>Account Settings</h2>
@@ -390,7 +431,15 @@ function AppContent() {
           <h3>Appearance</h3>
           <div className="setting-item">
             <label>Theme</label>
-            <select defaultValue="dark">
+            <select value={settingsSelectedTheme} onChange={(e) => setSettingsSelectedTheme(e.target.value)}>
+              {availableThemes.map(theme => (
+                <option key={theme.id} value={theme.id}>{theme.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="setting-item">
+            <label>Mode</label>
+            <select value={settingsThemeMode} onChange={(e) => setSettingsThemeMode(e.target.value as 'light' | 'dark')}>
               <option value="dark">Dark</option>
               <option value="light">Light</option>
             </select>
@@ -398,7 +447,13 @@ function AppContent() {
         </div>
         <div className="modal-actions">
           <button onClick={closeModal} className="cancel-btn">Cancel</button>
-          <button onClick={() => { closeModal(); alert('Settings saved!'); }} className="save-btn">Save Changes</button>
+          <button onClick={() => {
+            setMode(settingsThemeMode);
+            setThemeById(settingsSelectedTheme);
+            closeModal();
+            alert('Settings saved!');
+          }} className="save-btn">Save Changes</button>
+          <button onClick={() => { closeModal(); onLogout(); }} className="signout-btn">Sign Out</button>
         </div>
       </div>
     );
@@ -875,8 +930,18 @@ function AppContent() {
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
+  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
+    // Check for stored token and user
+    const storedToken = localStorage.getItem('authToken');
+    const storedUser = localStorage.getItem('authUser');
+    if (storedToken && storedUser) {
+      setToken(storedToken);
+      setUser(JSON.parse(storedUser));
+    }
+
     // Simulate app initialization time
     const timer = setTimeout(() => {
       setIsLoading(false);
@@ -885,14 +950,32 @@ function App() {
     return () => clearTimeout(timer);
   }, []);
 
-  if (isLoading) {
-    return <LoadingScreen />;
-  }
+  const handleLogin = (newToken: string, newUser: any) => {
+    setToken(newToken);
+    setUser(newUser);
+    localStorage.setItem('authToken', newToken);
+    localStorage.setItem('authUser', JSON.stringify(newUser));
+  };
+
+  const handleLogout = () => {
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('authUser');
+  };
 
   return (
-    <ModalProvider>
-      <AppContent />
-    </ModalProvider>
+    <ThemeProvider>
+      <ModalProvider>
+        {isLoading ? (
+          <LoadingScreen />
+        ) : !token ? (
+          <Login onLogin={handleLogin} />
+        ) : (
+          <AppContent token={token} user={user} onLogout={handleLogout} />
+        )}
+      </ModalProvider>
+    </ThemeProvider>
   );
 }
 

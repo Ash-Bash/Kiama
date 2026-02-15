@@ -1,0 +1,45 @@
+{
+  "name": "High Contrast",
+  "modes": {
+    "light": {
+      "colors": {
+        "primary-bg": "#ffffff",
+        "secondary-bg": "#f5f5f5",
+        "tertiary-bg": "#e0e0e0",
+        "text-primary": "#000000",
+        "text-secondary": "#333333",
+        "accent-primary": "#000000",
+        "accent-primary-hover": "#333333",
+        "accent-secondary": "#ff0000",
+        "accent-secondary-hover": "#cc0000",
+        "border": "#000000",
+        "hover": "#cccccc",
+        "error": "#ff0000",
+        "success": "#00aa00",
+        "warning": "#ffaa00",
+        "idle": "#0000ff",
+        "offline": "#666666"
+      }
+    },
+    "dark": {
+      "colors": {
+        "primary-bg": "#000000",
+        "secondary-bg": "#1a1a1a",
+        "tertiary-bg": "#333333",
+        "text-primary": "#ffffff",
+        "text-secondary": "#cccccc",
+        "accent-primary": "#ffffff",
+        "accent-primary-hover": "#cccccc",
+        "accent-secondary": "#ff0000",
+        "accent-secondary-hover": "#cc0000",
+        "border": "#ffffff",
+        "hover": "#333333",
+        "error": "#ff0000",
+        "success": "#00aa00",
+        "warning": "#ffaa00",
+        "idle": "#0000ff",
+        "offline": "#666666"
+      }
+    }
+  }
+}

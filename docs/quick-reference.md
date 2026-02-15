@@ -68,6 +68,13 @@ npm run build:client  # Build client only
 2. Rebuild client to see changes
 3. Use dev mode for hot reload
 
+### Create Custom Theme
+1. Create JSON file in `src/client/renderer/src/themes/`
+2. Define `modes.light.colors` and `modes.dark.colors` objects
+3. Include all required color properties (primary-bg, text-primary, etc.)
+4. Build client to copy theme to `dist/client/themes/`
+5. Theme loads automatically at runtime
+
 ## Socket Events
 
 ### Client → Server
@@ -98,6 +105,19 @@ interface ServerPluginAPI {
   addRoute: (path: string, handler: any) => void;
   getIO: () => Server;
 }
+```
+
+### Theme API
+```typescript
+interface ThemeContext {
+  theme: Theme | null;
+  currentMode: 'light' | 'dark';
+  setMode: (mode: 'light' | 'dark') => void;
+  setTheme: (theme: Theme) => void;
+}
+
+// Usage in components
+const { currentMode, setMode, theme } = useTheme();
 ```
 
 ## Troubleshooting

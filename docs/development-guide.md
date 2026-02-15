@@ -154,6 +154,100 @@ KIAMA uses separate compilation for plugins to maintain modularity:
 - Better separation of concerns
 - Easier plugin distribution
 
+## Theming System
+
+KIAMA includes a comprehensive JSON-based theming system that allows customization of the application's appearance.
+
+### Theme Structure
+
+Themes are defined in JSON files with support for both light and dark modes:
+
+```json
+{
+  "name": "Custom Theme",
+  "modes": {
+    "light": {
+      "colors": {
+        "primary-bg": "#ffffff",
+        "secondary-bg": "#f8f9fa",
+        "text-primary": "#2e3338",
+        "accent-primary": "#5865f2"
+        // ... additional colors
+      }
+    },
+    "dark": {
+      "colors": {
+        "primary-bg": "#36393f",
+        "secondary-bg": "#2f3136",
+        "text-primary": "#dcddde",
+        "accent-primary": "#5865f2"
+        // ... additional colors
+      }
+    }
+  }
+}
+```
+
+### Available Color Properties
+
+- `primary-bg`: Main application background
+- `secondary-bg`: Modal and panel backgrounds
+- `tertiary-bg`: Button and input backgrounds
+- `text-primary`: Main text color
+- `text-secondary`: Muted text color
+- `accent-primary`: Primary accent (links, active states)
+- `accent-secondary`: Secondary accent (success, highlights)
+- `border`: Border colors
+- `hover`: Hover state colors
+- `error`: Error state colors
+- `success`: Success state colors
+
+### Creating Custom Themes
+
+1. **Create Theme File**: Add JSON file to `src/client/renderer/src/themes/`
+2. **Define Colors**: Provide complete color schemes for both light and dark modes
+3. **Build**: Run `npm run build:client` to copy themes to `dist/client/themes/`
+4. **Load**: Themes are loaded automatically at runtime
+
+### Theme Switching
+
+Use the `useTheme` hook to access theme functionality:
+
+```typescript
+import { useTheme } from './components/ThemeProvider';
+
+const MyComponent = () => {
+  const { currentMode, setMode, theme } = useTheme();
+  
+  // Switch between light/dark modes
+  const toggleMode = () => {
+    setMode(currentMode === 'dark' ? 'light' : 'dark');
+  };
+  
+  return (
+    <button onClick={toggleMode}>
+      Current: {currentMode} | Theme: {theme?.name}
+    </button>
+  );
+};
+```
+
+### CSS Implementation
+
+Themes use CSS custom properties (variables) for dynamic styling:
+
+```scss
+.my-component {
+  background-color: var(--primary-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  
+  &:hover {
+    background-color: var(--hover);
+  }
+}
+```
+
 ### Modifying the Build System
 
 **Client Build:**

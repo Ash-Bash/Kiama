@@ -1,14 +1,14 @@
 // Poll message styles
 .poll-message {
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px;
   margin: 8px 0;
-  background-color: #f9f9f9;
+  background-color: var(--secondary-bg);
 
   h3 {
     margin: 0 0 12px 0;
-    color: #333;
+    color: var(--text-primary);
     font-size: 16px;
   }
 
@@ -19,8 +19,8 @@
   }
 
   .poll-option-button {
-    background: #007bff;
-    color: white;
+    background: var(--accent-primary);
+    color: var(--text-primary);
     border: none;
     padding: 8px 16px;
     border-radius: 4px;
@@ -28,11 +28,11 @@
     transition: background-color 0.2s;
 
     &:hover {
-      background: #0056b3;
+      background: var(--accent-primary-hover);
     }
 
     &:disabled {
-      background: #6c757d;
+      background: var(--text-secondary);
       cursor: not-allowed;
     }
   }
@@ -40,7 +40,7 @@
 
 .message-type {
   font-size: 12px;
-  color: #666;
+  color: var(--text-secondary);
   font-style: italic;
   margin-left: 8px;
 }

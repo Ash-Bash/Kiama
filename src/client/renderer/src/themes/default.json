@@ -1,0 +1,45 @@
+{
+  "name": "Default",
+  "modes": {
+    "light": {
+      "colors": {
+        "primary-bg": "#ffffff",
+        "secondary-bg": "#f2f3f5",
+        "tertiary-bg": "#d1d5db",
+        "text-primary": "#060607",
+        "text-secondary": "#4e5058",
+        "accent-primary": "#5865f2",
+        "accent-primary-hover": "#4752c4",
+        "accent-secondary": "#57f287",
+        "accent-secondary-hover": "#43b581",
+        "border": "#c7ccd1",
+        "hover": "#e8ecef",
+        "error": "#e53e3e",
+        "success": "#38a169",
+        "warning": "#f39c12",
+        "idle": "#faa61a",
+        "offline": "#747f8d"
+      }
+    },
+    "dark": {
+      "colors": {
+        "primary-bg": "#36393f",
+        "secondary-bg": "#2f3136",
+        "tertiary-bg": "#24272b",
+        "text-primary": "#dcddde",
+        "text-secondary": "#b9bbbe",
+        "accent-primary": "#5865f2",
+        "accent-primary-hover": "#4752c4",
+        "accent-secondary": "#57f287",
+        "accent-secondary-hover": "#43b581",
+        "border": "#202225",
+        "hover": "#40444b",
+        "error": "#f04747",
+        "success": "#43b581",
+        "warning": "#f39c12",
+        "idle": "#faa61a",
+        "offline": "#747f8d"
+      }
+    }
+  }
+}

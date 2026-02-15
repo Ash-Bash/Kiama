@@ -1,26 +1,26 @@
 // ChannelList styles
 .channel-list {
   width: 240px;
-  background-color: $discord-darker;
+  background-color: var(--secondary-bg);
   padding: 16px;
 
   h3 {
     margin: 0 0 8px 0;
-    color: $text-color;
+    color: var(--text-primary);
   }
 
   .channel-item {
     padding: 8px;
     cursor: pointer;
     border-radius: 4px;
-    color: $text-color;
+    color: var(--text-primary);
 
     &.active {
-      background-color: $discord-light;
+      background-color: var(--tertiary-bg);
     }
 
     &:hover {
-      background-color: $discord-light;
+      background-color: var(--tertiary-bg);
     }
   }
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, protocol } from 'electron';
 import * as path from 'path';
 
 function createWindow() {
@@ -11,6 +11,7 @@ function createWindow() {
     },
   });
 
+  // Load the app
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 }
 

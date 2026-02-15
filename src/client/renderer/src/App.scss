@@ -1,10 +1,3 @@
-// Variables
-$discord-dark: #36393f;
-$discord-darker: #2f3136;
-$discord-light: #40444b;
-$discord-accent: #5865f2;
-$text-color: #dcddde;
-
 // Mixins
 @mixin flex-center {
   display: flex;
@@ -15,8 +8,8 @@ $text-color: #dcddde;
 .app {
   display: flex;
   height: 100vh;
-  background-color: $discord-dark;
-  color: $text-color;
+  background-color: var(--primary-bg);
+  color: var(--text-primary);
 
   .main-content {
     display: flex;

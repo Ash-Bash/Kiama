@@ -46,7 +46,96 @@ See `src/client/renderer/src/plugins/messageFormatter.ts` for an example client 
 
 See `src/client/renderer/src/plugins/darkModeToggle.tsx` for an example client-only plugin that adds a theme toggle button to the UI and responds to theme commands.
 
-## Server Plugins
+**Note**: KIAMA now includes a comprehensive theming system that supports both light and dark modes. See the [Theming Guide](#theming) below for details on creating custom themes.
+
+## Theming System
+
+KIAMA supports a JSON-based theming system that allows users to customize the application's appearance with both light and dark mode support.
+
+### Theme Structure
+
+Themes are JSON files located in `src/client/renderer/src/themes/` and are automatically copied to `dist/client/themes/` during build.
+
+```json
+{
+  "name": "My Custom Theme",
+  "modes": {
+    "light": {
+      "colors": {
+        "primary-bg": "#ffffff",
+        "secondary-bg": "#f8f9fa",
+        "tertiary-bg": "#e3e5e8",
+        "text-primary": "#2e3338",
+        "text-secondary": "#6d6f72",
+        "accent-primary": "#5865f2",
+        "accent-secondary": "#57f287",
+        "border": "#d1d5db",
+        "hover": "#e3e5e8",
+        "error": "#dc2626",
+        "success": "#16a34a"
+      }
+    },
+    "dark": {
+      "colors": {
+        "primary-bg": "#36393f",
+        "secondary-bg": "#2f3136",
+        "tertiary-bg": "#40444b",
+        "text-primary": "#dcddde",
+        "text-secondary": "#b9bbbe",
+        "accent-primary": "#5865f2",
+        "accent-secondary": "#57f287",
+        "border": "#202225",
+        "hover": "#40444b",
+        "error": "#f04747",
+        "success": "#43b581"
+      }
+    }
+  }
+}
+```
+
+### Color Properties
+
+- `primary-bg`: Main background color
+- `secondary-bg`: Secondary background (modals, panels)
+- `tertiary-bg`: Tertiary background (buttons, inputs)
+- `text-primary`: Primary text color
+- `text-secondary`: Secondary text color (muted text)
+- `accent-primary`: Primary accent color (links, active states)
+- `accent-secondary`: Secondary accent color (success states, highlights)
+- `border`: Border colors
+- `hover`: Hover state colors
+- `error`: Error state colors
+- `success`: Success state colors
+
+### Creating Custom Themes
+
+1. Create a new JSON file in `src/client/renderer/src/themes/`
+2. Define both `light` and `dark` modes with complete color schemes
+3. Build the client: `npm run build`
+4. The theme will be available at runtime
+
+### Theme Switching
+
+Themes are loaded automatically on application start. The system supports switching between light and dark modes within a theme using the `useTheme` hook:
+
+```typescript
+import { useTheme } from './components/ThemeProvider';
+
+const MyComponent = () => {
+  const { currentMode, setMode } = useTheme();
+  
+  return (
+    <button onClick={() => setMode(currentMode === 'dark' ? 'light' : 'dark')}>
+      Toggle Mode
+    </button>
+  );
+};
+```
+
+### Default Theme
+
+The default theme (`default.json`) provides Discord-inspired color schemes for both light and dark modes and serves as a reference for custom theme creation.
 
 Server plugins can add routes, message handlers, and other server-side features.
 

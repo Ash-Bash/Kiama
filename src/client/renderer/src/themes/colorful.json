@@ -1,0 +1,45 @@
+{
+  "name": "Colorful",
+  "modes": {
+    "light": {
+      "colors": {
+        "primary-bg": "#ffffff",
+        "secondary-bg": "#f0f8ff",
+        "tertiary-bg": "#e6f3ff",
+        "text-primary": "#2c3e50",
+        "text-secondary": "#7f8c8d",
+        "accent-primary": "#e74c3c",
+        "accent-primary-hover": "#c0392b",
+        "accent-secondary": "#f39c12",
+        "accent-secondary-hover": "#e67e22",
+        "border": "#bdc3c7",
+        "hover": "#ecf0f1",
+        "error": "#e74c3c",
+        "success": "#27ae60",
+        "warning": "#f39c12",
+        "idle": "#3498db",
+        "offline": "#95a5a6"
+      }
+    },
+    "dark": {
+      "colors": {
+        "primary-bg": "#2c3e50",
+        "secondary-bg": "#34495e",
+        "tertiary-bg": "#2c3e50",
+        "text-primary": "#ecf0f1",
+        "text-secondary": "#bdc3c7",
+        "accent-primary": "#e74c3c",
+        "accent-primary-hover": "#c0392b",
+        "accent-secondary": "#f39c12",
+        "accent-secondary-hover": "#e67e22",
+        "border": "#34495e",
+        "hover": "#34495e",
+        "error": "#e74c3c",
+        "success": "#27ae60",
+        "warning": "#f39c12",
+        "idle": "#3498db",
+        "offline": "#7f8c8d"
+      }
+    }
+  }
+}

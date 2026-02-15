@@ -32,7 +32,7 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ type = 'initial' }) => {
   }, [messages.length]);
 
   return (
-    <div className={`loading-screen ${type === 'server-switch' ? 'server-switch' : ''}`}>
+    <div className={`loading-screen ${type === 'server-switch' ? 'server-switch' : ''}`} style={{ background: 'linear-gradient(135deg, #5865f2 0%, #4752c4 100%)' }}>
       <div className="loading-content">
         {type === 'initial' && (
           <div className="loading-logo">

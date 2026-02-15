@@ -1,12 +1,8 @@
 // Variables
-$discord-dark: #36393f;
-$discord-darker: #2f3136;
-$discord-light: #40444b;
-$discord-accent: #5865f2;
-$discord-green: #57f287;
-$text-color: #dcddde;
-$sidebar-width: 240px;
-$server-list-width: 72px;
+:root {
+  --sidebar-width: 240px;
+  --server-list-width: 72px;
+}
 
 // Component imports
 @import './LoadingScreen.scss';
@@ -36,7 +32,7 @@ html, body {
   z-index: 1000;
 
   .modal-content {
-    background-color: $discord-darker;
+    background-color: var(--secondary-bg);
     border-radius: 8px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
     max-width: 90vw;
@@ -51,14 +47,14 @@ html, body {
 
     .modal-header {
       padding: 16px 20px;
-      border-bottom: 1px solid $discord-light;
+      border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: space-between;
 
       h2 {
         margin: 0;
-        color: $text-color;
+        color: var(--text-primary);
         font-size: 18px;
         font-weight: 600;
       }
@@ -66,7 +62,7 @@ html, body {
       .modal-close {
         background: none;
         border: none;
-        color: rgba($text-color, 0.6);
+        color: var(--text-secondary);
         font-size: 24px;
         cursor: pointer;
         padding: 0;
@@ -79,8 +75,8 @@ html, body {
         transition: background-color 0.2s, color 0.2s;
 
         &:hover {
-          background-color: rgba($text-color, 0.1);
-          color: $text-color;
+          background-color: var(--hover);
+          color: var(--text-primary);
         }
       }
     }
@@ -102,7 +98,7 @@ html, body {
     label {
       display: block;
       margin-bottom: 8px;
-      color: $text-color;
+      color: var(--text-primary);
       font-size: 14px;
       font-weight: 500;
     }
@@ -111,15 +107,15 @@ html, body {
     select {
       width: 100%;
       padding: 8px 12px;
-      border: 1px solid $discord-light;
+      border: 1px solid var(--border);
       border-radius: 4px;
-      background-color: $discord-dark;
-      color: $text-color;
+      background-color: var(--primary-bg);
+      color: var(--text-primary);
       font-size: 14px;
 
       &:focus {
         outline: none;
-        border-color: $discord-accent;
+        border-color: var(--accent-primary);
       }
     }
   }
@@ -140,20 +136,20 @@ html, body {
       transition: background-color 0.2s;
 
       &:first-child {
-        background-color: $discord-light;
-        color: $text-color;
+        background-color: var(--tertiary-bg);
+        color: var(--text-primary);
 
         &:hover {
-          background-color: lighten($discord-light, 10%);
+          background-color: var(--hover);
         }
       }
 
       &:last-child {
-        background-color: $discord-accent;
+        background-color: var(--accent-primary);
         color: white;
 
         &:hover {
-          background-color: lighten($discord-accent, 10%);
+          background-color: var(--accent-primary-hover);
         }
       }
     }
@@ -170,14 +166,14 @@ html, body {
 .app {
   display: flex;
   height: 100vh;
-  background-color: $discord-dark;
-  color: $text-color;
+  background-color: var(--primary-bg);
+  color: var(--text-primary);
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 .server-list {
-  width: $server-list-width;
-  background-color: #202225;
+  width: var(--server-list-width);
+  background-color: var(--tertiary-bg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -196,7 +192,7 @@ html, body {
       width: 48px;
       height: 48px;
       border-radius: 50%;
-      background-color: $discord-light;
+      background-color: var(--tertiary-bg);
       margin: 8px 0;
       cursor: pointer;
       @include flex-center;
@@ -205,28 +201,28 @@ html, body {
       transition: background-color 0.2s;
 
       &:hover {
-        background-color: lighten($discord-light, 10%);
+        background-color: var(--hover);
       }
 
       &.active {
-        background-color: $discord-accent;
+        background-color: var(--accent-primary);
 
         &:hover {
-          background-color: lighten($discord-accent, 10%);
+          background-color: var(--accent-primary-hover);
         }
       }
 
       &.home {
-        background-color: $discord-darker;
-        border: 2px solid $discord-light;
+        background-color: var(--secondary-bg);
+        border: 2px solid var(--border);
 
         &:hover {
-          background-color: rgba($discord-light, 0.1);
+          background-color: var(--hover);
         }
 
         &.active {
-          background-color: $discord-accent;
-          border-color: $discord-accent;
+          background-color: var(--accent-primary);
+          border-color: var(--accent-primary);
         }
       }
 
@@ -272,8 +268,8 @@ html, body {
       width: 48px;
       height: 48px;
       border-radius: 50%;
-      background-color: $discord-darker;
-      border: 2px dashed $discord-light;
+      background-color: var(--secondary-bg);
+      border: 2px dashed var(--border);
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -281,14 +277,19 @@ html, body {
       transition: background-color 0.2s, border-color 0.2s;
 
       &:hover {
-        background-color: $discord-green;
-        border-color: $discord-green;
+        background-color: var(--accent-secondary);
+        border-color: var(--accent-secondary);
       }
 
       .add-server-icon {
         font-size: 24px;
-        color: $discord-green;
+        color: var(--accent-secondary);
         font-weight: bold;
+        transition: color 0.2s;
+      }
+
+      &:hover .add-server-icon {
+        color: white;
       }
     }
 
@@ -296,7 +297,7 @@ html, body {
       width: 48px;
       height: 48px;
       border-radius: 50%;
-      background-color: $discord-darker;
+      background-color: var(--secondary-bg);
       border: 2px solid transparent;
       cursor: pointer;
       display: flex;
@@ -305,13 +306,13 @@ html, body {
       transition: background-color 0.2s, border-color 0.2s;
 
       &:hover {
-        background-color: $discord-accent;
-        border-color: $discord-accent;
+        background-color: var(--accent-secondary-hover);
+        border-color: var(--accent-secondary-hover);
       }
 
       i {
         font-size: 20px;
-        color: $text-color;
+        color: var(--text-primary);
       }
     }
   }
@@ -319,12 +320,12 @@ html, body {
 
 .resize-handle {
   width: 4px;
-  background-color: $discord-light;
+  background-color: var(--tertiary-bg);
   cursor: ew-resize;
   transition: background-color 0.2s;
 
   &:hover {
-    background-color: $discord-accent;
+    background-color: var(--accent-primary);
   }
 
   &.sidebar-resize {
@@ -340,16 +341,16 @@ html, body {
 
 .sidebar-collapsed {
   width: 40px;
-  background-color: $discord-darker;
+  background-color: var(--secondary-bg);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-right: 1px solid $discord-light;
+  border-right: 1px solid var(--border);
 
   .expand-btn {
     background: none;
     border: none;
-    color: $text-color;
+    color: var(--text-primary);
     font-size: 18px;
     cursor: pointer;
     padding: 8px;
@@ -357,23 +358,23 @@ html, body {
     transition: background-color 0.2s;
 
     &:hover {
-      background-color: rgba($discord-accent, 0.1);
+      background-color: var(--hover);
     }
   }
 }
 
 .user-list-collapsed {
   width: 40px;
-  background-color: $discord-darker;
+  background-color: var(--secondary-bg);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-left: 1px solid $discord-light;
+  border-left: 1px solid var(--border);
 
   .expand-btn {
     background: none;
     border: none;
-    color: $text-color;
+    color: var(--text-primary);
     font-size: 18px;
     cursor: pointer;
     padding: 8px;
@@ -381,20 +382,20 @@ html, body {
     transition: background-color 0.2s;
 
     &:hover {
-      background-color: rgba($discord-accent, 0.1);
+      background-color: var(--hover);
     }
   }
 }
 
 .user-list {
-  background-color: $discord-darker;
+  background-color: var(--secondary-bg);
   display: flex;
   flex-direction: column;
-  border-left: 1px solid $discord-light;
+  border-left: 1px solid var(--border);
 
   .user-list-header {
     padding: 16px;
-    border-bottom: 1px solid $discord-light;
+    border-bottom: 1px solid var(--border);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -403,7 +404,7 @@ html, body {
       margin: 0;
       font-size: 14px;
       font-weight: 600;
-      color: rgba($text-color, 0.8);
+      color: var(--text-secondary);
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
@@ -411,7 +412,7 @@ html, body {
     .collapse-btn {
       background: none;
       border: none;
-      color: rgba($text-color, 0.6);
+      color: var(--text-secondary);
       font-size: 16px;
       cursor: pointer;
       padding: 4px;
@@ -419,8 +420,8 @@ html, body {
       transition: all 0.2s;
 
       &:hover {
-        background-color: rgba($discord-accent, 0.1);
-        color: $text-color;
+        background-color: var(--hover);
+        color: var(--text-primary);
       }
     }
   }
@@ -441,7 +442,7 @@ html, body {
     transition: background-color 0.2s;
 
     &:hover {
-      background-color: rgba($discord-accent, 0.1);
+      background-color: var(--hover);
     }
 
     .user-avatar {
@@ -449,14 +450,14 @@ html, body {
       width: 32px;
       height: 32px;
       border-radius: 50%;
-      background-color: $discord-light;
+      background-color: var(--tertiary-bg);
       display: flex;
       align-items: center;
       justify-content: center;
       margin-right: 12px;
       font-size: 14px;
       font-weight: 600;
-      color: $text-color;
+      color: var(--text-primary);
 
       img {
         width: 100%;
@@ -471,22 +472,22 @@ html, body {
         width: 12px;
         height: 12px;
         border-radius: 50%;
-        border: 2px solid $discord-darker;
+        border: 2px solid var(--secondary-bg);
 
         &.online {
-          background-color: #43b581;
+          background-color: var(--success);
         }
 
         &.idle {
-          background-color: #faa61a;
+          background-color: var(--idle);
         }
 
         &.dnd {
-          background-color: #f04747;
+          background-color: var(--error);
         }
 
         &.offline {
-          background-color: #747f8d;
+          background-color: var(--offline);
         }
       }
     }
@@ -494,14 +495,14 @@ html, body {
     .user-name {
       flex: 1;
       font-size: 14px;
-      color: $text-color;
+      color: var(--text-primary);
       font-weight: 500;
     }
 
     .user-role {
       font-size: 12px;
-      color: rgba($text-color, 0.6);
-      background-color: rgba($discord-accent, 0.2);
+      color: var(--text-secondary);
+      background-color: rgba(var(--accent-primary), 0.2);
       padding: 2px 6px;
       border-radius: 3px;
     }
@@ -509,15 +510,15 @@ html, body {
 }
 
 .sidebar {
-  width: $sidebar-width;
-  background-color: $discord-darker;
+  width: var(--sidebar-width);
+  background-color: var(--secondary-bg);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid $discord-light;
+  border-right: 1px solid var(--border);
 
   .server-header {
     padding: 16px;
-    border-bottom: 1px solid $discord-light;
+    border-bottom: 1px solid var(--border);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -526,13 +527,13 @@ html, body {
       margin: 0;
       font-size: 16px;
       font-weight: 600;
-      color: $text-color;
+      color: var(--text-primary);
     }
 
     .collapse-btn {
       background: none;
       border: none;
-      color: rgba($text-color, 0.6);
+      color: var(--text-secondary);
       font-size: 16px;
       cursor: pointer;
       padding: 4px;
@@ -540,8 +541,8 @@ html, body {
       transition: all 0.2s;
 
       &:hover {
-        background-color: rgba($discord-accent, 0.1);
-        color: $text-color;
+        background-color: rgba(var(--accent-primary), 0.1);
+        color: var(--text-primary);
       }
     }
   }
@@ -559,7 +560,7 @@ html, body {
         font-size: 12px;
         font-weight: 600;
         text-transform: uppercase;
-        color: rgba($text-color, 0.6);
+        color: var(--text-secondary);
         letter-spacing: 0.5px;
         display: flex;
         align-items: center;
@@ -573,9 +574,9 @@ html, body {
           width: 20px;
           height: 20px;
           border-radius: 50%;
-          background-color: transparent;
-          border: 1px solid rgba($text-color, 0.3);
-          color: rgba($text-color, 0.6);
+          background-color: var(--accent-secondary);
+          border: 1px solid var(--accent-secondary);
+          color: white;
           cursor: pointer;
           display: flex;
           align-items: center;
@@ -585,8 +586,8 @@ html, body {
           transition: all 0.2s;
 
           &:hover {
-            background-color: $discord-accent;
-            border-color: $discord-accent;
+            background-color: var(--accent-secondary-hover);
+            border-color: var(--accent-secondary-hover);
             color: white;
           }
         }
@@ -604,11 +605,11 @@ html, body {
           font-size: 14px;
 
           &:hover {
-            background-color: rgba($discord-accent, 0.1);
+            background-color: rgba(var(--accent-primary), 0.1);
           }
 
           &.active {
-            background-color: $discord-accent;
+            background-color: var(--accent-primary);
             color: white;
 
             .channel-icon {
@@ -619,7 +620,7 @@ html, body {
           .channel-icon {
             margin-right: 8px;
             font-size: 16px;
-            color: rgba($text-color, 0.6);
+            color: var(--text-secondary);
             width: 16px;
             text-align: center;
           }
@@ -636,17 +637,17 @@ html, body {
 
           .message-count {
             font-size: 12px;
-            color: rgba($text-color, 0.5);
+            color: var(--text-secondary);
             margin-left: 4px;
           }
 
           &.nsfw {
             .channel-name {
-              color: #ff6b6b; // Red tint for NSFW channels
+              color: var(--error); // Red tint for NSFW channels
             }
 
             .channel-icon {
-              color: #ff6b6b;
+              color: var(--error);
             }
           }
         }
@@ -656,14 +657,14 @@ html, body {
 
   .channel-actions {
     padding: 16px;
-    border-top: 1px solid $discord-light;
+    border-top: 1px solid var(--border);
 
     button {
       width: 100%;
       padding: 8px;
       margin-bottom: 8px;
-      background-color: $discord-green;
-      color: $discord-darker;
+      background-color: var(--accent-secondary);
+      color: var(--secondary-bg);
       border: none;
       border-radius: 4px;
       cursor: pointer;
@@ -671,7 +672,7 @@ html, body {
       font-weight: 500;
 
       &:hover {
-        background-color: lighten($discord-green, 10%);
+        background-color: var(--accent-secondary-hover);
       }
 
       &:last-child {
@@ -685,13 +686,13 @@ html, body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background-color: $discord-dark;
+  background-color: var(--primary-bg);
   position: relative;
 
   .channel-header {
     padding: 16px;
-    border-bottom: 1px solid $discord-light;
-    background-color: $discord-darker;
+    border-bottom: 1px solid var(--border);
+    background-color: var(--secondary-bg);
 
     h3 {
       margin: 0;
@@ -702,7 +703,7 @@ html, body {
 
       .channel-icon {
         margin-right: 8px;
-        color: rgba($text-color, 0.6);
+        color: var(--text-secondary);
       }
     }
   }
@@ -719,7 +720,7 @@ html, body {
 
       .username {
         font-weight: 600;
-        color: $discord-accent;
+        color: var(--accent-primary);
         margin-right: 8px;
         min-width: 100px;
       }
@@ -731,7 +732,7 @@ html, body {
 
       .message-type {
         font-size: 12px;
-        color: rgba($text-color, 0.6);
+        color: var(--text-secondary);
         margin-left: 8px;
         font-style: italic;
       }
@@ -740,8 +741,8 @@ html, body {
 
   .message-input {
     padding: 16px;
-    border-top: 1px solid $discord-light;
-    background-color: $discord-darker;
+    border-top: 1px solid var(--border);
+    background-color: var(--secondary-bg);
     position: relative;
 
     .message-input-container {
@@ -753,9 +754,9 @@ html, body {
         width: 32px;
         height: 32px;
         border-radius: 50%;
-        background-color: $discord-light;
+        background-color: var(--tertiary-bg);
         border: none;
-        color: $text-color;
+        color: var(--text-primary);
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -765,7 +766,7 @@ html, body {
         transition: background-color 0.2s;
 
         &:hover {
-          background-color: $discord-accent;
+          background-color: var(--accent-primary);
           color: white;
         }
       }
@@ -773,19 +774,19 @@ html, body {
       input {
         flex: 1;
         padding: 12px;
-        border: 1px solid $discord-light;
+        border: 1px solid var(--border);
         border-radius: 4px;
-        background-color: $discord-dark;
-        color: $text-color;
+        background-color: var(--primary-bg);
+        color: var(--text-primary);
         font-size: 14px;
 
         &:focus {
           outline: none;
-          border-color: $discord-accent;
+          border-color: var(--accent-primary);
         }
 
         &::placeholder {
-          color: rgba($text-color, 0.5);
+          color: var(--text-secondary);
         }
       }
 
@@ -793,7 +794,7 @@ html, body {
         width: 32px;
         height: 32px;
         border-radius: 50%;
-        background-color: $discord-accent;
+        background-color: var(--accent-primary);
         border: none;
         color: white;
         cursor: pointer;
@@ -804,7 +805,7 @@ html, body {
         transition: background-color 0.2s;
 
         &:hover {
-          background-color: lighten($discord-accent, 10%);
+          background-color: var(--hover);
         }
       }
     }
@@ -813,8 +814,8 @@ html, body {
       position: absolute;
       bottom: 60px;
       left: 16px;
-      background-color: $discord-darker;
-      border: 1px solid $discord-light;
+      background-color: var(--secondary-bg);
+      border: 1px solid var(--border);
       border-radius: 4px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
       z-index: 100;
@@ -825,14 +826,14 @@ html, body {
         padding: 8px 12px;
         background: none;
         border: none;
-        color: $text-color;
+        color: var(--text-primary);
         text-align: left;
         cursor: pointer;
         font-size: 14px;
         transition: background-color 0.2s;
 
         &:hover {
-          background-color: rgba($discord-accent, 0.1);
+          background-color: rgba(var(--accent-primary), 0.1);
         }
 
         &:first-child {
@@ -844,7 +845,7 @@ html, body {
         }
 
         &:not(:last-child) {
-          border-bottom: 1px solid rgba($discord-light, 0.3);
+          border-bottom: 1px solid var(--border);
         }
       }
     }
@@ -853,63 +854,79 @@ html, body {
 
 // Account Settings Modal
 .account-settings-modal {
-  background-color: $discord-darker;
-  border-radius: 8px;
-  padding: 24px;
-  max-width: 500px;
+  background-color: var(--secondary-bg);
+  border-radius: 12px;
+  padding: 32px;
+  max-width: 480px;
   width: 100%;
-  color: $text-color;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
 
   h2 {
-    margin: 0 0 24px 0;
-    font-size: 20px;
+    margin: 0 0 32px 0;
+    font-size: 24px;
     font-weight: 600;
-    color: #ffffff;
+    color: var(--text-primary);
+    text-align: center;
   }
 
   .settings-section {
     margin-bottom: 32px;
+    padding: 20px;
+    background-color: var(--primary-bg);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+
+    &:last-child {
+      margin-bottom: 0;
+    }
 
     h3 {
-      margin: 0 0 16px 0;
-      font-size: 16px;
+      margin: 0 0 20px 0;
+      font-size: 14px;
       font-weight: 600;
-      color: #ffffff;
+      color: var(--text-secondary);
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
     .setting-item {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 16px;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 20px;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
 
       label {
         font-size: 14px;
         font-weight: 500;
-        color: $text-color;
-        flex: 1;
+        color: var(--text-primary);
       }
 
       input, select {
-        background-color: $discord-dark;
-        border: 1px solid $discord-light;
-        border-radius: 4px;
-        padding: 8px 12px;
-        color: $text-color;
+        background-color: var(--primary-bg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px 16px;
+        color: var(--text-primary);
         font-size: 14px;
-        min-width: 150px;
+        font-family: inherit;
 
         &:focus {
           outline: none;
-          border-color: $discord-accent;
-          box-shadow: 0 0 0 2px rgba($discord-accent, 0.2);
+          border-color: var(--accent-primary);
+        }
+
+        &::placeholder {
+          color: var(--text-secondary);
         }
 
         option {
-          background-color: $discord-darker;
-          color: $text-color;
+          background-color: var(--secondary-bg);
+          color: var(--text-primary);
         }
       }
     }
@@ -917,35 +934,48 @@ html, body {
 
   .modal-actions {
     display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-    margin-top: 24px;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 32px;
 
     button {
-      padding: 8px 16px;
-      border-radius: 4px;
+      padding: 12px 24px;
+      border-radius: 6px;
       font-size: 14px;
       font-weight: 500;
       cursor: pointer;
-      transition: background-color 0.2s;
+      border: 1px solid transparent;
+      font-family: inherit;
+      min-width: 100px;
 
       &.cancel-btn {
-        background-color: transparent;
-        border: 1px solid $discord-light;
-        color: $text-color;
+        background-color: var(--tertiary-bg);
+        border-color: var(--border);
+        color: var(--text-primary);
 
         &:hover {
-          background-color: rgba($discord-light, 0.1);
+          background-color: var(--hover);
         }
       }
 
       &.save-btn {
-        background-color: $discord-accent;
-        border: 1px solid $discord-accent;
-        color: #ffffff;
+        background-color: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: white;
 
         &:hover {
-          background-color: lighten($discord-accent, 10%);
+          background-color: var(--accent-primary-hover);
+        }
+      }
+
+      &.signout-btn {
+        background-color: var(--error);
+        border-color: var(--error);
+        color: var(--text-primary);
+
+        &:hover {
+          background-color: var(--error);
+          opacity: 0.8;
         }
       }
     }
@@ -960,9 +990,9 @@ html, body {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background-color: $discord-darker;
-  border: 2px solid $discord-light;
-  color: $text-color;
+  background-color: var(--secondary-bg);
+  border: 2px solid var(--border);
+  color: var(--text-primary);
   font-size: 20px;
   cursor: pointer;
   display: flex;
@@ -972,88 +1002,12 @@ html, body {
   transition: all 0.2s;
 
   &:hover {
-    background-color: $discord-accent;
-    border-color: $discord-accent;
+    background-color: var(--accent-primary);
+    border-color: var(--accent-primary);
     transform: scale(1.05);
   }
 
   &:active {
     transform: scale(0.95);
-  }
-}
-
-// Dark theme styles
-[data-theme="dark"] {
-  .app {
-    background-color: #0f0f0f;
-    color: #e0e0e0;
-  }
-
-  .server-list {
-    background-color: #1a1a1a;
-  }
-
-  .sidebar {
-    background-color: #1a1a1a;
-    border-right-color: #333;
-  }
-
-  .main-content {
-    background-color: #0f0f0f;
-  }
-
-  .channel-header {
-    background-color: #1a1a1a;
-    border-bottom-color: #333;
-  }
-
-  .message-input {
-    background-color: #1a1a1a;
-    border-top-color: #333;
-  }
-
-  .user-list {
-    background-color: #1a1a1a;
-    border-left-color: #333;
-  }
-
-  .modal-overlay .modal-content {
-    background-color: #1a1a1a;
-  }
-
-  input, select, textarea {
-    background-color: #1a1a1a;
-    border-color: #333;
-    color: #e0e0e0;
-
-    &::placeholder {
-      color: #888;
-    }
-  }
-
-  .server-item {
-    background-color: #333;
-
-    &:hover {
-      background-color: #444;
-    }
-
-    &.active {
-      background-color: $discord-accent;
-    }
-  }
-
-  .channel {
-    &:hover {
-      background-color: rgba($discord-accent, 0.1);
-    }
-
-    &.active {
-      background-color: $discord-accent;
-    }
-  }
-
-  .user-item:hover {
-    background-color: rgba($discord-accent, 0.1);
   }
 }

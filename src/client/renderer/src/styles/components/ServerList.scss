@@ -1,13 +1,13 @@
 // ServerList styles
 .server-list {
   width: 72px;
-  background-color: $discord-darker;
+  background-color: var(--secondary-bg);
   padding: 12px 0;
 
   .server-item {
     height: 48px;
     width: 48px;
-    background-color: $discord-light;
+    background-color: var(--tertiary-bg);
     border-radius: 50%;
     margin: 12px;
     cursor: pointer;
@@ -16,7 +16,7 @@
     overflow: hidden;
 
     &.active {
-      background-color: $discord-accent;
+      background-color: var(--accent-primary);
     }
 
     .server-image {

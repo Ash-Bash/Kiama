@@ -6,6 +6,7 @@ import multer from 'multer';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import jwt from 'jsonwebtoken';
 import SecurePluginManager from './utils/PluginManager';
 import { ClientPluginMetadata } from './types/plugin';
 
@@ -537,8 +538,23 @@ export class Server {
   }
 
   private setupSocket() {
+    // Authentication middleware
+    this.io.use((socket, next) => {
+      const token = socket.handshake.auth.token;
+      if (!token) {
+        return next(new Error('Authentication error: No token provided'));
+      }
+      try {
+        const decoded = jwt.verify(token, 'kiama-test-secret-key-change-in-production') as any;
+        (socket as any).user = decoded;
+        next();
+      } catch (err) {
+        next(new Error('Authentication error: Invalid token'));
+      }
+    });
+
     this.io.on('connection', (socket) => {
-      console.log('User connected');
+      console.log('User connected:', (socket as any).user.username);
 
       socket.on('join_channel', (data: { channelId: string }) => {
         const channel = this.channels.get(data.channelId);
@@ -578,7 +594,7 @@ export class Server {
 
         const message: TypedMessage = {
           id: uuidv4(),
-          user: data.user || 'Anonymous',
+          user: (socket as any).user?.username || 'Anonymous',
           content: data.content || '',
           type: data.type || 'text',
           timestamp: new Date(),

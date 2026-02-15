@@ -11,6 +11,7 @@ A decentralized Discord-like chat application built with modern web technologies
 - **End-to-End Encryption**: Secure communication channels
 - **Moderation System**: Advanced moderation with whitelists/blacklists
 - **Plugin Architecture**: Extensible client and server plugins
+- **Theming System**: JSON-based themes with light/dark mode support
 - **Cross-Platform Client**: Electron-based desktop application
 - **CLI Server Management**: Command-line interface for server administration
 - **Friends System**: User relationship management

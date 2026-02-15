@@ -4,7 +4,7 @@
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: linear-gradient(135deg, #5865f2 0%, #7289da 100%);
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-hover) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -58,13 +58,13 @@
     width: 120px;
     height: 120px;
     border-radius: 24px;
-    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+    background: linear-gradient(135deg, var(--primary-bg) 0%, var(--secondary-bg) 100%);
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 48px;
     font-weight: 900;
-    color: #5865f2;
+    color: var(--accent-primary);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     position: relative;
 
@@ -73,21 +73,21 @@
       position: absolute;
       inset: -2px;
       border-radius: 26px;
-      background: linear-gradient(135deg, #ffffff, #e3e5e8);
+      background: linear-gradient(135deg, var(--primary-bg), var(--tertiary-bg));
       z-index: -1;
     }
 
     svg {
       width: 64px;
       height: 64px;
-      color: #5865f2;
+      color: var(--accent-primary);
     }
   }
 
   h1 {
     font-size: 36px;
     font-weight: 700;
-    color: #ffffff;
+    color: var(--text-primary);
     margin: 0;
     letter-spacing: -1px;
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
@@ -98,7 +98,7 @@
   width: 80px;
   height: 80px;
   border-radius: 16px;
-  background: linear-gradient(135deg, #5865f2 0%, #6b7cfa 100%);
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-hover) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -109,7 +109,7 @@
     width: 32px;
     height: 32px;
     border: 3px solid rgba(255, 255, 255, 0.3);
-    border-top: 3px solid #ffffff;
+    border-top: 3px solid var(--text-primary);
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }
@@ -120,7 +120,7 @@
     width: 48px;
     height: 48px;
     border: 4px solid rgba(255, 255, 255, 0.2);
-    border-top: 4px solid #ffffff;
+    border-top: 4px solid var(--text-primary);
     border-radius: 50%;
     animation: spin 1s linear infinite;
     box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);

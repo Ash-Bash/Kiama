@@ -1,0 +1,45 @@
+{
+  "name": "Light",
+  "modes": {
+    "light": {
+      "colors": {
+        "primary-bg": "#ffffff",
+        "secondary-bg": "#f8f9fa",
+        "tertiary-bg": "#e9ecef",
+        "text-primary": "#212529",
+        "text-secondary": "#6c757d",
+        "accent-primary": "#007bff",
+        "accent-primary-hover": "#0056b3",
+        "accent-secondary": "#28a745",
+        "accent-secondary-hover": "#1e7e34",
+        "border": "#dee2e6",
+        "hover": "#f8f9fa",
+        "error": "#dc3545",
+        "success": "#28a745",
+        "warning": "#ffc107",
+        "idle": "#17a2b8",
+        "offline": "#6c757d"
+      }
+    },
+    "dark": {
+      "colors": {
+        "primary-bg": "#f8f9fa",
+        "secondary-bg": "#e9ecef",
+        "tertiary-bg": "#dee2e6",
+        "text-primary": "#212529",
+        "text-secondary": "#495057",
+        "accent-primary": "#007bff",
+        "accent-primary-hover": "#0056b3",
+        "accent-secondary": "#28a745",
+        "accent-secondary-hover": "#1e7e34",
+        "border": "#ced4da",
+        "hover": "#e9ecef",
+        "error": "#dc3545",
+        "success": "#28a745",
+        "warning": "#ffc107",
+        "idle": "#17a2b8",
+        "offline": "#6c757d"
+      }
+    }
+  }
+}

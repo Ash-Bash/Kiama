@@ -9,7 +9,7 @@
 
     .username {
       font-weight: bold;
-      color: $text-color;
+      color: var(--text-primary);
     }
 
     .emote {

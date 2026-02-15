@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 // Dynamically create entries for main app and plugins
 const entries = {
@@ -33,6 +34,10 @@ module.exports = {
         exclude: /node_modules/,
       },
       {
+        test: /\.json$/,
+        type: 'json',
+      },
+      {
         test: /\.scss$/,
         use: ['style-loader', 'css-loader', 'sass-loader'],
       },
@@ -51,6 +56,14 @@ module.exports = {
   plugins: [
     new HtmlWebpackPlugin({
       template: './renderer/public/index.html',
+    }),
+    new CopyWebpackPlugin({
+      patterns: [
+        {
+          from: path.resolve(__dirname, 'renderer/src/themes'),
+          to: 'themes'
+        }
+      ]
     }),
   ],
 };
