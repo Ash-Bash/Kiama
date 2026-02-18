@@ -7,6 +7,7 @@ class PluginManager {
   private serverPlugins: Map<string, Map<string, ClientPlugin>> = new Map(); // serverId -> (messageType -> plugin)
   private messageTypeComponents: Map<string, React.ComponentType> = new Map();
   private messageInputButtons: MessageInputButton[] = [];
+  private messageHandlers: Array<{ plugin: ClientPlugin; handler: (message: any) => any }> = [];
 
   constructor(api: PluginAPI) {
     this.api = api;
@@ -29,7 +30,19 @@ class PluginManager {
 
   registerPlugin(plugin: ClientPlugin) {
     this.plugins.push(plugin);
-    plugin.init(this.api);
+
+    // Provide a plugin-scoped API so we can track which plugin owns each handler
+    const pluginApi: PluginAPI = {
+      ...this.api,
+      addMessageHandler: (handler) => {
+        this.messageHandlers.push({
+          plugin,
+          handler
+        });
+      }
+    };
+
+    plugin.init(pluginApi);
   }
 
   // Download and install server-specific plugin
@@ -109,6 +122,26 @@ class PluginManager {
   // Get enabled plugins only
   getEnabledPlugins(): ClientPlugin[] {
     return this.plugins.filter(plugin => plugin.enabled !== false);
+  }
+
+  // Run all message handlers registered by enabled plugins
+  processMessage(message: TypedMessage): TypedMessage {
+    let processedMessage: TypedMessage = { ...message };
+
+    for (const { plugin, handler } of this.messageHandlers) {
+      if (plugin.enabled === false) continue;
+
+      try {
+        const result = handler({ ...processedMessage });
+        if (result) {
+          processedMessage = { ...processedMessage, ...result };
+        }
+      } catch (error) {
+        console.error(`Message handler error in plugin ${plugin.name}:`, error);
+      }
+    }
+
+    return processedMessage;
   }
 
   // Get enabled plugin for message type and server

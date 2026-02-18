@@ -6,8 +6,9 @@ import { ModalProvider, useModal } from './components/Modal';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import LoadingScreen from './components/LoadingScreen';
 import Login from './components/Login';
-import EmotePicker from './components/EmotePicker';
-import GifPicker from './components/GifPicker';
+import TitleBar from './components/TitleBar';
+import HomePage from './pages/HomePage';
+import ServerPage from './pages/ServerPage';
 import './styles/App.scss';
 
 const socket = io('http://localhost:3000');
@@ -37,30 +38,30 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const socketRef = React.useRef<any>(null);
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Map<string, Message[]>>(new Map([
-    ['general', [
-      { id: '1', user: 'Alice', content: 'Welcome to the general channel!', type: 'text', timestamp: new Date(), serverId: 'home', channelId: 'general' },
-      { id: '2', user: 'Bob', content: 'Hey everyone!', type: 'text', timestamp: new Date(), serverId: 'home', channelId: 'general' },
-      { id: '3', user: 'You', content: 'Hello!', type: 'text', timestamp: new Date(), serverId: 'home', channelId: 'general' }
+    ['test-general', [
+      { id: 't1', user: 'Test Bot', content: 'Welcome to the Test Server!', type: 'text', timestamp: new Date(), serverId: 'test-server', channelId: 'test-general' },
+      { id: 't2', user: 'You', content: 'This is where channel and user sidebars live.', type: 'text', timestamp: new Date(), serverId: 'test-server', channelId: 'test-general' }
     ]],
-    ['random', [
-      { id: '4', user: 'Charlie', content: 'This is the random channel', type: 'text', timestamp: new Date(), serverId: 'home', channelId: 'random' }
+    ['test-random', [
+      { id: 't3', user: 'Alice', content: 'Drop anything fun here.', type: 'text', timestamp: new Date(), serverId: 'test-server', channelId: 'test-random' }
     ]]
   ]));
-  const [currentChannelId, setCurrentChannelId] = useState<string>('general');
+  const [currentChannelId, setCurrentChannelId] = useState<string>('test-general');
   const [channels, setChannels] = useState<Channel[]>([
-    { id: 'general', name: 'general', type: 'text', position: 0, serverId: 'home', sectionId: 'text-channels', createdAt: new Date(), updatedAt: new Date() },
-    { id: 'random', name: 'random', type: 'text', position: 1, serverId: 'home', sectionId: 'text-channels', createdAt: new Date(), updatedAt: new Date() },
-    { id: 'announcements', name: 'announcements', type: 'announcement', position: 2, serverId: 'home', sectionId: 'text-channels', createdAt: new Date(), updatedAt: new Date() },
-    { id: 'general-voice', name: 'General', type: 'voice', position: 0, serverId: 'home', sectionId: 'voice-channels', createdAt: new Date(), updatedAt: new Date() },
-    { id: 'music', name: 'Music', type: 'voice', position: 1, serverId: 'home', sectionId: 'voice-channels', createdAt: new Date(), updatedAt: new Date() }
+    { id: 'test-general', name: 'general', type: 'text', position: 0, serverId: 'test-server', sectionId: 'test-text-channels', createdAt: new Date(), updatedAt: new Date() },
+    { id: 'test-random', name: 'random', type: 'text', position: 1, serverId: 'test-server', sectionId: 'test-text-channels', createdAt: new Date(), updatedAt: new Date() },
+    { id: 'test-announcements', name: 'announcements', type: 'announcement', position: 2, serverId: 'test-server', sectionId: 'test-text-channels', createdAt: new Date(), updatedAt: new Date() },
+    { id: 'test-general-voice', name: 'General', type: 'voice', position: 0, serverId: 'test-server', sectionId: 'test-voice-channels', createdAt: new Date(), updatedAt: new Date() },
+    { id: 'test-music', name: 'Music', type: 'voice', position: 1, serverId: 'test-server', sectionId: 'test-voice-channels', createdAt: new Date(), updatedAt: new Date() }
   ]);
   const [sections, setSections] = useState<ChannelSection[]>([
-    { id: 'text-channels', name: 'TEXT CHANNELS', serverId: 'home', position: 0, createdAt: new Date(), updatedAt: new Date() },
-    { id: 'voice-channels', name: 'VOICE CHANNELS', serverId: 'home', position: 1, createdAt: new Date(), updatedAt: new Date() }
+    { id: 'test-text-channels', name: 'TEXT CHANNELS', serverId: 'test-server', position: 0, createdAt: new Date(), updatedAt: new Date() },
+    { id: 'test-voice-channels', name: 'VOICE CHANNELS', serverId: 'test-server', position: 1, createdAt: new Date(), updatedAt: new Date() }
   ]);
   const [currentServer, setCurrentServer] = useState<string>(SERVER_ID);
   const [servers, setServers] = useState<Server[]>([
-    { id: 'home', name: 'Home', url: SERVER_URL }
+    { id: 'home', name: 'Home', url: SERVER_URL },
+    { id: 'test-server', name: 'Test Server', url: SERVER_URL }
   ]);
   const [currentServerId, setCurrentServerId] = useState<string>('home');
   const [users, setUsers] = useState<User[]>([
@@ -136,6 +137,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     return initials;
   };
 
+  const escapeHtml = (value: string) =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+  const toSafeHtml = (msg: Message) =>
+    msg.renderedContent ? msg.renderedContent : escapeHtml(msg.content).replace(/\n/g, '<br>');
+
   const [pluginManager] = useState(() => new PluginManager({
     addMessageHandler: (handler) => {
       // Store handlers
@@ -173,9 +185,6 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     // Discover and install server plugins
     pluginManager.discoverServerPlugins(SERVER_URL, currentServer);
 
-    // Load channels and sections will be called when socket connects
-    // loadChannelsAndSections();
-
     // Join default channel
     if (socketRef.current) {
       socketRef.current.emit('join_channel', { channelId: 'general' });
@@ -191,27 +200,24 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     });
 
     socketRef.current.on('message', (msg: Message) => {
-      // Apply plugin handlers based on message type
-      const plugin = pluginManager.getEnabledPluginForMessage(msg);
-      if (plugin) {
-        // Plugin can modify the message
-        console.log(`Processing message with plugin: ${plugin.name}`);
-      }
+      const processedMessage = pluginManager.processMessage(msg);
 
       // Add message to the appropriate channel
       setMessages(prev => {
         const newMessages = new Map(prev);
-        const channelMessages = newMessages.get(msg.channelId) || [];
-        channelMessages.push(msg);
-        newMessages.set(msg.channelId, channelMessages);
+        const channelMessages = newMessages.get(processedMessage.channelId) || [];
+        channelMessages.push(processedMessage);
+        newMessages.set(processedMessage.channelId, channelMessages);
         return newMessages;
       });
     });
 
     socketRef.current.on('channel_history', (data: { channelId: string, messages: Message[] }) => {
+      const processedMessages = data.messages.map(msg => pluginManager.processMessage(msg));
+
       setMessages(prev => {
         const newMessages = new Map(prev);
-        newMessages.set(data.channelId, data.messages);
+        newMessages.set(data.channelId, processedMessages);
         return newMessages;
       });
     });
@@ -276,9 +282,18 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }
   };
 
+  const getDefaultChannelIdForServer = (serverId: string) => {
+    const serverChannels = channels
+      .filter(c => c.serverId === serverId)
+      .sort((a, b) => a.position - b.position);
+    return serverChannels[0]?.id || '';
+  };
+
   const switchServer = (serverId: string) => {
     const server = servers.find(s => s.id === serverId);
     if (!server || serverId === currentServerId) return;
+
+    const nextChannelId = getDefaultChannelIdForServer(serverId);
 
     // Set loading state
     setIsSwitchingServer(true);
@@ -292,7 +307,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     // For now, we'll just update the state
     setCurrentServerId(serverId);
     setCurrentServer(server.id === 'home' ? SERVER_ID : server.id);
-    setCurrentChannelId('general'); // Reset to general channel
+    setCurrentChannelId(nextChannelId || currentChannelId); // Reset to first channel for that server
 
     if (viewportWidth <= 768) {
       setShowMobileServerList(false);
@@ -317,6 +332,20 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       id: `server-${Date.now()}`,
       name: serverName,
       url: serverUrl
+    };
+
+    setServers(prev => [...prev, newServer]);
+  };
+
+  const joinServer = () => {
+    const invite = prompt('Enter invite link or server URL:');
+    if (!invite) return;
+
+    const serverName = prompt('Name this server:') || 'New Server';
+    const newServer: Server = {
+      id: `server-${Date.now()}`,
+      name: serverName,
+      url: invite
     };
 
     setServers(prev => [...prev, newServer]);
@@ -452,6 +481,20 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setShowEmotePicker(false);
     setShowMessageOptions(false);
     setShowGifPicker(prev => !prev);
+  };
+
+  const closeEmotePicker = () => {
+    setShowEmotePicker(false);
+  };
+
+  const closeGifPicker = () => {
+    setShowGifPicker(false);
+  };
+
+  const toggleMessageOptions = () => {
+    setShowMessageOptions(prev => !prev);
+    setShowEmotePicker(false);
+    setShowGifPicker(false);
   };
 
   const handleEmoteSelect = (emote: { name: string; unicode?: string }) => {
@@ -636,28 +679,30 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   const renderMessage = (msg: Message) => {
+    const processedMessage = pluginManager.processMessage(msg);
+
     // Check if there's a custom component for this message type
-    const MessageComponent = pluginManager.getMessageTypeComponent(msg.type);
+    const MessageComponent = pluginManager.getMessageTypeComponent(processedMessage.type);
 
     if (MessageComponent) {
       // Check if the plugin for this message type is enabled
-      const plugin = pluginManager.getEnabledPluginForMessage(msg);
+      const plugin = pluginManager.getEnabledPluginForMessage(processedMessage);
       if (!plugin) {
         // Plugin is disabled, render as plain text
         return (
-          <div key={msg.id} className="message">
-            <span className="username">{msg.user}:</span>
-            <span className="content">{msg.content}</span>
-            <span className="message-type">[{msg.type} - disabled]</span>
+          <div key={processedMessage.id} className="message">
+            <span className="username">{processedMessage.user}:</span>
+            <span className="content" dangerouslySetInnerHTML={{ __html: toSafeHtml(processedMessage) }} />
+            <span className="message-type">[{processedMessage.type} - disabled]</span>
           </div>
         );
       }
 
       // If the component returns a JSX-like structure, render it
       try {
-        const componentResult = (MessageComponent as any)({ message: msg });
+        const componentResult = (MessageComponent as any)({ message: processedMessage });
         if (componentResult && componentResult.type) {
-          return renderJSXLike(componentResult, msg.id);
+          return renderJSXLike(componentResult, processedMessage.id);
         }
       } catch (error) {
         console.error('Error rendering plugin component:', error);
@@ -665,29 +710,31 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
       // Otherwise, assume it's a React component
       const Component = MessageComponent as React.ComponentType<{ message: Message; key?: string }>;
-      return React.createElement(Component, { key: msg.id, message: msg });
+      return React.createElement(Component, { key: processedMessage.id, message: processedMessage });
     }
+
+    const safeContent = toSafeHtml(processedMessage);
 
     // Default rendering
     return (
       <div 
-        key={msg.id} 
+        key={processedMessage.id} 
         className="message"
         onContextMenu={(e) => {
           // Only show context menu for user's own messages
-          if (msg.user === 'You') {
+          if (processedMessage.user === 'You') {
             e.preventDefault();
             const deleteOption = confirm('Delete this message?');
             if (deleteOption) {
-              deleteMessage(msg.id);
+              deleteMessage(processedMessage.id);
             }
           }
         }}
       >
-        <span className="username">{msg.user}:</span>
-        <span className="content">{msg.content}</span>
-        {msg.type !== 'text' && <span className="message-type">[{msg.type}]</span>}
-        {msg.embeds && msg.embeds.map((embed, j) => {
+        <span className="username">{processedMessage.user}:</span>
+        <span className="content" dangerouslySetInnerHTML={{ __html: safeContent }} />
+        {processedMessage.type !== 'text' && <span className="message-type">[{processedMessage.type}]</span>}
+        {processedMessage.embeds && processedMessage.embeds.map((embed, j) => {
           const Component = embed.component;
           return <Component key={j} {...embed} />;
         })}
@@ -716,10 +763,11 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   const isMobile = viewportWidth <= 768;
+  const isHome = currentServerId === 'home';
   const showMobileNavButtons = viewportWidth <= 1100;
   const showServerListPanel = !isMobile || showMobileServerList;
-  const showSidebarPanel = (!sidebarCollapsed && !isMobile) || (isMobile && showMobileSidebar);
-  const showUserListPanel = (!userListCollapsed && !isMobile) || (isMobile && showMobileUserList);
+  const showSidebarPanel = !isHome && ((!sidebarCollapsed && !isMobile) || (isMobile && showMobileSidebar));
+  const showUserListPanel = !isHome && ((!userListCollapsed && !isMobile) || (isMobile && showMobileUserList));
 
   const closeMobileDrawers = () => {
     setShowMobileServerList(false);
@@ -751,6 +799,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
   const currentServerObj = servers.find(s => s.id === currentServerId);
   const currentServerName = currentServerObj?.name || 'Home';
+  const nonHomeServers = servers.filter(s => s.id !== 'home');
   const currentChannel = channels.find(c => c.id === currentChannelId && c.serverId === currentServerId);
   const currentMessages = messages.get(currentChannelId) || [];
 
@@ -763,7 +812,9 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const unsectionedChannels = channels.filter(c => !c.sectionId);
 
   return (
-    <div className="app">
+    <div className="app-shell">
+      <TitleBar />
+      <div className="app">
       {isMobile && (showMobileServerList || showMobileSidebar || showMobileUserList) && (
         <div className="mobile-backdrop" onClick={closeMobileDrawers} />
       )}
@@ -771,16 +822,26 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       {showServerListPanel && (
         <div className={`server-list ${isMobile ? 'mobile-drawer' : ''} ${showMobileServerList ? 'mobile-open' : ''}`}>
           <div className="server-items">
-            {servers.map(server => (
+            <div
+              className={`server-item home ${currentServerId === 'home' ? 'active' : ''}`}
+              onClick={() => switchServer('home')}
+              title="Home"
+            >
+              <span className="server-icon home-icon">
+                <i className="fas fa-home"></i>
+              </span>
+            </div>
+
+            <div className="server-divider" />
+
+            {nonHomeServers.map(server => (
               <div
                 key={server.id}
-                className={`server-item ${server.id === currentServerId ? 'active' : ''} ${server.id === 'home' ? 'home' : ''}`}
+                className={`server-item ${server.id === currentServerId ? 'active' : ''}`}
                 onClick={() => switchServer(server.id)}
                 title={server.name}
               >
-                {server.id !== 'home' && (
-                  <span className="server-name">{server.name}</span>
-                )}
+                <span className="server-name">{server.name}</span>
                 {server.icon ? (
                   <img src={server.icon} alt={server.name} className="server-icon" />
                 ) : (
@@ -936,7 +997,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         </>
       )}
 
-      {!isMobile && sidebarCollapsed && (
+      {!isMobile && sidebarCollapsed && !isHome && (
         <div className="sidebar-collapsed">
           <button className="expand-btn" onClick={toggleSidebar} title="Expand Sidebar">
             <i className="fas fa-chevron-right"></i>
@@ -945,111 +1006,47 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       )}
 
       <div className="main-content">
-        {isSwitchingServer && (
+        {isSwitchingServer && !isHome && (
           <LoadingScreen type="server-switch" />
         )}
-          <div className="channel-header">
-            {showMobileNavButtons && (
-              <div className="mobile-nav">
-            <button
-              className="mobile-nav-btn"
-              onClick={toggleMobileNavPanels}
-              aria-label="Open server and channel list"
-            >
-              <i className="fas fa-bars"></i>
-            </button>
-              </div>
-            )}
-          <h3>
-            {currentChannel && (
-              <>
-                <span className="channel-icon">
-                  {currentChannel.type === 'text' && '#'}
-                  {currentChannel.type === 'voice' && '🔊'}
-                  {currentChannel.type === 'announcement' && '📢'}
-                </span>
-                {currentChannel.name}
-              </>
-            )}
-          </h3>
-            {showMobileNavButtons && (
-              <div className="mobile-nav right">
-                <button
-                  className="mobile-nav-btn"
-                  onClick={toggleMobileMembers}
-                  aria-label="Open member list"
-                >
-                  <i className="fas fa-users"></i>
-                </button>
-              </div>
-            )}
-        </div>
-
-        <div className="message-list">
-          {currentMessages.map(renderMessage)}
-        </div>
-
-        <div className="message-input">
-          <div className="message-input-container">
-            <button 
-              className="message-options-btn"
-              onClick={() => {
-                setShowMessageOptions(!showMessageOptions);
-                setShowEmotePicker(false);
-                setShowGifPicker(false);
-              }}
-              title="Message Options"
-            >
-              <i className="fas fa-plus"></i>
-            </button>
-            <input
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder={`Message #${currentChannel?.name || 'general'}`}
-            />
-            <div className="message-function-tray">
-              <button className="tray-btn emote-btn" onClick={openEmojiPicker} title="Add Emoji">
-                <i className="far fa-smile"></i>
-              </button>
-              <button className="tray-btn gif-btn" onClick={openGifPicker} title="Add GIF">
-                <i className="fas fa-film"></i>
-              </button>
-            </div>
-            <button className="send-btn" onClick={() => sendMessage()} title="Send Message">
-              <i className="fas fa-paper-plane"></i>
-            </button>
-          </div>
-          
-          {showEmotePicker && (
-            <EmotePicker
-              onSelect={handleEmoteSelect}
-              onClose={() => setShowEmotePicker(false)}
-              servers={servers}
-            />
-          )}
-
-          {showGifPicker && (
-            <GifPicker
-              onSelect={handleGifSelect}
-              onClose={() => setShowGifPicker(false)}
-            />
-          )}
-
-          {showMessageOptions && (
-            <div className="message-options-menu">
-              <button onClick={handleImageUpload} title="Upload Image">
-                <i className="fas fa-image"></i> Upload Image
-              </button>
-              <button onClick={handleFileUpload} title="Attach File">
-                <i className="fas fa-paperclip"></i> Attach File
-              </button>
-              <button onClick={sendPollMessage} title="Create Poll">
-                <i className="fas fa-chart-bar"></i> Create Poll
-              </button>
-            </div>
-          )}
-        </div>
+        {isHome ? (
+          <HomePage
+            user={user}
+            nonHomeServers={nonHomeServers}
+            currentServerId={currentServerId}
+            addServer={addServer}
+            joinServer={joinServer}
+            switchServer={switchServer}
+            openAccountSettings={openAccountSettings}
+            generateServerInitials={generateServerInitials}
+          />
+        ) : (
+          <ServerPage
+            showMobileNavButtons={showMobileNavButtons}
+            onToggleNavPanels={toggleMobileNavPanels}
+            onToggleMembers={toggleMobileMembers}
+            currentChannel={currentChannel}
+            currentMessages={currentMessages}
+            renderMessage={renderMessage}
+            message={message}
+            onMessageChange={(val) => setMessage(val)}
+            onSendMessage={() => sendMessage()}
+            showMessageOptions={showMessageOptions}
+            onToggleMessageOptions={toggleMessageOptions}
+            openEmojiPicker={openEmojiPicker}
+            openGifPicker={openGifPicker}
+            closeEmotePicker={closeEmotePicker}
+            closeGifPicker={closeGifPicker}
+            showEmotePicker={showEmotePicker}
+            showGifPicker={showGifPicker}
+            handleEmoteSelect={handleEmoteSelect}
+            handleGifSelect={handleGifSelect}
+            handleImageUpload={handleImageUpload}
+            handleFileUpload={handleFileUpload}
+            sendPollMessage={sendPollMessage}
+            servers={servers}
+          />
+        )}
       </div>
 
       {showUserListPanel && (
@@ -1107,13 +1104,14 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         </>
       )}
 
-      {!isMobile && userListCollapsed && (
+      {!isMobile && userListCollapsed && !isHome && (
         <div className="user-list-collapsed">
           <button className="expand-btn" onClick={toggleUserList} title="Expand User List">
             <i className="fas fa-chevron-left"></i>
           </button>
         </div>
       )}
+      </div>
     </div>
   );
 }

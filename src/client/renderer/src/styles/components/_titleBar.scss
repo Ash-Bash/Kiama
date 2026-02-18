@@ -1,0 +1,99 @@
+.title-bar {
+  -webkit-app-region: drag;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  background-color: var(--tertiary-bg);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+  user-select: none;
+  z-index: 1000;
+
+  &.mac {
+    justify-content: center;
+    padding-left: 80px; // Space for traffic lights
+  }
+
+  &.windows {
+    justify-content: space-between;
+    padding: 0 10px;
+  }
+
+  .traffic-lights {
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    display: flex;
+    gap: 8px;
+
+    .traffic-light {
+      -webkit-app-region: no-drag;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+
+      &.close {
+        background-color: #ff5f57;
+      }
+
+      &.minimize {
+        background-color: #ffbd2e;
+      }
+
+      &.maximize {
+        background-color: #28ca42;
+      }
+
+      &:hover.close {
+        background-color: #ff3b30;
+      }
+
+      &:hover.minimize {
+        background-color: #ffb700;
+      }
+
+      &:hover.maximize {
+        background-color: #00d400;
+      }
+    }
+  }
+
+  .title {
+    flex: 1;
+    text-align: center;
+  }
+
+  .window-controls {
+    display: flex;
+    gap: 0;
+
+    .control {
+      -webkit-app-region: no-drag;
+      width: 48px;
+      height: 36px;
+      border: none;
+      background-color: transparent;
+      color: #ffffff;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      &:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+      }
+
+      &.close:hover {
+        background-color: #ff5f57;
+      }
+    }
+  }
+}

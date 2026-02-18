@@ -1,10 +1,14 @@
-import { app, BrowserWindow, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol } from 'electron';
 import * as path from 'path';
 
+let mainWindow: BrowserWindow | null = null;
+
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    frame: false,
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -17,6 +21,32 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+
+  ipcMain.on('window-control', (event, action: 'minimize' | 'maximize' | 'close' | 'restore') => {
+    const targetWindow = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+    if (!targetWindow) return;
+
+    switch (action) {
+      case 'minimize':
+        targetWindow.minimize();
+        break;
+      case 'maximize':
+        if (targetWindow.isMaximized()) {
+          targetWindow.unmaximize();
+        } else {
+          targetWindow.maximize();
+        }
+        break;
+      case 'restore':
+        targetWindow.restore();
+        break;
+      case 'close':
+        targetWindow.close();
+        break;
+      default:
+        break;
+    }
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

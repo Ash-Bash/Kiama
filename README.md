@@ -78,6 +78,10 @@ Server Name
 - **Add controls**: “Add Section” now lives in each section’s plus menu; the bottom bar button was removed.
 - **Visibility helpers**: Mobile nav buttons appear at ≤1100px for opening drawers.
 
+### Page Layout
+- **Page wrapper**: `Page` component handles header/body split, optional padding/scroll, and masks rounded corners via inherited radius.
+- **Pages directory**: Place page-level views in `src/client/renderer/src/pages` (e.g., `HomePage`, `ServerPage`) and wire them through `App.tsx`.
+
 ### Project Structure
 
 ```
@@ -99,6 +103,7 @@ Kiama/
 │   │   ├── renderer/              # React renderer process
 │   │   │   ├── src/              # React source
 │   │   │   │   ├── components/   # React components
+│   │   │   │   ├── pages/        # Page-level views (HomePage, ServerPage, etc.)
 │   │   │   │   │   ├── ChannelList.tsx
 │   │   │   │   │   ├── MessageInput.tsx
 │   │   │   │   │   ├── MessageList.tsx
@@ -113,7 +118,7 @@ Kiama/
 │   │   │   │   │   └── plugin.ts
 │   │   │   │   ├── utils/        # Utilities
 │   │   │   │   │   └── PluginManager.ts
-│   │   │   │   ├── App.tsx       # Main React component
+│   │   │   │   ├── App.tsx       # Main React shell wiring pages/layout
 │   │   │   │   └── index.tsx     # React entry point
 │   │   │   ├── public/           # Static assets
 │   │   │   └── tsconfig.json     # Client TypeScript config

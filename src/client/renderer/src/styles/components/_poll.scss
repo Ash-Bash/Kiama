@@ -19,7 +19,7 @@
   }
 
   .poll-option-button {
-    background: var(--accent-primary);
+    background: var(--accent);
     color: var(--text-primary);
     border: none;
     padding: 8px 16px;
@@ -28,7 +28,7 @@
     transition: background-color 0.2s;
 
     &:hover {
-      background: var(--accent-primary-hover);
+      background: var(--accent-hover);
     }
 
     &:disabled {

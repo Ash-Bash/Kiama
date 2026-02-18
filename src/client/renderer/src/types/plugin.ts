@@ -40,6 +40,7 @@ export interface TypedMessage {
   serverId: string;
   channelId: string;
   embeds?: any[];
+  renderedContent?: string; // Sanitized HTML produced by formatter plugins
 }
 
 export interface MessageInputButton {

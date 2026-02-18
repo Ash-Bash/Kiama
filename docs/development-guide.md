@@ -71,10 +71,19 @@ The client uses Electron's dual-process architecture:
 
 3. **Implement client-side (if needed)**
    ```typescript
-   // Create new component in src/client/renderer/src/components/
-   const NewFeature: React.FC = () => {
-     // Implementation
-   };
+// Create new component in src/client/renderer/src/components/
+const NewFeature: React.FC = () => {
+  // Implementation
+};
+
+// For a new page, place it in src/client/renderer/src/pages and wrap content in <Page>
+import Page from '../components/Page';
+
+const NewPage: React.FC = () => (
+  <Page header={<h3>My Page</h3>} scroll padded>
+    {/* Body */}
+  </Page>
+);
    ```
 
 4. **Add Socket.IO events (if real-time)**
@@ -183,7 +192,8 @@ Themes are defined in JSON files with support for both light and dark modes:
         "primary-bg": "#ffffff",
         "secondary-bg": "#f8f9fa",
         "text-primary": "#2e3338",
-        "accent-primary": "#5865f2"
+        "accent": "#5865f2",
+        "accent-hover": "#4752c4"
         // ... additional colors
       }
     },
@@ -192,7 +202,8 @@ Themes are defined in JSON files with support for both light and dark modes:
         "primary-bg": "#36393f",
         "secondary-bg": "#2f3136",
         "text-primary": "#dcddde",
-        "accent-primary": "#5865f2"
+        "accent": "#5865f2",
+        "accent-hover": "#4752c4"
         // ... additional colors
       }
     }
@@ -207,8 +218,8 @@ Themes are defined in JSON files with support for both light and dark modes:
 - `tertiary-bg`: Button and input backgrounds
 - `text-primary`: Main text color
 - `text-secondary`: Muted text color
-- `accent-primary`: Primary accent (links, active states)
-- `accent-secondary`: Secondary accent (success, highlights)
+- `accent`: Primary accent (links, active states)
+- `accent-hover`: Hover/pressed state for accent elements
 - `border`: Border colors
 - `hover`: Hover state colors
 - `error`: Error state colors

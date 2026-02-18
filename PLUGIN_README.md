@@ -67,8 +67,8 @@ Themes are JSON files located in `src/client/renderer/src/themes/` and are autom
         "tertiary-bg": "#e3e5e8",
         "text-primary": "#2e3338",
         "text-secondary": "#6d6f72",
-        "accent-primary": "#5865f2",
-        "accent-secondary": "#57f287",
+        "accent": "#5865f2",
+        "accent-hover": "#4752c4",
         "border": "#d1d5db",
         "hover": "#e3e5e8",
         "error": "#dc2626",
@@ -82,8 +82,8 @@ Themes are JSON files located in `src/client/renderer/src/themes/` and are autom
         "tertiary-bg": "#40444b",
         "text-primary": "#dcddde",
         "text-secondary": "#b9bbbe",
-        "accent-primary": "#5865f2",
-        "accent-secondary": "#57f287",
+        "accent": "#5865f2",
+        "accent-hover": "#4752c4",
         "border": "#202225",
         "hover": "#40444b",
         "error": "#f04747",
@@ -101,8 +101,8 @@ Themes are JSON files located in `src/client/renderer/src/themes/` and are autom
 - `tertiary-bg`: Tertiary background (buttons, inputs)
 - `text-primary`: Primary text color
 - `text-secondary`: Secondary text color (muted text)
-- `accent-primary`: Primary accent color (links, active states)
-- `accent-secondary`: Secondary accent color (success states, highlights)
+- `accent`: Primary accent color (links, active states)
+- `accent-hover`: Hover/pressed state for accent elements
 - `border`: Border colors
 - `hover`: Hover state colors
 - `error`: Error state colors

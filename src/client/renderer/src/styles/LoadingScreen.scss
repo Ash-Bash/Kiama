@@ -4,7 +4,7 @@
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-hover) 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -64,7 +64,7 @@
     justify-content: center;
     font-size: 48px;
     font-weight: 900;
-    color: var(--accent-primary);
+    color: var(--accent);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     position: relative;
 
@@ -80,7 +80,7 @@
     svg {
       width: 64px;
       height: 64px;
-      color: var(--accent-primary);
+      color: var(--accent);
     }
   }
 
@@ -98,7 +98,7 @@
   width: 80px;
   height: 80px;
   border-radius: 16px;
-  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-hover) 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
