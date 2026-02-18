@@ -1,0 +1,122 @@
+// EmotePicker styles
+.emote-picker {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  width: 400px;
+  max-height: 400px;
+  background-color: var(--secondary-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+
+  .emote-picker-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+
+    h3 {
+      margin: 0;
+      color: var(--text-primary);
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 20px;
+      cursor: pointer;
+      padding: 0;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+
+      &:hover {
+        background-color: var(--hover-bg);
+        color: var(--text-primary);
+      }
+    }
+  }
+
+  .server-tabs {
+    display: flex;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    gap: 4px;
+
+    button {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+
+      &:hover {
+        background-color: var(--hover-bg);
+        color: var(--text-primary);
+      }
+
+      &.active {
+        background-color: var(--accent);
+        color: white;
+      }
+    }
+  }
+
+  .emote-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+    gap: 8px;
+    padding: 16px;
+    overflow-y: auto;
+    flex: 1;
+
+    .loading, .no-emotes {
+      grid-column: 1 / -1;
+      text-align: center;
+      color: var(--text-secondary);
+      padding: 40px;
+    }
+
+    .emote-btn {
+      background: none;
+      border: none;
+      padding: 4px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      transition: background-color 0.2s;
+
+      &:hover {
+        background-color: var(--hover-bg);
+      }
+
+      img {
+        max-width: 32px;
+        max-height: 32px;
+        object-fit: contain;
+      }
+
+      .emoji-char {
+        font-size: 24px;
+        line-height: 1;
+      }
+    }
+  }
+}

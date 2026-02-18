@@ -142,6 +142,12 @@ const { currentMode, setMode, theme } = useTheme();
 - Clear browser cache
 - Check for CSS compilation errors
 
+### Responsive UI Notes
+- Mobile drawers activate at ≤768px; use the top-left/right mobile buttons to open channel and member lists.
+- Closing the channel drawer on mobile also hides the server list to avoid overlapping drawers.
+- The server drawer no longer shows a close button; tap the backdrop or open another panel to exit.
+- “Add Section” is available from each section’s plus menu instead of a bottom button.
+
 ## Architecture Notes
 
 - **Client**: Electron (main + renderer processes)

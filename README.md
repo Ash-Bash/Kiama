@@ -13,6 +13,7 @@ A decentralized Discord-like chat application built with modern web technologies
 - **Plugin Architecture**: Extensible client and server plugins
 - **Theming System**: JSON-based themes with light/dark mode support
 - **Cross-Platform Client**: Electron-based desktop application
+- **Responsive UI**: Mobile drawers for server/channel/member lists with coordinated toggles
 - **CLI Server Management**: Command-line interface for server administration
 - **Friends System**: User relationship management
 - **Custom Emotes**: Server-specific emoji support
@@ -70,6 +71,12 @@ Server Name
 - **Organize Sections**: Group related channels together
 - **Permissions**: Role-based access control per channel/section
 - **Real-time Updates**: Instant channel creation/deletion notifications
+
+### Responsive UI Behavior
+- **Mobile drawers**: Server, channel, and member lists slide in on ≤768px; backdrop closes all.
+- **Coordinated close**: Closing the channel drawer on mobile also hides the server list to prevent overlap.
+- **Add controls**: “Add Section” now lives in each section’s plus menu; the bottom bar button was removed.
+- **Visibility helpers**: Mobile nav buttons appear at ≤1100px for opening drawers.
 
 ### Project Structure
 

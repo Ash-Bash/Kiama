@@ -1,11 +1,12 @@
 import React from 'react';
-import { PluginAPI, ClientPlugin, ServerPluginMetadata, TypedMessage } from '../types/plugin';
+import { PluginAPI, ClientPlugin, ServerPluginMetadata, TypedMessage, MessageInputButton } from '../types/plugin';
 
 class PluginManager {
   private plugins: ClientPlugin[] = [];
   private api: PluginAPI;
   private serverPlugins: Map<string, Map<string, ClientPlugin>> = new Map(); // serverId -> (messageType -> plugin)
   private messageTypeComponents: Map<string, React.ComponentType> = new Map();
+  private messageInputButtons: MessageInputButton[] = [];
 
   constructor(api: PluginAPI) {
     this.api = api;
@@ -172,8 +173,14 @@ class PluginManager {
     return this.messageTypeComponents.get(type);
   }
 
-  getPlugins() {
-    return this.plugins;
+  // Add message input button
+  addMessageInputButton(button: MessageInputButton) {
+    this.messageInputButtons.push(button);
+  }
+
+  // Get message input buttons
+  getMessageInputButtons(): MessageInputButton[] {
+    return this.messageInputButtons;
   }
 
   private async calculateChecksum(code: string): Promise<string> {

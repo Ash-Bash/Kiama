@@ -154,6 +154,18 @@ KIAMA uses separate compilation for plugins to maintain modularity:
 - Better separation of concerns
 - Easier plugin distribution
 
+## Responsive UI & Mobile Notes
+
+- Breakpoints: drawers engage at ≤768px (server/channel/member), mobile nav buttons appear at ≤1100px.
+- Drawer coordination: closing the channel drawer on mobile also hides the server drawer to prevent overlap; backdrop taps close all.
+- UI controls: server drawer has no close button; “Add Section” lives in the section plus menu (no bottom button).
+
+## Context for Future AI Prompts
+
+- Recent UI intent: keep mobile drawers non-overlapping and simplify controls (no server close button, channel close also hides server on mobile, add-section only in section menu).
+- Style intent: server drawer has no shadow on mobile; channel/member drawers keep shadows for separation.
+- If changing responsive behavior, preserve current breakpoints (768px, 1100px) unless explicitly requested.
+
 ## Theming System
 
 KIAMA includes a comprehensive JSON-based theming system that allows customization of the application's appearance.

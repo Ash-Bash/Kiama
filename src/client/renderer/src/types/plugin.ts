@@ -4,6 +4,7 @@ export interface PluginAPI {
   addUIComponent: (component: React.ComponentType) => void;
   getSocket: () => any;
   registerMessageType: (type: string, component: React.ComponentType) => void;
+  addMessageInputButton: (button: MessageInputButton) => void;
   // Add more API methods as needed
 }
 
@@ -39,6 +40,14 @@ export interface TypedMessage {
   serverId: string;
   channelId: string;
   embeds?: any[];
+}
+
+export interface MessageInputButton {
+  id: string;
+  icon: string; // FontAwesome icon class
+  tooltip: string;
+  onClick: () => void;
+  activeColor?: string; // Optional active/hover color
 }
 
 export interface ChannelSettings {

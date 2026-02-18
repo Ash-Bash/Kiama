@@ -6,6 +6,8 @@ import { ModalProvider, useModal } from './components/Modal';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import LoadingScreen from './components/LoadingScreen';
 import Login from './components/Login';
+import EmotePicker from './components/EmotePicker';
+import GifPicker from './components/GifPicker';
 import './styles/App.scss';
 
 const socket = io('http://localhost:3000');
@@ -75,15 +77,49 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [isResizingUserList, setIsResizingUserList] = useState(false);
   const [showMessageOptions, setShowMessageOptions] = useState(false);
+  const [showEmotePicker, setShowEmotePicker] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
   const [isSwitchingServer, setIsSwitchingServer] = useState(false);
   const [settingsThemeMode, setSettingsThemeMode] = useState<'light' | 'dark'>(currentMode);
   const [settingsSelectedTheme, setSettingsSelectedTheme] = useState<string>(currentThemeId);
+  const [viewportWidth, setViewportWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1920);
+  const [showMobileServerList, setShowMobileServerList] = useState(false);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+  const [showMobileUserList, setShowMobileUserList] = useState(false);
+  const [activeAddMenu, setActiveAddMenu] = useState<string | null>(null);
 
   // Sync settings with current values
   React.useEffect(() => {
     setSettingsThemeMode(currentMode);
     setSettingsSelectedTheme(currentThemeId);
   }, [currentMode, currentThemeId]);
+
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (viewportWidth > 768) {
+      setShowMobileServerList(false);
+      setShowMobileSidebar(false);
+      setShowMobileUserList(false);
+    }
+  }, [viewportWidth]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.section-menu') && !target.closest('.section-plus-btn')) {
+        setActiveAddMenu(null);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   // Generate server initials like Discord (first letters of words, max 2 chars)
   const generateServerInitials = (serverName: string): string => {
@@ -110,6 +146,9 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     getSocket: () => socketRef.current,
     registerMessageType: (type: string, component: React.ComponentType) => {
       pluginManager.registerMessageTypeComponent(type, component);
+    },
+    addMessageInputButton: (button) => {
+      pluginManager.addMessageInputButton(button);
     }
   }));
 
@@ -231,6 +270,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       socketRef.current.emit('join_channel', { channelId });
     }
     setCurrentChannelId(channelId);
+
+    if (viewportWidth <= 768) {
+      setShowMobileSidebar(false);
+    }
   };
 
   const switchServer = (serverId: string) => {
@@ -250,6 +293,12 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setCurrentServerId(serverId);
     setCurrentServer(server.id === 'home' ? SERVER_ID : server.id);
     setCurrentChannelId('general'); // Reset to general channel
+
+    if (viewportWidth <= 768) {
+      setShowMobileServerList(false);
+      setShowMobileSidebar(false);
+      setShowMobileUserList(false);
+    }
 
     // Simulate loading delay, then hide loading
     setTimeout(() => {
@@ -394,15 +443,26 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   const openEmojiPicker = () => {
-    // For now, just insert a simple emoji
-    setMessage(prev => prev + '😀');
+    setShowGifPicker(false);
     setShowMessageOptions(false);
+    setShowEmotePicker(prev => !prev);
   };
 
   const openGifPicker = () => {
-    // For now, just insert a GIF placeholder
-    sendMessage('gif', { url: 'https://media.giphy.com/media/l0MYt5jWTGrZVjRPq/giphy.gif' });
+    setShowEmotePicker(false);
     setShowMessageOptions(false);
+    setShowGifPicker(prev => !prev);
+  };
+
+  const handleEmoteSelect = (emote: { name: string; unicode?: string }) => {
+    const insert = emote.unicode || `:${emote.name}:`;
+    setMessage(prev => prev + insert);
+    setShowEmotePicker(false);
+  };
+
+  const handleGifSelect = (gif: { url: string; title: string }) => {
+    sendMessage('gif', { url: gif.url, title: gif.title });
+    setShowGifPicker(false);
   };
 
   const openAccountSettings = () => {
@@ -655,6 +715,40 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     return React.createElement(type, { ...otherProps, key }, ...renderedChildren);
   };
 
+  const isMobile = viewportWidth <= 768;
+  const showMobileNavButtons = viewportWidth <= 1100;
+  const showServerListPanel = !isMobile || showMobileServerList;
+  const showSidebarPanel = (!sidebarCollapsed && !isMobile) || (isMobile && showMobileSidebar);
+  const showUserListPanel = (!userListCollapsed && !isMobile) || (isMobile && showMobileUserList);
+
+  const closeMobileDrawers = () => {
+    setShowMobileServerList(false);
+    setShowMobileSidebar(false);
+    setShowMobileUserList(false);
+  };
+
+  const toggleMobileNavPanels = () => {
+    if (isMobile) {
+      const shouldOpen = !(showMobileServerList || showMobileSidebar);
+      setShowMobileServerList(shouldOpen);
+      setShowMobileSidebar(shouldOpen);
+      setShowMobileUserList(false);
+    } else {
+      setSidebarCollapsed(false);
+      setUserListCollapsed(false);
+    }
+  };
+
+  const toggleMobileMembers = () => {
+    if (isMobile) {
+      setShowMobileUserList(prev => !prev);
+      setShowMobileServerList(false);
+      setShowMobileSidebar(false);
+    } else {
+      setUserListCollapsed(false);
+    }
+  };
+
   const currentServerObj = servers.find(s => s.id === currentServerId);
   const currentServerName = currentServerObj?.name || 'Home';
   const currentChannel = channels.find(c => c.id === currentChannelId && c.serverId === currentServerId);
@@ -670,44 +764,67 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
   return (
     <div className="app">
-      <div className="server-list">
-        <div className="server-items">
-          {servers.map(server => (
-            <div
-              key={server.id}
-              className={`server-item ${server.id === currentServerId ? 'active' : ''} ${server.id === 'home' ? 'home' : ''}`}
-              onClick={() => switchServer(server.id)}
-              title={server.name}
-            >
-              {server.id !== 'home' && (
-                <span className="server-name">{server.name}</span>
-              )}
-              {server.icon ? (
-                <img src={server.icon} alt={server.name} className="server-icon" />
-              ) : (
-                <span className="server-icon">{generateServerInitials(server.name)}</span>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="server-list-bottom">
-          <div className="add-server" onClick={addServer} title="Add Server">
-            <span className="add-server-icon">+</span>
-          </div>
-          <div className="account-btn" onClick={openAccountSettings} title="Account">
-            <i className="fas fa-user"></i>
-          </div>
-        </div>
-      </div>
+      {isMobile && (showMobileServerList || showMobileSidebar || showMobileUserList) && (
+        <div className="mobile-backdrop" onClick={closeMobileDrawers} />
+      )}
 
-      {!sidebarCollapsed && (
+      {showServerListPanel && (
+        <div className={`server-list ${isMobile ? 'mobile-drawer' : ''} ${showMobileServerList ? 'mobile-open' : ''}`}>
+          <div className="server-items">
+            {servers.map(server => (
+              <div
+                key={server.id}
+                className={`server-item ${server.id === currentServerId ? 'active' : ''} ${server.id === 'home' ? 'home' : ''}`}
+                onClick={() => switchServer(server.id)}
+                title={server.name}
+              >
+                {server.id !== 'home' && (
+                  <span className="server-name">{server.name}</span>
+                )}
+                {server.icon ? (
+                  <img src={server.icon} alt={server.name} className="server-icon" />
+                ) : (
+                  <span className="server-icon">{generateServerInitials(server.name)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="server-list-bottom">
+            <div className="add-server" onClick={addServer} title="Add Server">
+              <span className="add-server-icon">+</span>
+            </div>
+            <div className="account-btn" onClick={openAccountSettings} title="Account">
+              <i className="fas fa-user"></i>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSidebarPanel && (
         <>
-          <div className="sidebar" style={{ width: `${sidebarWidth}px` }}>
+          <div
+            className={`sidebar ${isMobile ? 'mobile-drawer' : ''} ${showMobileSidebar ? 'mobile-open' : ''} ${isMobile && showMobileServerList ? 'mobile-offset' : ''}`}
+            style={!isMobile ? { width: `${sidebarWidth}px` } : undefined}
+          >
+            {isMobile && (
+              <button
+                className="mobile-close"
+                onClick={() => {
+                  setShowMobileSidebar(false);
+                  setShowMobileServerList(false);
+                }}
+                aria-label="Close channel list"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            )}
             <div className="server-header">
               <h2>{currentServerName}</h2>
-              <button className="collapse-btn" onClick={toggleSidebar} title="Collapse Sidebar">
-                <i className="fas fa-chevron-left"></i>
-              </button>
+              {!isMobile && (
+                <button className="collapse-btn" onClick={toggleSidebar} title="Collapse Sidebar">
+                  <i className="fas fa-chevron-left"></i>
+                </button>
+              )}
             </div>
 
             <div className="channels-list">
@@ -722,14 +839,36 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                         <span className="section-name">{section.name}</span>
                         <button 
                           className="section-plus-btn" 
-                          onClick={() => {
-                            const name = prompt('Channel name:');
-                            if (name) createChannel(name, 'text', section.id).then(() => loadChannelsAndSections());
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveAddMenu(prev => prev === section.id ? null : section.id);
                           }}
                           title="Add Channel"
                         >
                           +
                         </button>
+                        {activeAddMenu === section.id && (
+                          <div className="section-menu">
+                            <button
+                              onClick={() => {
+                                const name = prompt('Channel name:');
+                                if (name) createChannel(name, 'text', section.id).then(() => loadChannelsAndSections());
+                                setActiveAddMenu(null);
+                              }}
+                            >
+                              Add Channel
+                            </button>
+                            <button
+                              onClick={() => {
+                                const name = prompt('Section name:');
+                                if (name) createSection(name).then(() => loadChannelsAndSections());
+                                setActiveAddMenu(null);
+                              }}
+                            >
+                              Add Section
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <div className="section-channels">
                         {sectionChannels
@@ -787,25 +926,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 </div>
               )}
             </div>
-
-            <div className="channel-actions">
-              <button className="add-section-btn" onClick={() => {
-                const name = prompt('Section name:');
-                if (name) createSection(name).then(() => loadChannelsAndSections());
-              }} title="Add Section">
-                <span className="plus-icon">+</span>
-                Add Section
-              </button>
-            </div>
           </div>
-          <div
-            className="resize-handle sidebar-resize"
-            onMouseDown={handleSidebarResizeStart}
-          />
+          {!isMobile && (
+            <div
+              className="resize-handle sidebar-resize"
+              onMouseDown={handleSidebarResizeStart}
+            />
+          )}
         </>
       )}
 
-      {sidebarCollapsed && (
+      {!isMobile && sidebarCollapsed && (
         <div className="sidebar-collapsed">
           <button className="expand-btn" onClick={toggleSidebar} title="Expand Sidebar">
             <i className="fas fa-chevron-right"></i>
@@ -817,7 +948,18 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         {isSwitchingServer && (
           <LoadingScreen type="server-switch" />
         )}
-        <div className="channel-header">
+          <div className="channel-header">
+            {showMobileNavButtons && (
+              <div className="mobile-nav">
+            <button
+              className="mobile-nav-btn"
+              onClick={toggleMobileNavPanels}
+              aria-label="Open server and channel list"
+            >
+              <i className="fas fa-bars"></i>
+            </button>
+              </div>
+            )}
           <h3>
             {currentChannel && (
               <>
@@ -830,6 +972,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
               </>
             )}
           </h3>
+            {showMobileNavButtons && (
+              <div className="mobile-nav right">
+                <button
+                  className="mobile-nav-btn"
+                  onClick={toggleMobileMembers}
+                  aria-label="Open member list"
+                >
+                  <i className="fas fa-users"></i>
+                </button>
+              </div>
+            )}
         </div>
 
         <div className="message-list">
@@ -840,7 +993,11 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
           <div className="message-input-container">
             <button 
               className="message-options-btn"
-              onClick={() => setShowMessageOptions(!showMessageOptions)}
+              onClick={() => {
+                setShowMessageOptions(!showMessageOptions);
+                setShowEmotePicker(false);
+                setShowGifPicker(false);
+              }}
               title="Message Options"
             >
               <i className="fas fa-plus"></i>
@@ -851,19 +1008,36 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
               onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
               placeholder={`Message #${currentChannel?.name || 'general'}`}
             />
+            <div className="message-function-tray">
+              <button className="tray-btn emote-btn" onClick={openEmojiPicker} title="Add Emoji">
+                <i className="far fa-smile"></i>
+              </button>
+              <button className="tray-btn gif-btn" onClick={openGifPicker} title="Add GIF">
+                <i className="fas fa-film"></i>
+              </button>
+            </div>
             <button className="send-btn" onClick={() => sendMessage()} title="Send Message">
               <i className="fas fa-paper-plane"></i>
             </button>
           </div>
           
+          {showEmotePicker && (
+            <EmotePicker
+              onSelect={handleEmoteSelect}
+              onClose={() => setShowEmotePicker(false)}
+              servers={servers}
+            />
+          )}
+
+          {showGifPicker && (
+            <GifPicker
+              onSelect={handleGifSelect}
+              onClose={() => setShowGifPicker(false)}
+            />
+          )}
+
           {showMessageOptions && (
             <div className="message-options-menu">
-              <button onClick={openEmojiPicker} title="Add Emoji">
-                <i className="fas fa-smile"></i> Emoji
-              </button>
-              <button onClick={openGifPicker} title="Add GIF">
-                <i className="fas fa-film"></i> GIF
-              </button>
               <button onClick={handleImageUpload} title="Upload Image">
                 <i className="fas fa-image"></i> Upload Image
               </button>
@@ -878,18 +1052,34 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         </div>
       </div>
 
-      {!userListCollapsed && (
+      {showUserListPanel && (
         <>
+          {!isMobile && (
+            <div
+              className="resize-handle userlist-resize"
+              onMouseDown={handleUserListResizeStart}
+            />
+          )}
           <div
-            className="resize-handle userlist-resize"
-            onMouseDown={handleUserListResizeStart}
-          />
-          <div className="user-list" style={{ width: `${userListWidth}px` }}>
+            className={`user-list ${isMobile ? 'mobile-drawer' : ''} ${showMobileUserList ? 'mobile-open' : ''}`}
+            style={!isMobile ? { width: `${userListWidth}px` } : undefined}
+          >
+            {isMobile && (
+              <button
+                className="mobile-close"
+                onClick={() => setShowMobileUserList(false)}
+                aria-label="Close member list"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            )}
             <div className="user-list-header">
               <h3>Online — {users.filter(u => u.status !== 'offline').length}</h3>
-              <button className="collapse-btn" onClick={toggleUserList} title="Collapse User List">
-                <i className="fas fa-chevron-right"></i>
-              </button>
+              {!isMobile && (
+                <button className="collapse-btn" onClick={toggleUserList} title="Collapse User List">
+                  <i className="fas fa-chevron-right"></i>
+                </button>
+              )}
             </div>
             <div className="user-list-content">
               {users
@@ -917,7 +1107,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         </>
       )}
 
-      {userListCollapsed && (
+      {!isMobile && userListCollapsed && (
         <div className="user-list-collapsed">
           <button className="expand-btn" onClick={toggleUserList} title="Expand User List">
             <i className="fas fa-chevron-left"></i>

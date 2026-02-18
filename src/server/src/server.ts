@@ -94,7 +94,7 @@ export class Server {
   private whitelist: Set<string> = new Set();
   private blacklist: Set<string> = new Set();
   private pluginManager: SecurePluginManager;
-  private emotes: Map<string, string> = new Map(); // name -> filename
+  private emotes: Map<string, { filename: string, serverId: string }> = new Map(); // name -> {filename, serverId}
   private channels: Map<string, Channel> = new Map();
   private sections: Map<string, ChannelSection> = new Map();
   private messages: Map<string, TypedMessage[]> = new Map(); // channelId -> messages[]
@@ -301,14 +301,15 @@ export class Server {
       const filename = `${name}${ext}`;
       const filepath = path.join(__dirname, '../emotes', filename);
       fs.renameSync(req.file.path, filepath);
-      this.emotes.set(name, filename);
-      res.send({ name, url: `/emotes/${filename}` });
+      this.emotes.set(name, { filename, serverId: this.serverId });
+      res.send({ name, url: `/emotes/${filename}`, serverId: this.serverId });
     });
 
     this.app.get('/emotes-list', (req, res) => {
-      const list = Array.from(this.emotes.entries()).map(([name, filename]) => ({
+      const list = Array.from(this.emotes.entries()).map(([name, emoteData]) => ({
         name,
-        url: `/emotes/${filename}`
+        url: `/emotes/${emoteData.filename}`,
+        serverId: emoteData.serverId
       }));
       res.send(list);
     });
@@ -631,9 +632,9 @@ export class Server {
 
   private parseEmotes(content: string): string {
     let parsed = content;
-    for (const [name, filename] of this.emotes) {
+    for (const [name, emoteData] of this.emotes) {
       const regex = new RegExp(`:${name}:`, 'g');
-      parsed = parsed.replace(regex, `<img src="/emotes/${filename}" alt="${name}" class="emote">`);
+      parsed = parsed.replace(regex, `<img src="/emotes/${emoteData.filename}" alt="${name}" class="emote">`);
     }
     return parsed;
   }
