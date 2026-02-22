@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import Page from '../components/Page';
+import Toggle from '../components/Toggle';
+import Button from '../components/Button';
+import Select from '../components/Select';
 
 interface SettingsPageProps {
   userName?: string;
@@ -56,14 +59,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <h1>Account & Appearance</h1>
               <p>Tune your profile, typography, and theme — changes apply instantly.</p>
               <div className="hero-actions">
-                <button className="primary" onClick={onSave}>
-                  <i className="fas fa-save"></i>
+                <Button variant="primary" onClick={onSave} iconLeft={<i className="fas fa-save"></i>}>
                   Save changes
-                </button>
-                <button className="ghost" onClick={onLogout}>
-                  <i className="fas fa-sign-out-alt"></i>
-                  Sign out
-                </button>
+                </Button>
+                <Button variant="ghost" onClick={onLogout} iconLeft={<i className="fas fa-sign-out-alt"></i>}>
+                  Log out
+                </Button>
               </div>
             </div>
             <div className="hero-visual">
@@ -98,12 +99,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             </label>
             <label className="field">
               <span>Status</span>
-              <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
+              <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
                 <option value="online">Online</option>
                 <option value="idle">Idle</option>
                 <option value="dnd">Do Not Disturb</option>
                 <option value="offline">Offline</option>
-              </select>
+              </Select>
             </label>
           </div>
         </div>
@@ -119,11 +120,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           <div className="card-body">
             <label className="field">
               <span>Theme</span>
-              <select value={themeId} onChange={(e) => onThemeChange(e.target.value)}>
+              <Select value={themeId} onChange={(e) => onThemeChange(e.target.value)}>
                 {availableThemes.map(theme => (
                   <option key={theme.id} value={theme.id}>{theme.name}</option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>Mode</span>
@@ -144,28 +145,20 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 </button>
               </div>
             </label>
-            <div className="field toggle-row">
-              <div className="toggle-copy">
-                <span>Modern surfaces</span>
-                <p className="hint">Enable the soft 3D styling for inputs, panels, and cards.</p>
-              </div>
-              <button
-                type="button"
-                className={`ios-toggle ${soft3DEnabled ? 'on' : 'off'}`}
-                role="switch"
-                aria-checked={soft3DEnabled}
-                onClick={() => onToggleSoft3D(!soft3DEnabled)}
-              >
-                <span className="thumb" />
-              </button>
-            </div>
+            <Toggle
+              className="field"
+              label="Modern surfaces"
+              description="Enable the soft 3D styling for inputs, panels, and cards."
+              checked={soft3DEnabled}
+              onChange={onToggleSoft3D}
+            />
             <label className="field">
               <span>App font</span>
-              <select value={fontId} onChange={(e) => onFontChange(e.target.value)}>
+              <Select value={fontId} onChange={(e) => onFontChange(e.target.value)}>
                 {availableFonts.map(font => (
                   <option key={font.id} value={font.id}>{font.label}</option>
                 ))}
-              </select>
+              </Select>
             </label>
           </div>
         </div>

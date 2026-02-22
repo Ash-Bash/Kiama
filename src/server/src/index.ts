@@ -15,8 +15,9 @@ program
   .option('-p, --port <port>', 'Port to listen on', '3000')
   .option('--public', 'Make server public')
   .option('--private', 'Make server private')
+  .option('--password <password>', 'Optional server join password')
   .action((options) => {
-    const server = new Server(options.port, options.public ? 'public' : 'private');
+    const server = new Server(options.port, options.public ? 'public' : 'private', undefined, options.password);
     server.start();
   });
 

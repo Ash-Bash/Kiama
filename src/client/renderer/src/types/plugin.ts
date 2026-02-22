@@ -86,7 +86,9 @@ export interface ChannelPermissions {
   read: boolean;
   write: boolean;
   manage: boolean;
-  roles?: string[];
+  roles?: string[]; // legacy combined gate
+  readRoles?: string[]; // roles allowed to read
+  writeRoles?: string[]; // roles allowed to write
 }
 
 export interface SectionPermissions {

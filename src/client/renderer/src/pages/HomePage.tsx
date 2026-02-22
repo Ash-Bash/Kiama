@@ -1,4 +1,5 @@
 import React from 'react';
+import Button from '../components/Button';
 import Page from '../components/Page';
 
 interface Server {
@@ -40,22 +41,18 @@ const HomePage: React.FC<HomePageProps> = ({
           <h1>Welcome back{user?.name ? `, ${user.name}` : ''}</h1>
           <p>Pick a quick action to jump into a server or tune your space.</p>
           <div className="hero-actions">
-            <button className="primary" onClick={addServer}>
-              <i className="fas fa-plus-circle"></i>
-              Create a server
-            </button>
-            <button className="secondary" onClick={() => switchServer('test-server')}>
-              <i className="fas fa-comments"></i>
-              Enter Test Server
-            </button>
-            <button className="secondary" onClick={joinServer}>
-              <i className="fas fa-sign-in-alt"></i>
-              Join with invite
-            </button>
-            <button className="ghost" onClick={openAccountSettings}>
-              <i className="fas fa-user-cog"></i>
-              Account & theme
-            </button>
+              <Button variant="primary" onClick={addServer} iconLeft={<i className="fas fa-plus-circle"></i>}>
+                Create a server
+              </Button>
+              <Button variant="secondary" onClick={() => switchServer('test-server')} iconLeft={<i className="fas fa-comments"></i>}>
+                Enter Test Server
+              </Button>
+              <Button variant="secondary" onClick={joinServer} iconLeft={<i className="fas fa-sign-in-alt"></i>}>
+                Join with invite
+              </Button>
+              <Button variant="ghost" onClick={openAccountSettings} iconLeft={<i className="fas fa-user-cog"></i>}>
+                Account & theme
+              </Button>
           </div>
         </div>
 

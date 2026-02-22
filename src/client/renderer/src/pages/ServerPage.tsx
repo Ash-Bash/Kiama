@@ -11,6 +11,21 @@ interface Server {
   url: string;
 }
 
+interface PickerEmote {
+  name: string;
+  url: string;
+  unicode?: string;
+  serverId?: string;
+  serverName?: string;
+}
+
+interface PickerGif {
+  id: string;
+  url: string;
+  preview: string;
+  title: string;
+}
+
 interface ServerPageProps {
   showMobileNavButtons: boolean;
   onToggleNavPanels: () => void;
@@ -19,7 +34,7 @@ interface ServerPageProps {
   currentMessages: TypedMessage[];
   renderMessage: (msg: TypedMessage) => React.ReactNode;
   message: string;
-  onMessageChange: (value: string) => void;
+  onMessageChange: (val: string) => void;
   onSendMessage: () => void;
   showMessageOptions: boolean;
   onToggleMessageOptions: () => void;
@@ -29,8 +44,8 @@ interface ServerPageProps {
   closeGifPicker: () => void;
   showEmotePicker: boolean;
   showGifPicker: boolean;
-  handleEmoteSelect: (emote: { name: string; unicode?: string }) => void;
-  handleGifSelect: (gif: { url: string; title: string }) => void;
+  handleEmoteSelect: (emote: PickerEmote) => void;
+  handleGifSelect: (gif: PickerGif) => void;
   handleImageUpload: () => void;
   handleFileUpload: () => void;
   sendPollMessage: () => void;
@@ -61,7 +76,7 @@ const ServerPage: React.FC<ServerPageProps> = ({
   handleImageUpload,
   handleFileUpload,
   sendPollMessage,
-  servers,
+  servers
 }) => {
   return (
     <Page

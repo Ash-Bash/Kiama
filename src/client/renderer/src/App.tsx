@@ -10,6 +10,8 @@ import TitleBar from './components/TitleBar';
 import HomePage from './pages/HomePage';
 import ServerPage from './pages/ServerPage';
 import SettingsPage from './pages/SettingsPage';
+import ServerSettingsPage from './pages/ServerSettingsPage';
+import Select from './components/Select';
 import './styles/App.scss';
 
 const socket = io('http://localhost:3000');
@@ -25,6 +27,23 @@ interface Server {
   url: string;
 }
 
+interface Role {
+  id: string;
+  name: string;
+  color?: string;
+  permissions?: RolePermissions;
+}
+
+interface RolePermissions {
+  manageServer: boolean;
+  manageChannels: boolean;
+  manageRoles: boolean;
+  kickMembers: boolean;
+  banMembers: boolean;
+  sendMessages: boolean;
+  viewChannels: boolean;
+}
+
 interface User {
   id: string;
   name: string;
@@ -34,7 +53,7 @@ interface User {
   accessibleChannels?: string[];
 }
 
-type ActiveView = 'home' | 'server' | 'settings';
+type ActiveView = 'home' | 'server' | 'settings' | 'server-settings';
 
 // Main renderer shell that wires sockets, plugins, and page layout together.
 function AppContent({ token, user, onLogout }: { token: string; user: any; onLogout: () => void }) {
@@ -125,6 +144,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [showMessageOptions, setShowMessageOptions] = useState(false);
   const [showEmotePicker, setShowEmotePicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
+  const [showServerMenu, setShowServerMenu] = useState(false);
   const [isSwitchingServer, setIsSwitchingServer] = useState(false);
   const [soft3DEnabled, setSoft3DEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
@@ -141,6 +161,11 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [showMobileUserList, setShowMobileUserList] = useState(false);
   const [activeAddMenu, setActiveAddMenu] = useState<string | null>(null);
   const [userSidebarTab, setUserSidebarTab] = useState<'members' | 'metrics'>('members');
+  const [serverRoles, setServerRoles] = useState<Role[]>([]);
+  const [serverSettingsChannelId, setServerSettingsChannelId] = useState<string>('');
+  const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null);
+  const [serverSettingsLoading, setServerSettingsLoading] = useState(false);
+  const [serverPasswordRequired, setServerPasswordRequired] = useState<boolean | null>(null);
 
   // Sync settings with current values
   React.useEffect(() => {
@@ -180,6 +205,13 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    setShowServerMenu(false);
+  }, [currentServerId]);
+
+  const toggleServerMenu = () => setShowServerMenu(prev => !prev);
+  const closeServerMenu = () => setShowServerMenu(false);
 
   // Generate compact server initials for the sidebar badges.
   const generateServerInitials = (serverName: string): string => {
@@ -343,6 +375,126 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
     if (viewportWidth <= 768) {
       setShowMobileSidebar(false);
+    }
+  };
+
+  // Open the server settings view and preload roles + the first channel.
+  const openServerSettings = async () => {
+    const server = servers.find(s => s.id === currentServerId && s.id !== 'home');
+    if (!server) return;
+
+    const serverChannels = channels.filter(c => c.serverId === server.id);
+    setServerSettingsChannelId(serverChannels[0]?.id || '');
+    setServerSettingsServerId(server.id);
+    setActiveView('server-settings');
+    setServerSettingsLoading(true);
+
+    try {
+      const res = await fetch(`${server.url}/roles`);
+      if (res.ok) {
+        const data = await res.json();
+        setServerRoles(data.roles || []);
+      } else {
+        setServerRoles([]);
+      }
+    } catch (error) {
+      console.error('Failed to load roles', error);
+      setServerRoles([]);
+    }
+
+    try {
+      const res = await fetch(`${server.url}/server/password/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: '' })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.required === 'boolean') {
+          setServerPasswordRequired(data.required);
+        }
+      } else {
+        setServerPasswordRequired(null);
+      }
+    } catch (error) {
+      console.warn('Could not determine password requirement', error);
+      setServerPasswordRequired(null);
+    }
+
+    setServerSettingsLoading(false);
+  };
+
+  const closeServerSettings = () => {
+    setActiveView('server');
+  };
+
+  // Persist channel permission changes to the server and update local state.
+  const saveChannelPermissions = async (channelId: string, readRoles: string[], writeRoles: string[]) => {
+    const serverId = serverSettingsServerId || currentServerId;
+    const server = servers.find(s => s.id === serverId);
+    if (!server) return;
+
+    try {
+      const res = await fetch(`${server.url}/channels/${channelId}/permissions`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ readRoles, writeRoles })
+      });
+
+      if (!res.ok) {
+        console.error('Failed to update channel permissions');
+      }
+
+      setChannels(prev => prev.map(channel => {
+        if (channel.id !== channelId) return channel;
+        const basePerms = channel.permissions || { read: true, write: true, manage: false };
+        return {
+          ...channel,
+          permissions: {
+            ...basePerms,
+            readRoles,
+            writeRoles
+          }
+        };
+      }));
+    } catch (error) {
+      console.error('Error updating channel permissions', error);
+    }
+  };
+
+  // Create a new server role with server-wide permission flags and merge into local state.
+  const createServerRole = async (input: { name: string; color?: string; permissions: RolePermissions }) => {
+    const serverId = serverSettingsServerId || currentServerId;
+    const server = servers.find(s => s.id === serverId);
+    if (!server) return;
+
+    try {
+      const res = await fetch(`${server.url}/roles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input)
+      });
+
+      if (!res.ok) {
+        console.error('Failed to create role');
+        return;
+      }
+
+      const created = await res.json();
+      setServerRoles(prev => [...prev, created]);
+    } catch (error) {
+      console.error('Failed to create role', error);
+    }
+  };
+
+  const leaveServer = (serverId: string) => {
+    setServers(prev => prev.filter(s => s.id !== serverId));
+
+    if (serverId === currentServerId) {
+      setCurrentServerId('home');
+      setActiveView('home');
+      setCurrentChannelId('');
+      closeMobileDrawers();
     }
   };
 
@@ -663,11 +815,11 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
           </div>
           <div className="form-group">
             <label htmlFor="channel-type">Channel Type</label>
-            <select id="channel-type" name="type" defaultValue="text">
+            <Select id="channel-type" name="type" defaultValue="text">
               <option value="text">Text Channel</option>
               <option value="voice">Voice Channel</option>
               <option value="announcement">Announcement Channel</option>
-            </select>
+            </Select>
           </div>
           <div className="modal-actions">
             <button type="button" onClick={closeModal}>Cancel</button>
@@ -879,9 +1031,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const isHomeView = activeView === 'home';
   const isSettingsView = activeView === 'settings';
   const isServerView = activeView === 'server';
+  const isServerSettingsView = activeView === 'server-settings';
   const showMobileNavButtons = viewportWidth <= 1100;
   const showServerListPanel = !isMobile || showMobileServerList;
-  const showSidebarPanel = isServerView && ((!sidebarCollapsed && !isMobile) || (isMobile && showMobileSidebar));
+  const showSidebarPanel = (isServerView || isServerSettingsView) && ((!sidebarCollapsed && !isMobile) || (isMobile && showMobileSidebar));
   const showUserListPanel = isServerView && ((!userListCollapsed && !isMobile) || (isMobile && showMobileUserList));
 
   // Dismiss all mobile drawers at once.
@@ -918,6 +1071,9 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const currentServerObj = servers.find(s => s.id === currentServerId);
   const currentServerName = currentServerObj?.name || 'Home';
   const nonHomeServers = servers.filter(s => s.id !== 'home');
+  const settingsServer = servers.find(s => s.id === (serverSettingsServerId || currentServerId)) || currentServerObj || null;
+  const settingsChannels = channels.filter(c => c.serverId === (settingsServer?.id || currentServerId));
+  const selectedSettingsChannelId = serverSettingsChannelId || settingsChannels[0]?.id || '';
   const currentChannel = channels.find(c => c.id === currentChannelId && c.serverId === currentServerId);
   const currentMessages = messages.get(currentChannelId) || [];
   const currentChannelMedia = currentChannelId ? collectMediaItemsForChannel(currentChannelId).slice(0, 10) : [];
@@ -1064,7 +1220,28 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
               </button>
             )}
             <div className="server-header">
-              <h2>{currentServerName}</h2>
+              <div className="server-header-left">
+                <h2>{currentServerName}</h2>
+                <div className="server-header-actions">
+                  <button
+                    className="server-menu-btn"
+                    onClick={toggleServerMenu}
+                    title="Server menu"
+                  >
+                    <i className="fas fa-cog"></i>
+                  </button>
+                  {showServerMenu && (
+                    <div className="server-menu" onMouseLeave={closeServerMenu}>
+                      <button onClick={() => { openServerSettings(); closeServerMenu(); }}>
+                        <i className="fas fa-sliders-h"></i> Server settings
+                      </button>
+                      <button className="danger" onClick={() => { leaveServer(currentServerId); closeServerMenu(); }}>
+                        <i className="fas fa-sign-out-alt"></i> Leave {currentServerName}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
               {!isMobile && (
                 <button className="collapse-btn" onClick={toggleSidebar} title="Collapse Sidebar">
                   <i className="fas fa-chevron-left"></i>
@@ -1220,6 +1397,19 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
             switchServer={switchServer}
             openAccountSettings={openAccountSettings}
             generateServerInitials={generateServerInitials}
+          />
+        ) : isServerSettingsView && settingsServer ? (
+          <ServerSettingsPage
+            server={settingsServer}
+            channels={settingsChannels}
+            roles={serverRoles}
+            selectedChannelId={selectedSettingsChannelId}
+            onSelectChannel={(id) => setServerSettingsChannelId(id)}
+            onSavePermissions={saveChannelPermissions}
+            onBack={closeServerSettings}
+            loading={serverSettingsLoading}
+            passwordRequired={serverPasswordRequired}
+            onCreateRole={createServerRole}
           />
         ) : (
           <ServerPage

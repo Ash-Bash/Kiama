@@ -1,0 +1,100 @@
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+
+  &.inline {
+    justify-content: flex-start;
+  }
+
+  .toggle-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    span {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .hint {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+  }
+
+  .toggle-control {
+    flex-shrink: 0;
+  }
+
+  .ios-toggle {
+    position: relative;
+    width: 48px;
+    height: 28px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--tertiary-bg);
+    box-shadow: none;
+    padding: 2px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .ios-toggle .thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: none;
+    transition: transform 0.18s ease, background 0.18s ease;
+  }
+
+  .ios-toggle.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: none;
+  }
+
+  .ios-toggle.on .thumb {
+    transform: translateX(20px);
+    background: #fff;
+  }
+
+  .ios-toggle.small {
+    width: 42px;
+    height: 24px;
+  }
+
+  .ios-toggle.small .thumb {
+    width: 20px;
+    height: 20px;
+  }
+
+  .ios-toggle.small.on .thumb {
+    transform: translateX(16px);
+  }
+
+  .ios-toggle:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.field.toggle-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.field.toggle-row.inline {
+  justify-content: flex-start;
+}
