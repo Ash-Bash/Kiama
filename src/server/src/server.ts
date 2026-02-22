@@ -84,6 +84,7 @@ export interface SystemStats {
   loadAverage: number[]; // 1, 5, 15 minute averages
 }
 
+/** Core KIAMA server implementation backed by Express and Socket.IO. */
 export class Server {
   private app: express.Application;
   private server: http.Server;
@@ -102,6 +103,7 @@ export class Server {
   private systemStats: SystemStats | null = null;
   private statsInterval: NodeJS.Timeout | null = null;
 
+  /** Configure network listeners, plugin manager, and defaults. */
   constructor(port: number, mode: 'public' | 'private', serverId?: string) {
     this.port = port;
     this.mode = mode;
@@ -164,6 +166,7 @@ export class Server {
     this.startSystemMonitoring();
   }
 
+  /** Create the emotes directory if it does not already exist. */
   private ensureEmotesDir() {
     const emotesDir = path.join(__dirname, '../emotes');
     if (!fs.existsSync(emotesDir)) {
@@ -171,6 +174,7 @@ export class Server {
     }
   }
 
+  /** Begin periodic system stats collection for the health endpoint. */
   private startSystemMonitoring() {
     // Update stats immediately
     this.updateSystemStats();
@@ -181,6 +185,7 @@ export class Server {
     }, 30000);
   }
 
+  /** Collect CPU, memory, and storage stats for status reporting. */
   private updateSystemStats() {
     try {
       // CPU Information
@@ -224,6 +229,10 @@ export class Server {
     }
   }
 
+  /**
+   * Rough disk usage approximation. Replace with a richer implementation when
+   * moving beyond demos.
+   */
   private getDiskUsage(): { total: number; used: number; free: number; usage: number } {
     try {
       // This is a simplified implementation
@@ -240,10 +249,12 @@ export class Server {
     }
   }
 
+  /** Retrieve the latest cached system stats snapshot. */
   public getSystemStats(): SystemStats | null {
     return this.systemStats;
   }
 
+  /** Seed the server with starter sections and channels. */
   private initializeDefaultChannels() {
     // Create default sections
     const generalSection: ChannelSection = {
@@ -286,6 +297,7 @@ export class Server {
     this.messages.set(announcementsChannel.id, []);
   }
 
+  /** Wire up REST endpoints for media, plugins, channels, and moderation. */
   private setupRoutes() {
     this.app.use(express.json());
     this.app.use('/emotes', express.static(path.join(__dirname, '../emotes')));
@@ -525,6 +537,7 @@ export class Server {
     });
   }
 
+  /** Determine the next channel position within a section. */
   private getNextChannelPosition(sectionId?: string): number {
     const channelsInSection = Array.from(this.channels.values())
       .filter(channel => channel.sectionId === sectionId)
@@ -533,11 +546,13 @@ export class Server {
     return channelsInSection.length > 0 ? Math.max(...channelsInSection) + 1 : 0;
   }
 
+  /** Determine the next position when creating a new section. */
   private getNextSectionPosition(): number {
     const sectionPositions = Array.from(this.sections.values()).map(section => section.position);
     return sectionPositions.length > 0 ? Math.max(...sectionPositions) + 1 : 0;
   }
 
+  /** Configure Socket.IO authentication and event handlers. */
   private setupSocket() {
     // Authentication middleware
     this.io.use((socket, next) => {
@@ -630,6 +645,7 @@ export class Server {
     });
   }
 
+  /** Swap :emote: tokens with actual emote image tags. */
   private parseEmotes(content: string): string {
     let parsed = content;
     for (const [name, emoteData] of this.emotes) {
@@ -639,16 +655,19 @@ export class Server {
     return parsed;
   }
 
+  /** Start listening for HTTP and Socket.IO traffic. */
   public start() {
     this.server.listen(this.port, () => {
       console.log(`KIAMA server running on port ${this.port} in ${this.mode} mode`);
     });
   }
 
+  /** Add a username to the allowlist. */
   public addToWhitelist(user: string) {
     this.whitelist.add(user);
   }
 
+  /** Add a username to the blocklist. */
   public addToBlacklist(user: string) {
     this.blacklist.add(user);
   }

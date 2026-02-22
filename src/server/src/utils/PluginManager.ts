@@ -42,11 +42,13 @@ class SecurePluginManager {
   private pluginVMs: Map<string, vm.Context> = new Map();
   private publicKey: string; // For signature verification
 
+  /** Store the API surface and optional public key used to verify plugins. */
   constructor(api: ServerPluginAPI, publicKey?: string) {
     this.api = api;
     this.publicKey = publicKey || process.env.PLUGIN_PUBLIC_KEY || '';
   }
 
+  /** Load bundled server plugins and register their handlers. */
   loadPlugins() {
     // Load server-side plugins only - these do NOT run on the client side
     // Server plugins provide backend functionality and are bundled with the server
@@ -77,6 +79,7 @@ class SecurePluginManager {
     console.log(`Server plugins loaded: ${this.plugins.length} plugins active`);
   }
 
+  /** Load plugin JS files shipped alongside the server build. */
   private loadBundledPlugin() {
     // Load plugins from the dist/server/plugins/ directory
     try {
@@ -127,6 +130,7 @@ class SecurePluginManager {
     }
   }
 
+  /** Verify and load a plugin from disk, optionally enforcing checksums/signatures. */
   private loadSecurePlugin(pluginPath: string) {
     try {
       // Read plugin file
@@ -178,6 +182,7 @@ class SecurePluginManager {
     }
   }
 
+  /** Parse plugin metadata from a PLUGIN_METADATA comment block. */
   private extractPluginMetadata(code: string): PluginMetadata | null {
     // Simple metadata extraction - plugins should have a comment block with metadata
     const metadataMatch = code.match(/\/\*\s*PLUGIN_METADATA\s*([\s\S]*?)\*\//);
@@ -193,6 +198,10 @@ class SecurePluginManager {
     }
   }
 
+  /**
+   * Create a plugin-scoped API wrapper that only exposes capabilities the
+   * plugin has been granted permission to use.
+   */
   private createRestrictedAPI(permissions: PluginPermissions): Partial<ServerPluginAPI> {
     const restrictedAPI: Partial<ServerPluginAPI> = {};
 
@@ -240,6 +249,7 @@ class SecurePluginManager {
     return restrictedAPI;
   }
 
+  /** Register a server plugin and invoke its init hook if enabled. */
   registerPlugin(plugin: ServerPlugin, metadata: PluginMetadata) {
     this.plugins.push(plugin);
     // Initialize plugin if enabled (default to enabled)
@@ -249,6 +259,7 @@ class SecurePluginManager {
     }
   }
 
+  /** Register metadata for server-provided client plugins by message type. */
   registerClientPlugin(metadata: ClientPluginMetadata) {
     // Register client plugins by message type
     metadata.messageTypes.forEach(type => {
@@ -258,6 +269,7 @@ class SecurePluginManager {
   }
 
   // Enable/disable a server plugin
+  /** Enable or disable a server plugin by name. */
   setPluginEnabled(pluginName: string, enabled: boolean): boolean {
     const plugin = this.plugins.find(p => p.name === pluginName);
     if (plugin) {
@@ -269,6 +281,7 @@ class SecurePluginManager {
   }
 
   // Enable/disable a client plugin (server-provided)
+  /** Enable or disable a server-provided client plugin by name. */
   setClientPluginEnabled(pluginName: string, enabled: boolean): boolean {
     // Find the plugin in clientPlugins
     for (const [type, metadata] of this.clientPlugins) {
@@ -281,23 +294,28 @@ class SecurePluginManager {
     return false;
   }
 
+  /** Return currently enabled server plugins. */
   getEnabledPlugins(): ServerPlugin[] {
     return this.plugins.filter(plugin => plugin.enabled !== false);
   }
 
+  /** Return currently enabled client plugin metadata. */
   getEnabledClientPlugins(): ClientPluginMetadata[] {
     return Array.from(this.clientPlugins.values()).filter(plugin => plugin.enabled !== false);
   }
 
+  /** Return all registered client plugin metadata regardless of enabled state. */
   getClientPlugins(): ClientPluginMetadata[] {
     return Array.from(this.clientPlugins.values());
   }
 
+  /** Look up a client plugin for a specific message type. */
   getClientPluginForType(messageType: string): ClientPluginMetadata | undefined {
     return this.clientPlugins.get(messageType);
   }
 
   // Get UI configuration for all enabled server plugins that have UI components
+  /** Aggregate UI configuration contributed by enabled plugins. */
   getPluginUIConfig(): { [pluginName: string]: ClientPluginMetadata['ui'] } {
     const uiConfig: { [pluginName: string]: ClientPluginMetadata['ui'] } = {};
 
@@ -319,6 +337,7 @@ class SecurePluginManager {
   }
 
   // Kill switch - disable all plugins
+  /** Kill-switch that disables every registered plugin. */
   emergencyShutdown() {
     console.log('EMERGENCY: Disabling all plugins');
     this.plugins.forEach(plugin => {

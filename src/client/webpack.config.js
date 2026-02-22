@@ -3,6 +3,8 @@ const fs = require('fs');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 
+// Webpack config for the Electron renderer that also builds every client plugin entrypoint.
+
 // Dynamically create entries for main app and plugins
 const entries = {
   'bundle': './renderer/src/index.tsx', // Main client entry

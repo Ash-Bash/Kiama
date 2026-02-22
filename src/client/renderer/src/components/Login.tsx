@@ -5,6 +5,7 @@ interface LoginProps {
   onLogin: (token: string, user: any) => void;
 }
 
+// Simple auth form that can register or login against the auth service.
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [isRegister, setIsRegister] = useState(false);
   const [username, setUsername] = useState('');
@@ -12,6 +13,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
+  // Submit credentials to the auth API and propagate the token upward.
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');

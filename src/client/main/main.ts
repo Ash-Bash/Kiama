@@ -3,6 +3,7 @@ import * as path from 'path';
 
 let mainWindow: BrowserWindow | null = null;
 
+// Spawn the frameless Electron browser window hosting the renderer bundle.
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -22,6 +23,7 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
+  // Relay window control button presses from the renderer to Electron.
   ipcMain.on('window-control', (event, action: 'minimize' | 'maximize' | 'close' | 'restore') => {
     const targetWindow = BrowserWindow.fromWebContents(event.sender) || mainWindow;
     if (!targetWindow) return;

@@ -1,0 +1,47 @@
+{
+  "name": "Luna",
+  "modes": {
+    "light": {
+      "colors": {
+        "primary-bg": "#f4f6fb",
+        "secondary-bg": "#e7ecf5",
+        "tertiary-bg": "#d3dbec",
+        "text-primary": "#101629",
+        "text-secondary": "#4b5775",
+        "accent": "#7f9cf5",
+        "accent-hover": "#6a85e6",
+        "border": "#c8d2e5",
+        "hover": "#e9edf7",
+        "scrollbar-track": "#dfe6f3",
+        "scrollbar-thumb": "#bfcbe0",
+        "scrollbar-thumb-hover": "#a7b6d8",
+        "error": "#e74c3c",
+        "success": "#2ecc71",
+        "warning": "#f1c40f",
+        "idle": "#9b59b6",
+        "offline": "#95a5a6"
+      }
+    },
+    "dark": {
+      "colors": {
+        "primary-bg": "#0b1224",
+        "secondary-bg": "#0f1a33",
+        "tertiary-bg": "#152140",
+        "text-primary": "#e5ecff",
+        "text-secondary": "#a9b5d6",
+        "accent": "#8aa4ff",
+        "accent-hover": "#708bff",
+        "border": "#1f2b4a",
+        "hover": "#1a2744",
+        "scrollbar-track": "#101a32",
+        "scrollbar-thumb": "#2b3a5c",
+        "scrollbar-thumb-hover": "#3a4a70",
+        "error": "#ff6b6b",
+        "success": "#2ecc71",
+        "warning": "#f2c94c",
+        "idle": "#9b59b6",
+        "offline": "#5f6b8a"
+      }
+    }
+  }
+}

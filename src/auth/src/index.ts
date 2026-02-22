@@ -5,10 +5,10 @@ import { AuthServer } from './authServer';
 const app = express();
 const port = process.env.PORT || 3003;
 
-// Initialize auth server
+// Initialize auth server that will back all API routes
 const authServer = new AuthServer();
 
-// Middleware
+// Middleware for parsing JSON and form payloads
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

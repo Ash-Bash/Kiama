@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { Theme } from '../types/theme';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -9,6 +9,25 @@ interface ThemeInfo {
   theme: Theme;
 }
 
+interface FontOption {
+  id: string;
+  label: string;
+  stack: string;
+}
+
+const FONT_OPTIONS: FontOption[] = [
+  {
+    id: 'inter',
+    label: 'Inter',
+    stack: "'Inter', 'SF Pro Text', 'Segoe UI', -apple-system, system-ui, sans-serif",
+  },
+  {
+    id: 'space-grotesk',
+    label: 'Space Grotesk',
+    stack: "'Space Grotesk', 'Inter', 'SF Pro Display', -apple-system, system-ui, sans-serif",
+  },
+];
+
 const ThemeContext = createContext<{
   theme: Theme | null;
   currentMode: 'light' | 'dark';
@@ -16,6 +35,9 @@ const ThemeContext = createContext<{
   currentThemeId: string;
   setMode: (mode: 'light' | 'dark') => void;
   setThemeById: (themeId: string) => void;
+  availableFonts: FontOption[];
+  currentFontId: string;
+  setFontById: (fontId: string) => void;
 } | null>(null);
 
 export const useTheme = () => {
@@ -24,12 +46,16 @@ export const useTheme = () => {
   return context;
 };
 
+// Theme context provider that loads JSON themes from disk and applies CSS variables.
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<Theme | null>(null);
   const [currentMode, setCurrentMode] = useState<'light' | 'dark'>('dark');
   const [availableThemes, setAvailableThemes] = useState<ThemeInfo[]>([]);
   const [currentThemeId, setCurrentThemeId] = useState<string>('default');
+  const availableFonts = useMemo(() => FONT_OPTIONS, []);
+  const [currentFontId, setCurrentFontId] = useState<string>(FONT_OPTIONS[0].id);
 
+  // Look up a theme by id, apply it, and persist preference.
   const setThemeById = (themeId: string) => {
     const themeInfo = availableThemes.find(t => t.id === themeId);
     if (themeInfo) {
@@ -40,6 +66,16 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  // Update the CSS variable for typography and persist preference.
+  const setFontById = (fontId: string) => {
+    const fallbackFont = FONT_OPTIONS[0];
+    const font = FONT_OPTIONS.find(f => f.id === fontId) || fallbackFont;
+    setCurrentFontId(font.id);
+    applyFont(font);
+    localStorage.setItem('appFont', font.id);
+  };
+
+  // Flip between light/dark variants while keeping the current theme palette.
   const setMode = (mode: 'light' | 'dark') => {
     setCurrentMode(mode);
     if (theme) applyTheme(theme, mode);
@@ -48,6 +84,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Load all available themes
   useEffect(() => {
+    // Discover theme JSON files from the build output and hydrate defaults.
     const loadThemes = () => {
       try {
         const themesDir = path.join(process.cwd(), '../../dist/client/themes');
@@ -88,8 +125,12 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Load saved theme preference or default to 'default'
         const savedTheme = localStorage.getItem('selectedTheme') || 'default';
         const savedMode = (localStorage.getItem('themeMode') as 'light' | 'dark') || 'dark';
+        const savedFont = localStorage.getItem('appFont') || FONT_OPTIONS[0].id;
+        const fontToLoad = FONT_OPTIONS.find(f => f.id === savedFont) || FONT_OPTIONS[0];
 
         setCurrentMode(savedMode);
+        setCurrentFontId(fontToLoad.id);
+        applyFont(fontToLoad);
 
         // Set the theme
         const themeToLoad = themes.find(t => t.id === savedTheme) || themes.find(t => t.id === 'default') || themes[0];
@@ -121,13 +162,17 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       availableThemes,
       currentThemeId,
       setMode,
-      setThemeById
+      setThemeById,
+      availableFonts,
+      currentFontId,
+      setFontById
     }}>
       {children}
     </ThemeContext.Provider>
   );
 };
 
+// Push theme colors to CSS custom properties so SCSS variables pick them up.
 const applyTheme = (theme: Theme, mode: 'light' | 'dark') => {
   const root = document.documentElement;
   const colors = theme.modes[mode].colors;
@@ -142,4 +187,10 @@ const applyTheme = (theme: Theme, mode: 'light' | 'dark') => {
   root.style.setProperty('--server-list-width', '72px');
 
   console.log('Applied theme colors:', colors);
+};
+
+// Push font stack to a CSS variable so all components can inherit it.
+const applyFont = (font: FontOption) => {
+  const root = document.documentElement;
+  root.style.setProperty('--app-font', font.stack);
 };

@@ -13,6 +13,7 @@ interface MessageListProps {
   messages: Message[];
 }
 
+// Minimal sanitizer to ensure message content is safe to inject.
 const escapeHtml = (value: string) =>
   value
     .replace(/&/g, '&amp;')
@@ -21,9 +22,11 @@ const escapeHtml = (value: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
+// Prefer plugin-rendered HTML, falling back to escaped text with line breaks.
 const getSafeContent = (msg: Message) =>
   msg.renderedContent ? msg.renderedContent : escapeHtml(msg.content).replace(/\n/g, '<br>');
 
+// Render a stream of messages with basic HTML sanitization.
 const MessageList: React.FC<MessageListProps> = ({ messages }) => {
   return (
     <div className="message-list">

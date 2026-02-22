@@ -17,6 +17,7 @@ PLUGIN_METADATA
 }
 */
 Object.defineProperty(exports, "__esModule", { value: true });
+// Server-side poll plugin that registers the poll renderer for clients.
 const pollPlugin = {
     name: 'Poll Plugin',
     version: '1.0.0',

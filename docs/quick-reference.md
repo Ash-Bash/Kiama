@@ -45,6 +45,14 @@ npm run build:client  # Build client only
 - `src/client/tsconfig.main.json` - Main process TS
 - `src/server/tsconfig.json` - Server TS
 
+## Code Commenting Guidelines
+
+- Add a brief comment above every class, exported function, and React component describing its role.
+- For helper functions inside components, include one-line comments when behavior is non-trivial (API calls, state transitions, IPC, etc.).
+- Prefer concise JSDoc-style blocks when parameters or return values are helpful to future readers.
+- Keep inline comments sparing but use them to flag important side effects, security considerations, or non-obvious defaults.
+- Avoid restating obvious code; focus on intent and constraints (why this exists, what to watch out for).
+
 ## Common Development Tasks
 
 ### Add New Component

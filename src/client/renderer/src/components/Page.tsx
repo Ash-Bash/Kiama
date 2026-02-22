@@ -9,6 +9,7 @@ interface PageProps {
   scroll?: boolean;
 }
 
+// Lightweight layout wrapper that adds optional header and padding classes.
 const Page: React.FC<PageProps> = ({
   header,
   children,

@@ -1,5 +1,7 @@
 const http = require('http');
 
+// Quick script to hit the plugin UI config endpoint for smoke testing.
+
 // Test the plugin UI config endpoint
 const req = http.request({
   hostname: 'localhost',

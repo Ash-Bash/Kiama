@@ -12,6 +12,7 @@ interface ChannelListProps {
   onChannelChange: (id: string) => void;
 }
 
+// Simple sidebar list for switching between channels.
 const ChannelList: React.FC<ChannelListProps> = ({ channels, currentChannel, onChannelChange }) => {
   return (
     <div className="channel-list">

@@ -16,6 +16,7 @@ interface GifPickerProps {
 const TENOR_API_KEY = 'AIzaSyC8QWKWL8Z3I2q8o8o8o8o8o8o8o8o8o8'; // Replace with actual API key
 const TENOR_BASE_URL = 'https://tenor.googleapis.com/v2';
 
+// Tenor-backed GIF picker with pagination support.
 const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose }) => {
   const [gifs, setGifs] = useState<Gif[]>([]);
   const [loading, setLoading] = useState(false);
@@ -26,6 +27,7 @@ const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose }) => {
     searchGifs('');
   }, []);
 
+  // Query Tenor for GIFs, optionally resuming at a pagination cursor.
   const searchGifs = useCallback(async (query: string, pos: string = '') => {
     setLoading(true);
     try {
@@ -64,17 +66,20 @@ const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose }) => {
     }
   }, []);
 
+  // Start a new search with the given keyword.
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     searchGifs(searchTerm);
   };
 
+  // Request the next page of GIFs from Tenor when available.
   const handleLoadMore = () => {
     if (nextPos && !loading) {
       searchGifs(searchTerm, nextPos);
     }
   };
 
+  // Select a GIF and close the picker overlay.
   const handleGifClick = (gif: Gif) => {
     onSelect(gif);
     onClose();

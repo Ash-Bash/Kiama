@@ -1,5 +1,6 @@
 import { ServerPlugin } from '../types/plugin';
 
+// Server plugin that streams every received message to the server logs for debugging.
 const messageLoggerPlugin: ServerPlugin = {
   name: 'message-logger',
   version: '1.0.0',

@@ -15,6 +15,7 @@ interface ModalOptions {
 
 const ModalContext = createContext<ModalContextType | undefined>(undefined);
 
+// Access the modal context; throws when used outside provider.
 export const useModal = () => {
   const context = useContext(ModalContext);
   if (!context) {
@@ -27,23 +28,27 @@ interface ModalProviderProps {
   children: ReactNode;
 }
 
+// Provides a simple modal overlay system for the renderer.
 export const ModalProvider: React.FC<ModalProviderProps> = ({ children }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [modalContent, setModalContent] = useState<ReactNode | null>(null);
   const [modalOptions, setModalOptions] = useState<ModalOptions>({});
 
+  // Show a modal with supplied content and optional sizing.
   const openModal = (content: ReactNode, options: ModalOptions = {}) => {
     setModalContent(content);
     setModalOptions(options);
     setIsOpen(true);
   };
 
+  // Hide and reset the current modal.
   const closeModal = () => {
     setIsOpen(false);
     setModalContent(null);
     setModalOptions({});
   };
 
+  // Close the modal when clicking outside its content if allowed.
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget && modalOptions.closable !== false) {
       closeModal();

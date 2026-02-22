@@ -19,6 +19,7 @@ interface LoadingScreenProps {
   type?: 'initial' | 'server-switch';
 }
 
+// Reusable loading overlay for boot and server-switch flows.
 const LoadingScreen: React.FC<LoadingScreenProps> = ({ type = 'initial' }) => {
   const messages = type === 'initial' ? initialLoadingMessages : serverSwitchMessages;
   const [currentMessage, setCurrentMessage] = useState(0);

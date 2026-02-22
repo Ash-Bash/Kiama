@@ -1,6 +1,7 @@
 import React from 'react';
 import { PluginAPI, ClientPlugin, ServerPluginMetadata, TypedMessage, MessageInputButton } from '../types/plugin';
 
+// Client-side plugin manager that loads bundled plugins and server-provided ones.
 class PluginManager {
   private plugins: ClientPlugin[] = [];
   private api: PluginAPI;
@@ -9,10 +10,12 @@ class PluginManager {
   private messageInputButtons: MessageInputButton[] = [];
   private messageHandlers: Array<{ plugin: ClientPlugin; handler: (message: any) => any }> = [];
 
+  /** Capture the shared PluginAPI instance the renderer passes in. */
   constructor(api: PluginAPI) {
     this.api = api;
   }
 
+  /** Load built-in renderer plugins from the compiled plugins directory. */
   async loadPlugins() {
     // Load global plugins dynamically from built files
     const pluginNames = ['messageFormatter', 'darkModeToggle'];
@@ -28,6 +31,7 @@ class PluginManager {
     }
   }
 
+  /** Register a plugin and provide it with a namespaced API. */
   registerPlugin(plugin: ClientPlugin) {
     this.plugins.push(plugin);
 
@@ -46,6 +50,7 @@ class PluginManager {
   }
 
   // Download and install server-specific plugin
+  /** Download, verify, and initialize a server-provided client plugin. */
   async installServerPlugin(metadata: ServerPluginMetadata): Promise<boolean> {
     try {
       // Download plugin code
@@ -96,6 +101,7 @@ class PluginManager {
   }
 
   // Enable/disable a plugin
+  /** Enable/disable a local plugin; server-provided plugins are locked. */
   setPluginEnabled(pluginName: string, enabled: boolean, serverId?: string): boolean {
     if (serverId) {
       // Server-provided plugin - cannot be controlled by client
@@ -120,11 +126,13 @@ class PluginManager {
   }
 
   // Get enabled plugins only
+  /** Return plugins that are currently enabled. */
   getEnabledPlugins(): ClientPlugin[] {
     return this.plugins.filter(plugin => plugin.enabled !== false);
   }
 
   // Run all message handlers registered by enabled plugins
+  /** Run message through all registered plugin handlers sequentially. */
   processMessage(message: TypedMessage): TypedMessage {
     let processedMessage: TypedMessage = { ...message };
 
@@ -145,6 +153,7 @@ class PluginManager {
   }
 
   // Get enabled plugin for message type and server
+  /** Fetch the enabled plugin that should render the provided message. */
   getEnabledPluginForMessage(message: TypedMessage): ClientPlugin | undefined {
     // Check server-specific plugins first
     const serverPlugins = this.serverPlugins.get(message.serverId);
@@ -160,6 +169,7 @@ class PluginManager {
   }
 
   // Discover and install plugins for a server
+  /** Query a server for its advertised plugins and install them locally. */
   async discoverServerPlugins(serverUrl: string, serverId: string) {
     try {
       const response = await fetch(`${serverUrl}/client-plugins`);
@@ -183,6 +193,7 @@ class PluginManager {
   }
 
   // Get plugin for message type and server
+  /** Look up any plugin registered for a message type regardless of enabled flag. */
   getPluginForMessage(message: TypedMessage): ClientPlugin | undefined {
     // Check server-specific plugins first
     const serverPlugins = this.serverPlugins.get(message.serverId);
@@ -197,25 +208,30 @@ class PluginManager {
   }
 
   // Register message type component
+  /** Associate a React component with a specific message type. */
   registerMessageTypeComponent(type: string, component: React.ComponentType) {
     this.messageTypeComponents.set(type, component);
   }
 
   // Get component for message type
+  /** Retrieve the message renderer for a type if registered. */
   getMessageTypeComponent(type: string): React.ComponentType | undefined {
     return this.messageTypeComponents.get(type);
   }
 
   // Add message input button
+  /** Register a custom button to show inside the message composer. */
   addMessageInputButton(button: MessageInputButton) {
     this.messageInputButtons.push(button);
   }
 
   // Get message input buttons
+  /** Return all registered message input buttons. */
   getMessageInputButtons(): MessageInputButton[] {
     return this.messageInputButtons;
   }
 
+  /** Lightweight checksum helper; replace with crypto.subtle in production. */
   private async calculateChecksum(code: string): Promise<string> {
     // Simplified checksum - in production use crypto.subtle.digest
     let hash = 0;
@@ -227,6 +243,7 @@ class PluginManager {
     return hash.toString(16);
   }
 
+  /** Execute downloaded plugin code in a sandbox-like Function wrapper. */
   private async loadPluginFromCode(code: string): Promise<any> {
     // For now, create a simple module from the code
     // In production, this would need proper module loading

@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import * as fs from 'fs';
 import * as path from 'path';
 
+/** Describes a persisted user record on disk. */
 interface User {
   id: string;
   username: string;
@@ -14,6 +15,7 @@ interface User {
   lastLogin?: Date;
 }
 
+/** JWT payload used for stateless authentication. */
 interface AuthToken {
   userId: string;
   username: string;
@@ -21,6 +23,7 @@ interface AuthToken {
   exp?: number;
 }
 
+/** Minimal auth server that handles signup/login and token verification. */
 export class AuthServer {
   private users: Map<string, User> = new Map();
   private usersFile: string;
@@ -31,6 +34,7 @@ export class AuthServer {
     this.loadUsers();
   }
 
+  /** Load users from disk into memory so authentication is fast. */
   private loadUsers() {
     try {
       if (fs.existsSync(this.usersFile)) {
@@ -43,6 +47,7 @@ export class AuthServer {
     }
   }
 
+  /** Persist the in-memory user map to disk. */
   private saveUsers() {
     try {
       const usersArray = Array.from(this.users.values());
@@ -52,6 +57,7 @@ export class AuthServer {
     }
   }
 
+  /** Create a signed JWT for the supplied user. */
   private generateToken(user: User): string {
     const payload: AuthToken = {
       userId: user.id,
@@ -61,6 +67,7 @@ export class AuthServer {
     return jwt.sign(payload, this.jwtSecret, { expiresIn: '7d' });
   }
 
+  /** Validate and decode a JWT; returns null when verification fails. */
   private verifyToken(token: string): AuthToken | null {
     try {
       return jwt.verify(token, this.jwtSecret) as AuthToken;
@@ -69,6 +76,7 @@ export class AuthServer {
     }
   }
 
+  /** Build the Express router that exposes auth endpoints. */
   public getRouter(): express.Router {
     const router = express.Router();
 

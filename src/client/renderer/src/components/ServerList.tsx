@@ -28,6 +28,7 @@ const generateServerInitials = (serverName: string): string => {
   return initials;
 };
 
+// Pill-style rail for switching between servers.
 const ServerList: React.FC<ServerListProps> = ({ servers, currentServer, onServerChange }) => {
   return (
     <div className="server-list">

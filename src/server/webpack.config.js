@@ -3,6 +3,8 @@ const fs = require('fs');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const packageJson = require('./package.json');
 
+// Webpack config that bundles the server entry and ships server/client plugins alongside it.
+
 // Dynamically create entries for server and plugins
 const entries = {
   'server': './src/index.ts', // Main server entry

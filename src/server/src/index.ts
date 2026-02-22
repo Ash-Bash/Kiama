@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { Server } from './server';
 
+// CLI entry point for starting the KIAMA server and querying stats.
 const program = new Command();
 
 program
@@ -60,6 +61,7 @@ program
     console.log(`Added ${user} to blacklist`);
   });
 
+/** Pretty-print the system stats returned by the running server. */
 function displaySystemStats(stats: any) {
   console.log('🚀 KIAMA Server System Statistics');
   console.log('==================================');

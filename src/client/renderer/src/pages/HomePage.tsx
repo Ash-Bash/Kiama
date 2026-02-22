@@ -19,6 +19,7 @@ interface HomePageProps {
   generateServerInitials: (name: string) => string;
 }
 
+// Dashboard-style landing page for the Home server slot.
 const HomePage: React.FC<HomePageProps> = ({
   user,
   nonHomeServers,

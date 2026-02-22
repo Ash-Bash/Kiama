@@ -9,6 +9,7 @@ import Login from './components/Login';
 import TitleBar from './components/TitleBar';
 import HomePage from './pages/HomePage';
 import ServerPage from './pages/ServerPage';
+import SettingsPage from './pages/SettingsPage';
 import './styles/App.scss';
 
 const socket = io('http://localhost:3000');
@@ -29,12 +30,25 @@ interface User {
   name: string;
   status: 'online' | 'idle' | 'dnd' | 'offline';
   avatar?: string;
-  role?: string;
+  role?: string; // e.g., owner, mod, or custom group name
+  accessibleChannels?: string[];
 }
 
+type ActiveView = 'home' | 'server' | 'settings';
+
+// Main renderer shell that wires sockets, plugins, and page layout together.
 function AppContent({ token, user, onLogout }: { token: string; user: any; onLogout: () => void }) {
   const { openModal, closeModal } = useModal();
-  const { currentMode, setMode, availableThemes, currentThemeId, setThemeById } = useTheme();
+  const {
+    currentMode,
+    setMode,
+    availableThemes,
+    currentThemeId,
+    setThemeById,
+    availableFonts,
+    currentFontId,
+    setFontById,
+  } = useTheme();
   const socketRef = React.useRef<any>(null);
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Map<string, Message[]>>(new Map([
@@ -64,12 +78,43 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     { id: 'test-server', name: 'Test Server', url: SERVER_URL }
   ]);
   const [currentServerId, setCurrentServerId] = useState<string>('home');
+  const [activeView, setActiveView] = useState<ActiveView>('home');
   const [users, setUsers] = useState<User[]>([
-    { id: '1', name: 'You', status: 'online' },
-    { id: '2', name: 'Alice', status: 'online' },
-    { id: '3', name: 'Bob', status: 'idle' },
-    { id: '4', name: 'Charlie', status: 'dnd' },
-    { id: '5', name: 'Diana', status: 'offline' }
+    {
+      id: '1',
+      name: 'You',
+      status: 'online',
+      role: 'owner',
+      accessibleChannels: ['test-general', 'test-random', 'test-announcements', 'test-general-voice', 'test-music']
+    },
+    {
+      id: '2',
+      name: 'Alice',
+      status: 'online',
+      role: 'mod',
+      accessibleChannels: ['test-general', 'test-random']
+    },
+    {
+      id: '3',
+      name: 'Bob',
+      status: 'idle',
+      role: 'Support',
+      accessibleChannels: ['test-general']
+    },
+    {
+      id: '4',
+      name: 'Charlie',
+      status: 'dnd',
+      role: 'mod',
+      accessibleChannels: ['test-general', 'test-general-voice', 'test-music']
+    },
+    {
+      id: '5',
+      name: 'Diana',
+      status: 'offline',
+      role: 'Members',
+      accessibleChannels: ['test-general']
+    }
   ]);
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [userListWidth, setUserListWidth] = useState(240);
@@ -81,19 +126,28 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [showEmotePicker, setShowEmotePicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [isSwitchingServer, setIsSwitchingServer] = useState(false);
+  const [soft3DEnabled, setSoft3DEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const stored = window.localStorage.getItem('soft3d-enabled');
+    if (stored === null) return true;
+    return stored === 'true';
+  });
   const [settingsThemeMode, setSettingsThemeMode] = useState<'light' | 'dark'>(currentMode);
   const [settingsSelectedTheme, setSettingsSelectedTheme] = useState<string>(currentThemeId);
+  const [settingsFontId, setSettingsFontId] = useState<string>(currentFontId);
   const [viewportWidth, setViewportWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1920);
   const [showMobileServerList, setShowMobileServerList] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [showMobileUserList, setShowMobileUserList] = useState(false);
   const [activeAddMenu, setActiveAddMenu] = useState<string | null>(null);
+  const [userSidebarTab, setUserSidebarTab] = useState<'members' | 'metrics'>('members');
 
   // Sync settings with current values
   React.useEffect(() => {
     setSettingsThemeMode(currentMode);
     setSettingsSelectedTheme(currentThemeId);
-  }, [currentMode, currentThemeId]);
+    setSettingsFontId(currentFontId);
+  }, [currentMode, currentThemeId, currentFontId]);
 
   useEffect(() => {
     const handleResize = () => setViewportWidth(window.innerWidth);
@@ -101,6 +155,11 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('soft3d-enabled', soft3DEnabled ? 'true' : 'false');
+  }, [soft3DEnabled]);
 
   useEffect(() => {
     if (viewportWidth > 768) {
@@ -122,7 +181,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // Generate server initials like Discord (first letters of words, max 2 chars)
+  // Generate compact server initials for the sidebar badges.
   const generateServerInitials = (serverName: string): string => {
     if (!serverName || serverName.trim() === '') {
       return '?'; // Fallback for empty names
@@ -137,6 +196,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     return initials;
   };
 
+  // Minimal HTML escape to avoid unsafe rendering.
   const escapeHtml = (value: string) =>
     value
       .replace(/&/g, '&amp;')
@@ -145,9 +205,11 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
 
+  // Prefer plugin-rendered markup, otherwise sanitize raw content.
   const toSafeHtml = (msg: Message) =>
     msg.renderedContent ? msg.renderedContent : escapeHtml(msg.content).replace(/\n/g, '<br>');
 
+  // Initialize a single PluginManager instance bound to this renderer.
   const [pluginManager] = useState(() => new PluginManager({
     addMessageHandler: (handler) => {
       // Store handlers
@@ -261,12 +323,14 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     };
   }, [pluginManager, token]);
 
+  // Ask the server for the latest channel + section list for the active server.
   const loadChannelsAndSections = () => {
     if (socketRef.current) {
       socketRef.current.emit('get_channels');
     }
   };
 
+  // Move the active socket subscription to a new channel room.
   const joinChannel = (channelId: string) => {
     if (socketRef.current) {
       // Leave current channel
@@ -282,6 +346,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }
   };
 
+  // Choose the first channel in a server to act as the default target.
   const getDefaultChannelIdForServer = (serverId: string) => {
     const serverChannels = channels
       .filter(c => c.serverId === serverId)
@@ -289,9 +354,38 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     return serverChannels[0]?.id || '';
   };
 
+  // Swap to a different server, showing a brief loading state while reconnecting.
   const switchServer = (serverId: string) => {
     const server = servers.find(s => s.id === serverId);
-    if (!server || serverId === currentServerId) return;
+    if (!server) return;
+
+    if (serverId === 'home') {
+      setActiveView('home');
+      setCurrentServerId('home');
+      setCurrentServer(SERVER_ID);
+      setIsSwitchingServer(false);
+
+      if (viewportWidth <= 768) {
+        setShowMobileServerList(false);
+        setShowMobileSidebar(false);
+        setShowMobileUserList(false);
+      }
+      return;
+    }
+
+    if (serverId === currentServerId && activeView !== 'server') {
+      setActiveView('server');
+      if (viewportWidth <= 768) {
+        setShowMobileServerList(false);
+        setShowMobileSidebar(false);
+        setShowMobileUserList(false);
+      }
+      return;
+    }
+
+    if (serverId === currentServerId && activeView === 'server') return;
+
+  setActiveView('server');
 
     const nextChannelId = getDefaultChannelIdForServer(serverId);
 
@@ -302,7 +396,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     socket.disconnect();
 
     // Connect to new server
-    const newSocket = io(server.url);
+    io(server.url);
     // In a real implementation, you'd need to update the socket variable
     // For now, we'll just update the state
     setCurrentServerId(serverId);
@@ -323,6 +417,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }, 1500); // Show loading for 1.5 seconds
   };
 
+  // Quick-add a server by prompting for URL and name.
   const addServer = () => {
     const serverUrl = prompt('Enter server URL:');
     if (!serverUrl) return;
@@ -337,6 +432,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setServers(prev => [...prev, newServer]);
   };
 
+  // Join a server via invite/URL prompts.
   const joinServer = () => {
     const invite = prompt('Enter invite link or server URL:');
     if (!invite) return;
@@ -351,12 +447,13 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setServers(prev => [...prev, newServer]);
   };
 
-  // Resize handlers
+  // Begin dragging the channel sidebar resize handle.
   const handleSidebarResizeStart = (e: React.MouseEvent) => {
     setIsResizingSidebar(true);
     e.preventDefault();
   };
 
+  // Begin dragging the member list resize handle.
   const handleUserListResizeStart = (e: React.MouseEvent) => {
     setIsResizingUserList(true);
     e.preventDefault();
@@ -389,14 +486,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     };
   }, [isResizingSidebar, isResizingUserList]);
 
+  // Toggle collapsed state for the channel sidebar on desktop.
   const toggleSidebar = () => {
     setSidebarCollapsed(!sidebarCollapsed);
   };
 
+  // Toggle collapsed state for the member list on desktop.
   const toggleUserList = () => {
     setUserListCollapsed(!userListCollapsed);
   };
 
+  // Send a message over the socket, defaulting to plain text.
   const sendMessage = (type: string = 'text', data?: any) => {
     const messageData: Partial<Message> = {
       user: 'You',
@@ -413,6 +513,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setMessage('');
   };
 
+  // Shortcut helper for sending a demo poll payload.
   const sendPollMessage = () => {
     const pollData = {
       question: message,
@@ -422,6 +523,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setShowMessageOptions(false);
   };
 
+  // Open a file picker and stream attachments to the current channel.
   const handleFileUpload = () => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -448,6 +550,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setShowMessageOptions(false);
   };
 
+  // Upload a single image and send it as a message payload.
   const handleImageUpload = () => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -471,97 +574,68 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setShowMessageOptions(false);
   };
 
+  // Toggle the emoji picker while hiding other trays.
   const openEmojiPicker = () => {
     setShowGifPicker(false);
     setShowMessageOptions(false);
     setShowEmotePicker(prev => !prev);
   };
 
+  // Toggle the GIF picker while hiding other trays.
   const openGifPicker = () => {
     setShowEmotePicker(false);
     setShowMessageOptions(false);
     setShowGifPicker(prev => !prev);
   };
 
+  // Hide emoji picker overlay.
   const closeEmotePicker = () => {
     setShowEmotePicker(false);
   };
 
+  // Hide GIF picker overlay.
   const closeGifPicker = () => {
     setShowGifPicker(false);
   };
 
+  // Open/close the attachment options menu.
   const toggleMessageOptions = () => {
     setShowMessageOptions(prev => !prev);
     setShowEmotePicker(false);
     setShowGifPicker(false);
   };
 
+  // Insert a selected emoji or emote token into the composer text.
   const handleEmoteSelect = (emote: { name: string; unicode?: string }) => {
     const insert = emote.unicode || `:${emote.name}:`;
     setMessage(prev => prev + insert);
     setShowEmotePicker(false);
   };
 
+  // Send the selected GIF as a message payload.
   const handleGifSelect = (gif: { url: string; title: string }) => {
     sendMessage('gif', { url: gif.url, title: gif.title });
     setShowGifPicker(false);
   };
 
+  // Show account/theme settings modal with persisted values prefilled.
   const openAccountSettings = () => {
     setSettingsThemeMode(currentMode); // Reset to current
     setSettingsSelectedTheme(currentThemeId); // Reset to current
-    openModal(
-      <div className="account-settings-modal">
-        <h2>Account Settings</h2>
-        <div className="settings-section">
-          <h3>User Profile</h3>
-          <div className="setting-item">
-            <label>Display Name</label>
-            <input type="text" defaultValue="You" />
-          </div>
-          <div className="setting-item">
-            <label>Status</label>
-            <select defaultValue="online">
-              <option value="online">Online</option>
-              <option value="idle">Idle</option>
-              <option value="dnd">Do Not Disturb</option>
-              <option value="offline">Offline</option>
-            </select>
-          </div>
-        </div>
-        <div className="settings-section">
-          <h3>Appearance</h3>
-          <div className="setting-item">
-            <label>Theme</label>
-            <select value={settingsSelectedTheme} onChange={(e) => setSettingsSelectedTheme(e.target.value)}>
-              {availableThemes.map(theme => (
-                <option key={theme.id} value={theme.id}>{theme.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="setting-item">
-            <label>Mode</label>
-            <select value={settingsThemeMode} onChange={(e) => setSettingsThemeMode(e.target.value as 'light' | 'dark')}>
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-            </select>
-          </div>
-        </div>
-        <div className="modal-actions">
-          <button onClick={closeModal} className="cancel-btn">Cancel</button>
-          <button onClick={() => {
-            setMode(settingsThemeMode);
-            setThemeById(settingsSelectedTheme);
-            closeModal();
-            alert('Settings saved!');
-          }} className="save-btn">Save Changes</button>
-          <button onClick={() => { closeModal(); onLogout(); }} className="signout-btn">Sign Out</button>
-        </div>
-      </div>
-    );
+    setSettingsFontId(currentFontId); // Reset to current
+    setActiveView('settings');
+    setShowMobileServerList(false);
+    setShowMobileSidebar(false);
+    setShowMobileUserList(false);
   };
 
+  const saveSettingsView = () => {
+    setMode(settingsThemeMode);
+    setThemeById(settingsSelectedTheme);
+    setFontById(settingsFontId);
+  };
+
+  // Render a modal that creates a channel scoped to an optional section.
   const openCreateChannelModal = (sectionId?: string) => {
     const modalContent = (
       <div className="create-channel-modal">
@@ -606,6 +680,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     openModal(modalContent, { title: 'Create Channel', size: 'small' });
   };
 
+  // Render a modal that creates a new section for organizing channels.
   const openCreateSectionModal = () => {
     const modalContent = (
       <div className="create-section-modal">
@@ -641,6 +716,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     openModal(modalContent, { title: 'Create Section', size: 'small' });
   };
 
+  // Persist a new channel on the server and rely on socket events to refresh state.
   const createChannel = async (name: string, type: 'text' | 'voice' | 'announcement' = 'text', sectionId?: string) => {
     try {
       const response = await fetch(`${SERVER_URL}/channels`, {
@@ -654,6 +730,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }
   };
 
+  // Persist a new section and refresh the sidebar listings.
   const createSection = async (name: string) => {
     try {
       const response = await fetch(`${SERVER_URL}/sections`, {
@@ -667,6 +744,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }
   };
 
+  // Optimistically drop a message from local state; real deletion would call the API.
   const deleteMessage = (messageId: string) => {
     // In a real implementation, you'd send a delete request to the server
     // For now, we'll just remove it from local state
@@ -678,6 +756,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     });
   };
 
+  // Render a message with plugin overrides, falling back to sanitized HTML.
   const renderMessage = (msg: Message) => {
     const processedMessage = pluginManager.processMessage(msg);
 
@@ -743,6 +822,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   // Helper function to render JSX-like structures
+  // Render a lightweight JSX-like structure produced by plugins.
   const renderJSXLike = (element: any, key: string): React.ReactElement => {
     if (!element || typeof element !== 'object') {
       return <span key={key}>{String(element)}</span>;
@@ -762,19 +842,56 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     return React.createElement(type, { ...otherProps, key }, ...renderedChildren);
   };
 
+  // Format timestamps that may arrive as strings or Date instances.
+  const formatTimestamp = (value?: Date | string) => {
+    if (!value) return '—';
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
+  };
+
+  // Collect media-friendly payloads for a specific channel to power the media cache UI.
+  const collectMediaItemsForChannel = (channelId: string) => {
+    const channelMessages = messages.get(channelId) || [];
+
+    return channelMessages
+      .filter(msg => ['image', 'gif', 'file', 'video'].includes(msg.type))
+      .map(msg => {
+        const data = msg.data || {};
+        const mimeType = (data.type as string) || '';
+        const isImage = msg.type === 'image' || msg.type === 'gif' || mimeType.startsWith('image/');
+        const isVideo = msg.type === 'video' || mimeType.startsWith('video/');
+
+        return {
+          id: msg.id,
+          type: msg.type,
+          name: data.title || data.name || msg.content || msg.type,
+          url: data.url || data.data || '',
+          mimeType,
+          size: data.size,
+          isImage,
+          isVideo,
+          timestamp: msg.timestamp
+        };
+      });
+  };
+
   const isMobile = viewportWidth <= 768;
-  const isHome = currentServerId === 'home';
+  const isHomeView = activeView === 'home';
+  const isSettingsView = activeView === 'settings';
+  const isServerView = activeView === 'server';
   const showMobileNavButtons = viewportWidth <= 1100;
   const showServerListPanel = !isMobile || showMobileServerList;
-  const showSidebarPanel = !isHome && ((!sidebarCollapsed && !isMobile) || (isMobile && showMobileSidebar));
-  const showUserListPanel = !isHome && ((!userListCollapsed && !isMobile) || (isMobile && showMobileUserList));
+  const showSidebarPanel = isServerView && ((!sidebarCollapsed && !isMobile) || (isMobile && showMobileSidebar));
+  const showUserListPanel = isServerView && ((!userListCollapsed && !isMobile) || (isMobile && showMobileUserList));
 
+  // Dismiss all mobile drawers at once.
   const closeMobileDrawers = () => {
     setShowMobileServerList(false);
     setShowMobileSidebar(false);
     setShowMobileUserList(false);
   };
 
+  // Toggle the server + channel mobile drawers in sync.
   const toggleMobileNavPanels = () => {
     if (isMobile) {
       const shouldOpen = !(showMobileServerList || showMobileSidebar);
@@ -787,6 +904,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }
   };
 
+  // Toggle the member list on mobile while collapsing other drawers.
   const toggleMobileMembers = () => {
     if (isMobile) {
       setShowMobileUserList(prev => !prev);
@@ -802,6 +920,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const nonHomeServers = servers.filter(s => s.id !== 'home');
   const currentChannel = channels.find(c => c.id === currentChannelId && c.serverId === currentServerId);
   const currentMessages = messages.get(currentChannelId) || [];
+  const currentChannelMedia = currentChannelId ? collectMediaItemsForChannel(currentChannelId).slice(0, 10) : [];
 
   // Group channels by section
   const channelsBySection = sections.reduce((acc, section) => {
@@ -810,9 +929,74 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   }, {} as Record<string, Channel[]>);
 
   const unsectionedChannels = channels.filter(c => !c.sectionId);
+  const channelMembers = users.filter(user => {
+    if (!currentChannelId) return true;
+    if (!user.accessibleChannels || user.accessibleChannels.length === 0) return true;
+    return user.accessibleChannels.includes(currentChannelId);
+  });
+  const channelMemberOnlineCount = channelMembers.filter(u => u.status !== 'offline').length;
+
+  const groupChannelMembers = (members: User[]) => {
+    const groups = new Map<string, User[]>();
+
+    const labelForRole = (role?: string) => {
+      if (!role) return 'Members';
+      const normalized = role.toLowerCase();
+      if (normalized === 'owner') return 'Server Owner';
+      if (normalized === 'mod' || normalized === 'moderator') return 'Moderators';
+      return role;
+    };
+
+    members.forEach(member => {
+      const label = labelForRole(member.role);
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label)!.push(member);
+    });
+
+    const orderWeight = (label: string) => {
+      const key = label.toLowerCase();
+      if (key === 'server owner') return 0;
+      if (key === 'moderators') return 1;
+      if (key === 'members') return 99;
+      return 10; // custom groups between mods and general members
+    };
+
+    return Array.from(groups.entries())
+      .map(([label, groupedUsers]) => ({
+        label,
+        users: groupedUsers.sort((a, b) => a.name.localeCompare(b.name)),
+        weight: orderWeight(label)
+      }))
+      .sort((a, b) => a.weight - b.weight || a.label.localeCompare(b.label));
+  };
+
+  const groupedChannelMembers = groupChannelMembers(channelMembers);
+
+  const channelMetrics = currentChannelId
+    ? {
+        totalMessages: currentMessages.length,
+        uniqueSenders: new Set(currentMessages.map(msg => msg.user)).size,
+        mediaCount: currentChannelMedia.length,
+        lastActivity: currentMessages[currentMessages.length - 1]?.timestamp
+      }
+    : null;
+
+  const mediaRollupByChannel = channels
+    .filter(channel => channel.serverId === currentServerId)
+    .map(channel => {
+      const mediaItems = collectMediaItemsForChannel(channel.id);
+      const channelMsgs = messages.get(channel.id) || [];
+      return {
+        channel,
+        mediaCount: mediaItems.length,
+        lastActivity: channelMsgs[channelMsgs.length - 1]?.timestamp,
+        sampleMedia: mediaItems[0]
+      };
+    })
+    .filter(entry => entry.mediaCount > 0);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${soft3DEnabled ? 'soft-3d' : 'soft-3d-off'}`}>
       <TitleBar />
       <div className="app">
       {isMobile && (showMobileServerList || showMobileSidebar || showMobileUserList) && (
@@ -997,7 +1181,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         </>
       )}
 
-      {!isMobile && sidebarCollapsed && !isHome && (
+      {!isMobile && sidebarCollapsed && isServerView && (
         <div className="sidebar-collapsed">
           <button className="expand-btn" onClick={toggleSidebar} title="Expand Sidebar">
             <i className="fas fa-chevron-right"></i>
@@ -1006,10 +1190,27 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       )}
 
       <div className="main-content">
-        {isSwitchingServer && !isHome && (
+        {isSwitchingServer && isServerView && (
           <LoadingScreen type="server-switch" />
         )}
-        {isHome ? (
+        {isSettingsView ? (
+          <SettingsPage
+            userName={user?.name}
+            userStatus={user?.status}
+            themeId={settingsSelectedTheme}
+            mode={settingsThemeMode}
+            fontId={settingsFontId}
+            availableThemes={availableThemes}
+            availableFonts={availableFonts}
+            soft3DEnabled={soft3DEnabled}
+            onThemeChange={setSettingsSelectedTheme}
+            onModeChange={(mode) => setSettingsThemeMode(mode)}
+            onFontChange={setSettingsFontId}
+            onToggleSoft3D={(next) => setSoft3DEnabled(next)}
+            onSave={saveSettingsView}
+            onLogout={() => { onLogout(); setActiveView('home'); setCurrentServerId('home'); }}
+          />
+        ) : isHomeView ? (
           <HomePage
             user={user}
             nonHomeServers={nonHomeServers}
@@ -1071,40 +1272,196 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
               </button>
             )}
             <div className="user-list-header">
-              <h3>Online — {users.filter(u => u.status !== 'offline').length}</h3>
+              <div className="user-list-title">
+                <h3>
+                  {userSidebarTab === 'members' ? 'Channel Members' : 'Channel Insights'}
+                </h3>
+              </div>
               {!isMobile && (
                 <button className="collapse-btn" onClick={toggleUserList} title="Collapse User List">
                   <i className="fas fa-chevron-right"></i>
                 </button>
               )}
             </div>
+            <div className="user-list-tabs">
+              <button
+                className={userSidebarTab === 'members' ? 'active' : ''}
+                onClick={() => setUserSidebarTab('members')}
+                aria-label="Show server users"
+                title="Server users"
+              >
+                <i className="fas fa-users"></i>
+                <span className="sr-only">Server Users</span>
+              </button>
+              <button
+                className={userSidebarTab === 'metrics' ? 'active' : ''}
+                onClick={() => setUserSidebarTab('metrics')}
+                aria-label="Show channel metrics and media"
+                title="Channel metrics and media"
+              >
+                <i className="fas fa-chart-line"></i>
+                <span className="sr-only">Metrics & Media</span>
+              </button>
+            </div>
+
             <div className="user-list-content">
-              {users
-                .sort((a, b) => {
-                  // Sort by status: online, idle, dnd, offline
-                  const statusOrder = { online: 0, idle: 1, dnd: 2, offline: 3 };
-                  return statusOrder[a.status] - statusOrder[b.status];
-                })
-                .map(user => (
-                  <div key={user.id} className={`user-item ${user.status}`}>
-                    <div className="user-avatar">
-                      {user.avatar ? (
-                        <img src={user.avatar} alt={user.name} />
-                      ) : (
-                        <span>{user.name.charAt(0).toUpperCase()}</span>
-                      )}
-                      <div className={`user-status ${user.status}`}></div>
-                    </div>
-                    <span className="user-name">{user.name}</span>
-                    {user.role && <span className="user-role">{user.role}</span>}
-                  </div>
-                ))}
+              {userSidebarTab === 'members' ? (
+                channelMembers.length === 0 ? (
+                  <div className="empty-state">No members can view this channel yet.</div>
+                ) : (
+                  <>
+                    <div className="user-list-footnote">{channelMemberOnlineCount} online — {channelMembers.length} total</div>
+                    {groupedChannelMembers.map(group => (
+                      <div key={group.label} className="user-group">
+                        <div className="user-group-header">{group.label} · {group.users.length}</div>
+                        {group.users
+                          .slice()
+                          .sort((a, b) => {
+                            const statusOrder = { online: 0, idle: 1, dnd: 2, offline: 3 } as const;
+                            return statusOrder[a.status] - statusOrder[b.status] || a.name.localeCompare(b.name);
+                          })
+                          .map(user => (
+                            <div key={user.id} className={`user-item ${user.status}`}>
+                              <div className="user-avatar">
+                                {user.avatar ? (
+                                  <img src={user.avatar} alt={user.name} />
+                                ) : (
+                                  <span>{user.name.charAt(0).toUpperCase()}</span>
+                                )}
+                                <div className={`user-status ${user.status}`}></div>
+                              </div>
+                              <div className="user-meta">
+                                <span className="user-name">{user.name}</span>
+                                {user.role && <span className="user-role">{user.role}</span>}
+                              </div>
+                              {user.accessibleChannels && !user.accessibleChannels.includes(currentChannelId) && (
+                                <span className="user-access-note">No access</span>
+                              )}
+                            </div>
+                          ))}
+                      </div>
+                    ))}
+                  </>
+                )
+              ) : (
+                <div className="channel-insights">
+                  {!currentChannelId ? (
+                    <div className="empty-state">Select a channel to view its metrics and media cache.</div>
+                  ) : (
+                    <>
+                      <div className="metric-cards">
+                        {[
+                          {
+                            label: 'Messages',
+                            value: channelMetrics?.totalMessages ?? 0,
+                            icon: 'fa-comment-dots',
+                            tone: 'blue'
+                          },
+                          {
+                            label: 'Unique Senders',
+                            value: channelMetrics?.uniqueSenders ?? 0,
+                            icon: 'fa-user-friends',
+                            tone: 'teal'
+                          },
+                          {
+                            label: 'Media Items',
+                            value: channelMetrics?.mediaCount ?? 0,
+                            icon: 'fa-photo-video',
+                            tone: 'purple'
+                          },
+                          {
+                            label: 'Last Activity',
+                            value: formatTimestamp(channelMetrics?.lastActivity),
+                            icon: 'fa-clock',
+                            tone: 'amber'
+                          }
+                        ].map(metric => (
+                          <div className={`metric-card tone-${metric.tone}`} key={metric.label}>
+                            <div className="metric-icon">
+                              <i className={`fas ${metric.icon}`}></i>
+                            </div>
+                            <div className="metric-text">
+                              <span className="label">{metric.label}</span>
+                              <span className="value">{metric.value}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="media-cache">
+                        <div className="media-cache-header">
+                          <h4>Media Cache</h4>
+                          <span className="hint">Latest 10 media items in this channel</span>
+                        </div>
+                        {currentChannelMedia.length === 0 ? (
+                          <div className="empty-state">No media has been shared in this channel yet.</div>
+                        ) : (
+                          <div className="media-grid">
+                            {currentChannelMedia.map(item => (
+                              <div key={item.id} className="media-item" title={item.name}>
+                                <div className="thumb">
+                                  {item.isImage ? (
+                                    <img src={item.url} alt={item.name} />
+                                  ) : (
+                                    <div className={`icon ${item.isVideo ? 'video' : 'file'}`}>
+                                      <i className={`fas ${item.isVideo ? 'fa-video' : 'fa-file'}`}></i>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="meta">
+                                  <span className="name">{item.name}</span>
+                                  <div className="meta-row">
+                                    <span className="pill">{item.type}</span>
+                                    <span className="subtle">{formatTimestamp(item.timestamp)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="channel-rollup">
+                        <div className="media-cache-header">
+                          <h4>Media by Channel</h4>
+                          <span className="hint">Jump to a channel to view its cache</span>
+                        </div>
+                        {mediaRollupByChannel.length === 0 ? (
+                          <div className="empty-state">No media shared across channels yet.</div>
+                        ) : (
+                          <div className="channel-rollup-list">
+                            {mediaRollupByChannel.map(entry => (
+                              <button
+                                key={entry.channel.id}
+                                className={`channel-rollup-item ${entry.channel.id === currentChannelId ? 'active' : ''}`}
+                                onClick={() => joinChannel(entry.channel.id)}
+                              >
+                                <div className="rollup-text">
+                                  <span className="name">#{entry.channel.name}</span>
+                                  <span className="meta">{entry.mediaCount} media · Last {formatTimestamp(entry.lastActivity)}</span>
+                                </div>
+                                <div className="rollup-preview">
+                                  {entry.sampleMedia?.isImage ? (
+                                    <img src={entry.sampleMedia.url} alt={entry.sampleMedia.name} />
+                                  ) : (
+                                    <i className="fas fa-image"></i>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </>
       )}
 
-      {!isMobile && userListCollapsed && !isHome && (
+      {!isMobile && userListCollapsed && isServerView && (
         <div className="user-list-collapsed">
           <button className="expand-btn" onClick={toggleUserList} title="Expand User List">
             <i className="fas fa-chevron-left"></i>
@@ -1116,6 +1473,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   );
 }
 
+// Top-level component that handles auth gating and theme/modal providers.
 function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [token, setToken] = useState<string | null>(null);

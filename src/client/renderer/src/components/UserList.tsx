@@ -5,6 +5,7 @@ interface UserListProps {
   users: string[];
 }
 
+// Minimal read-only list of online users used by legacy views.
 const UserList: React.FC<UserListProps> = ({ users }) => {
   return (
     <div className="user-list">

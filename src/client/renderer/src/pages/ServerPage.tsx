@@ -37,6 +37,7 @@ interface ServerPageProps {
   servers: Server[];
 }
 
+// Server view that shows channel header, message list, and composer controls.
 const ServerPage: React.FC<ServerPageProps> = ({
   showMobileNavButtons,
   onToggleNavPanels,

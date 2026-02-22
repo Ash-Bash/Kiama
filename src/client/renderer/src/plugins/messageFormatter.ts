@@ -14,6 +14,7 @@ const linkify = (value: string) =>
     return `${prefix}<a href="${url}">${url}</a>`;
   });
 
+// Convert lightweight markdown-ish syntax to sanitized HTML snippets.
 const formatMarkup = (content: string): string => {
   const codeBlockPattern = /```([\s\S]*?)```/g;
   let html = content.replace(codeBlockPattern, (_, code) => `<pre><code>${escapeCode(code)}</code></pre>`);
@@ -27,6 +28,7 @@ const formatMarkup = (content: string): string => {
   return sanitizeMarkup(html);
 };
 
+// Strip disallowed tags/attributes to avoid XSS while preserving basic markup.
 const sanitizeMarkup = (html: string): string => {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
@@ -73,6 +75,7 @@ const sanitizeMarkup = (html: string): string => {
   return doc.body.innerHTML;
 };
 
+// Plugin that renders message content into sanitized HTML while leaving raw text intact for senders.
 const messageFormatterPlugin: ClientPlugin = {
   name: 'Message Formatter',
   version: '1.1.0',

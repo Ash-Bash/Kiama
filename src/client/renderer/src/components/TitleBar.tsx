@@ -4,13 +4,16 @@ import '../styles/components/_titleBar.scss';
 declare const window: any;
 const { ipcRenderer } = window.require('electron');
 
+// Cross-platform title bar that proxies window controls via IPC.
 const TitleBar: React.FC = () => {
   const isMac = process.platform === 'darwin';
 
+  // Forward window control commands to the Electron main process.
   const sendWindowControl = (action: 'minimize' | 'maximize' | 'close') => {
     ipcRenderer.send('window-control', action);
   };
 
+  // Individual button click handlers forward to IPC helper.
   const handleMinimize = () => sendWindowControl('minimize');
   const handleMaximize = () => sendWindowControl('maximize');
   const handleClose = () => sendWindowControl('close');

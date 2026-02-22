@@ -5,6 +5,7 @@ interface MessageInputProps {
   onSend: (content: string) => void;
 }
 
+// Controlled text input for composing and submitting a message.
 const MessageInput: React.FC<MessageInputProps> = ({ onSend }) => {
   const [message, setMessage] = useState('');
 

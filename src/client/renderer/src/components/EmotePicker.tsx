@@ -15,6 +15,7 @@ interface EmotePickerProps {
   servers: Array<{ id: string; name: string; url: string }>;
 }
 
+// Consolidated emoji/emote picker that pulls assets from all connected servers.
 const EmotePicker: React.FC<EmotePickerProps> = ({ onSelect, onClose, servers }) => {
   const [emotes, setEmotes] = useState<Emote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,6 +104,7 @@ const EmotePicker: React.FC<EmotePickerProps> = ({ onSelect, onClose, servers })
     fetchEmotes();
   }, [selectedServer]);
 
+  // Retrieve emote catalogs from configured servers and merge with built-ins.
   const fetchEmotes = async () => {
     setLoading(true);
     try {
@@ -157,6 +159,7 @@ const EmotePicker: React.FC<EmotePickerProps> = ({ onSelect, onClose, servers })
     }
   };
 
+  // Forward the selected emote to the composer then close the picker.
   const handleEmoteClick = (emote: Emote) => {
     onSelect(emote);
     onClose();

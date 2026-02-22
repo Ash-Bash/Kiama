@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ClientPlugin } from '../types/plugin';
 
+// Small UI toggle that mirrors system theme or persists user choice.
 const DarkModeToggle: React.FC = () => {
   const [isDark, setIsDark] = useState(() => {
     // Check if user has a preference stored
@@ -28,6 +29,7 @@ const DarkModeToggle: React.FC = () => {
   );
 };
 
+// Client plugin that injects the dark mode toggle and teaches /theme helper text.
 const darkModePlugin: ClientPlugin = {
   name: 'Dark Mode Toggle',
   version: '1.0.0',
