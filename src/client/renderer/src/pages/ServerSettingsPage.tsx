@@ -50,11 +50,22 @@ interface ServerSettingsPageProps {
   onSavePermissions: (channelId: string, readRoles: string[], writeRoles: string[]) => Promise<void> | void;
   onBack: () => void;
   onCreateRole: (input: { name: string; color?: string; permissions: RolePermissions }) => Promise<void> | void;
+  onUpdateRole?: (id: string, input: { name: string; color?: string; permissions: RolePermissions }) => Promise<void> | void;
   loading?: boolean;
   passwordRequired?: boolean | null;
 }
 
 // Server-level settings surface for access control and housekeeping.
+const defaultRolePermissions: RolePermissions = {
+  manageServer: false,
+  manageChannels: false,
+  manageRoles: false,
+  kickMembers: false,
+  banMembers: false,
+  sendMessages: true,
+  viewChannels: true
+};
+
 const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
   server,
   channels,
@@ -64,6 +75,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
   onSavePermissions,
   onBack,
   onCreateRole,
+  onUpdateRole,
   loading = false,
   passwordRequired = null
 }) => {
@@ -72,16 +84,9 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [roleName, setRoleName] = useState('');
   const [roleColor, setRoleColor] = useState('#5865f2');
-  const [rolePermissions, setRolePermissions] = useState<RolePermissions>({
-    manageServer: false,
-    manageChannels: false,
-    manageRoles: false,
-    kickMembers: false,
-    banMembers: false,
-    sendMessages: true,
-    viewChannels: true
-  });
-  const [isCreatingRole, setIsCreatingRole] = useState(false);
+  const [rolePermissions, setRolePermissions] = useState<RolePermissions>(defaultRolePermissions);
+  const [isSubmittingRole, setIsSubmittingRole] = useState(false);
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const currentChannel = useMemo(() => channels.find(c => c.id === selectedChannelId), [channels, selectedChannelId]);
 
   useEffect(() => {
@@ -95,57 +100,28 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
     setWriteRoles(nextWrite);
   }, [currentChannel]);
 
-  const rolePresets: Array<{
-    label: string;
-    color: string;
-    permissions: RolePermissions;
-  }> = [
-    {
-      label: 'Admin',
-      color: '#f87171',
-      permissions: {
-        manageServer: true,
-        manageChannels: true,
-        manageRoles: true,
-        kickMembers: true,
-        banMembers: true,
-        sendMessages: true,
-        viewChannels: true
-      }
-    },
-    {
-      label: 'Moderator',
-      color: '#fbbf24',
-      permissions: {
-        manageServer: false,
-        manageChannels: true,
-        manageRoles: false,
-        kickMembers: true,
-        banMembers: true,
-        sendMessages: true,
-        viewChannels: true
-      }
-    },
-    {
-      label: 'Member',
-      color: '#22c55e',
-      permissions: {
-        manageServer: false,
-        manageChannels: false,
-        manageRoles: false,
-        kickMembers: false,
-        banMembers: false,
-        sendMessages: true,
-        viewChannels: true
+  // Sync form fields whenever the selected role changes
+  useEffect(() => {
+    if (selectedRoleId) {
+      const role = roles.find(r => r.id === selectedRoleId);
+      if (role) {
+        setRoleName(role.name);
+        setRoleColor(role.color || '#5865f2');
+        setRolePermissions(role.permissions || defaultRolePermissions);
+        return;
       }
     }
-  ];
+    // No selection — reset to blank create form
+    setRoleName('');
+    setRoleColor('#5865f2');
+    setRolePermissions(defaultRolePermissions);
+  }, [selectedRoleId, roles]);
 
-  const applyPreset = (preset: typeof rolePresets[number]) => {
-    setRoleName(preset.label);
-    setRoleColor(preset.color);
-    setRolePermissions(preset.permissions);
+  const selectRole = (id: string) => {
+    setSelectedRoleId(prev => (prev === id ? null : id));
   };
+
+  const clearSelection = () => setSelectedRoleId(null);
 
   const toggleRole = (target: 'read' | 'write', roleId: string) => {
     if (target === 'read') {
@@ -162,22 +138,16 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
     setIsSaving(false);
   };
 
-  const createRole = async () => {
+  const submitRole = async () => {
     if (!roleName.trim()) return;
-    setIsCreatingRole(true);
-    await onCreateRole({ name: roleName.trim(), color: roleColor, permissions: rolePermissions });
-    setIsCreatingRole(false);
-    setRoleName('');
-    setRoleColor('#5865f2');
-    setRolePermissions({
-      manageServer: false,
-      manageChannels: false,
-      manageRoles: false,
-      kickMembers: false,
-      banMembers: false,
-      sendMessages: true,
-      viewChannels: true
-    });
+    setIsSubmittingRole(true);
+    if (selectedRoleId && onUpdateRole) {
+      await onUpdateRole(selectedRoleId, { name: roleName.trim(), color: roleColor, permissions: rolePermissions });
+    } else {
+      await onCreateRole({ name: roleName.trim(), color: roleColor, permissions: rolePermissions });
+      clearSelection();
+    }
+    setIsSubmittingRole(false);
   };
 
   const channelOptions = channels.filter(c => c.serverId === server.id);
@@ -231,28 +201,30 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
                 <div className="column-title">Can read</div>
                 {roles.length === 0 && <div className="hint">No roles defined yet.</div>}
                 {roles.map(role => (
-                  <label key={role.id} className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={readRoles.includes(role.id)}
-                      onChange={() => toggleRole('read', role.id)}
-                    />
-                    <span>{role.name}</span>
-                  </label>
+                  <Toggle
+                    key={role.id}
+                    inline
+                    label={role.name}
+                    checked={readRoles.includes(role.id)}
+                    onChange={() => toggleRole('read', role.id)}
+                    tintColor={role.color}
+                    size="small"
+                  />
                 ))}
               </div>
               <div className="role-column">
                 <div className="column-title">Can write</div>
                 {roles.length === 0 && <div className="hint">No roles defined yet.</div>}
                 {roles.map(role => (
-                  <label key={role.id} className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={writeRoles.includes(role.id)}
-                      onChange={() => toggleRole('write', role.id)}
-                    />
-                    <span>{role.name}</span>
-                  </label>
+                  <Toggle
+                    key={role.id}
+                    inline
+                    label={role.name}
+                    checked={writeRoles.includes(role.id)}
+                    onChange={() => toggleRole('write', role.id)}
+                    tintColor={role.color}
+                    size="small"
+                  />
                 ))}
               </div>
             </div>
@@ -295,72 +267,72 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
           <div className="card-header">
             <div>
               <p className="eyebrow">Roles</p>
-              <h3>Server roles & presets</h3>
-              <p className="hint">View existing roles and add new ones with server-wide permissions.</p>
+              <h3>Server roles</h3>
+              <p className="hint">Click a role to edit it, or create a new one.</p>
             </div>
           </div>
           <div className="card-body role-builder">
             <div className="role-list">
               {roles.length === 0 ? (
-                <div className="hint">No roles defined yet. Start with a preset below.</div>
+                <div className="hint">No roles defined yet.</div>
               ) : (
                 roles.map(role => (
-                  <div key={role.id} className="role-row">
+                  <div
+                    key={role.id}
+                    className={`role-row${selectedRoleId === role.id ? ' selected' : ''}`}
+                    onClick={() => selectRole(role.id)}
+                  >
                     <div className="role-meta">
                       <span className="role-dot" style={{ background: role.color || '#9ca3af' }} />
                       <span className="role-name">{role.name}</span>
                     </div>
                     <div className="role-perms">
-                      {(role.permissions || rolePermissions) && (
+                      {role.permissions && (
                         <>
-                          {(role.permissions || rolePermissions).manageServer && <span className="perm-pill">Manage server</span>}
-                          {(role.permissions || rolePermissions).manageChannels && <span className="perm-pill">Manage channels</span>}
-                          {(role.permissions || rolePermissions).manageRoles && <span className="perm-pill">Manage roles</span>}
-                          {(role.permissions || rolePermissions).kickMembers && <span className="perm-pill">Kick</span>}
-                          {(role.permissions || rolePermissions).banMembers && <span className="perm-pill">Ban</span>}
-                          {(role.permissions || rolePermissions).sendMessages && <span className="perm-pill">Send</span>}
-                          {(role.permissions || rolePermissions).viewChannels && <span className="perm-pill">View</span>}
+                          {role.permissions.manageServer && <span className="perm-pill">Manage server</span>}
+                          {role.permissions.manageChannels && <span className="perm-pill">Manage channels</span>}
+                          {role.permissions.manageRoles && <span className="perm-pill">Manage roles</span>}
+                          {role.permissions.kickMembers && <span className="perm-pill">Kick</span>}
+                          {role.permissions.banMembers && <span className="perm-pill">Ban</span>}
+                          {role.permissions.sendMessages && <span className="perm-pill">Send</span>}
+                          {role.permissions.viewChannels && <span className="perm-pill">View</span>}
                         </>
                       )}
                     </div>
                   </div>
                 ))
               )}
+              <button className="role-new-btn" onClick={clearSelection}>
+                <i className="fas fa-plus" /> New role
+              </button>
             </div>
 
             <div className="role-form">
-              <div className="preset-row">
-                {rolePresets.map(preset => (
-                  <Button
-                    key={preset.label}
-                    className="preset-btn"
-                    variant="primary"
-                    size="sm"
-                    tintColor={preset.color}
-                    style={{
-                      '--preset-color': preset.color,
-                      '--btn-tint': preset.color,
-                      background: `linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(0, 0, 0, 0.08) 100%), ${preset.color}`,
-                      borderColor: preset.color
-                    } as React.CSSProperties}
-                    onClick={() => applyPreset(preset)}
-                  >
-                    {preset.label}
-                  </Button>
-                ))}
+              <div className="role-form-header">
+                {selectedRoleId ? (
+                  <>
+                    <span
+                      className="role-dot"
+                      style={{ background: roleColor || '#9ca3af', width: 14, height: 14 }}
+                    />
+                    <span className="role-form-title">Editing <strong>{roleName || '…'}</strong></span>
+                  </>
+                ) : (
+                  <span className="role-form-title">New role</span>
+                )}
               </div>
               <TextField
                 label="Role name"
                 value={roleName}
                 onChange={(e) => setRoleName(e.target.value)}
                 placeholder="e.g., Admin"
-                disabled={isCreatingRole}
+                disabled={isSubmittingRole}
               />
               <ColorPicker
                 label="Role color"
                 value={roleColor}
                 onChange={setRoleColor}
-                disabled={isCreatingRole}
+                disabled={isSubmittingRole}
               />
 
               <div className="permissions-grid">
@@ -374,7 +346,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
                     onChange={(next) =>
                       setRolePermissions(prev => ({ ...prev, [permKey]: next }))
                     }
-                    disabled={isCreatingRole}
+                    disabled={isSubmittingRole}
                   />
                 ))}
               </div>
@@ -382,13 +354,15 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
               <div className="actions-row">
                 <Button
                   variant="primary"
-                  onClick={createRole}
-                  disabled={isCreatingRole || !roleName.trim()}
-                  iconLeft={<i className="fas fa-plus"></i>}
+                  onClick={submitRole}
+                  disabled={isSubmittingRole || !roleName.trim()}
+                  iconLeft={<i className={selectedRoleId ? 'fas fa-save' : 'fas fa-plus'}></i>}
                 >
-                  {isCreatingRole ? 'Creating…' : 'Add role'}
+                  {isSubmittingRole
+                    ? (selectedRoleId ? 'Saving…' : 'Creating…')
+                    : (selectedRoleId ? 'Save changes' : 'Add role')}
                 </Button>
-                <span className="hint subtle">Roles set server-wide capabilities; channel overrides still apply.</span>
+                <span className="hint subtle">Roles set server-wide capabilities.</span>
               </div>
             </div>
           </div>

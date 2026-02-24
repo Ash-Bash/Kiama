@@ -1,0 +1,175 @@
+// ──────────────────────────────────────────────────────────────────────────────
+// PopoverPanel — shared chrome for tray / popover picker panels
+//
+// This file owns: backdrop, panel base skin, popover mode, soft-3D, arrow,
+// and header bar.  Picker-specific content (grids, tabs, search bars, etc.)
+// lives in the individual picker SCSS files, scoped via the `className` prop.
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Full-screen transparent click-catcher rendered behind a popover.
+.popover-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1099;
+}
+
+.popover-panel {
+  // ── Base — tray mode (absolute, sits above the parent container) ───────────
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  background-color: var(--secondary-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: inherit;
+
+  // ── Popover mode — position:fixed, launched from an arbitrary button ───────
+  &--popover {
+    position: fixed !important;
+    bottom: auto !important;
+    right: auto !important;
+    z-index: 1100;
+    animation: popover-panel-fade-in 0.12s ease;
+  }
+
+  // ── Soft-3D surface ───────────────────────────────────────────────────────
+  &.soft-3d {
+    background:
+      linear-gradient(160deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.10)),
+      var(--secondary-bg);
+    border-color: var(--surface-border, var(--border));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      inset 0 -1px 3px rgba(0, 0, 0, 0.12),
+      0 12px 28px rgba(0, 0, 0, 0.32),
+      0 4px 10px rgba(0, 0, 0, 0.22);
+
+    // Match arrow fill to the panel's blended background colour.
+    .popover-panel-arrow--bottom::after { border-top-color:    var(--secondary-bg); }
+    .popover-panel-arrow--top::after    { border-bottom-color: var(--secondary-bg); }
+
+    // Header — subtle top-edge light wash.
+    .popover-panel-header {
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent);
+      border-bottom-color: var(--surface-border, var(--border));
+    }
+  }
+
+  // ── iOS-style directional arrow ───────────────────────────────────────────
+  &-arrow {
+    position: absolute;
+    width: 16px;
+    height: 8px;
+    transform: translateX(-50%);
+    z-index: 1;
+    pointer-events: none;
+
+    // Arrow pointing DOWN — panel is displayed above the trigger.
+    &--bottom {
+      bottom: -8px;
+
+      &::before {
+        content: '';
+        display: block;
+        position: absolute;
+        width: 0; height: 0;
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        border-top: 8px solid var(--border);
+        top: 0; left: 0;
+      }
+
+      &::after {
+        content: '';
+        display: block;
+        position: absolute;
+        width: 0; height: 0;
+        border-left: 7px solid transparent;
+        border-right: 7px solid transparent;
+        border-top: 7px solid var(--secondary-bg);
+        top: 0; left: 1px;
+      }
+    }
+
+    // Arrow pointing UP — panel is displayed below the trigger.
+    &--top {
+      top: -8px;
+
+      &::before {
+        content: '';
+        display: block;
+        position: absolute;
+        width: 0; height: 0;
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        border-bottom: 8px solid var(--border);
+        bottom: 0; left: 0;
+      }
+
+      &::after {
+        content: '';
+        display: block;
+        position: absolute;
+        width: 0; height: 0;
+        border-left: 7px solid transparent;
+        border-right: 7px solid transparent;
+        border-bottom: 7px solid var(--secondary-bg);
+        bottom: 0; left: 1px;
+      }
+    }
+  }
+
+  // ── Header bar ────────────────────────────────────────────────────────────
+  &-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+
+    h3 {
+      margin: 0;
+      color: var(--text-primary);
+      font-size: 15px;
+      font-weight: 600;
+      // --app-font is set by ThemeProvider; can't rely on cascade inheritance
+      // for heading elements due to browser UA stylesheet specificity.
+      font-family: var(--app-font, inherit);
+    }
+
+    // Close button — strip Button component's default box-shadow.
+    .close-btn,
+    .close-btn.btn {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 20px;
+      cursor: pointer;
+      padding: 0;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      box-shadow: none;
+
+      &:hover {
+        background-color: var(--hover);
+        color: var(--text-primary);
+      }
+    }
+  }
+}
+
+// Entry animation for popover mode.
+@keyframes popover-panel-fade-in {
+  from { opacity: 0; transform: scale(0.96) translateY(4px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}

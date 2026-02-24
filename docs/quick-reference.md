@@ -41,6 +41,14 @@ npm run build:client  # Build client only
 - `src/client/renderer/src/App.tsx` - React root
 - `src/server/src/server.ts` - Main server class
 - `src/server/src/index.ts` - CLI entry point
+- `src/client/renderer/src/components/PopoverPanel.tsx` - Shared picker panel chrome
+- `src/client/renderer/src/utils/SurfaceContext.tsx` - Soft-3D state context
+
+### Key Pages
+- `src/client/renderer/src/pages/SettingsPage.tsx` - Account / app settings (full-width, dark gradient bg)
+- `src/client/renderer/src/pages/ServerSettingsPage.tsx` - Per-server settings: access control, roles, security (full-width, same dark gradient bg as SettingsPage, **no** channel/member sidebar)
+- `src/client/renderer/src/pages/HomePage.tsx` - Dashboard / home view
+- `src/client/renderer/src/pages/ServerPage.tsx` - Active server chat view (sidebar visible)
 
 ### Build Outputs
 - `dist/client/bundle.js` - Main client application (plugins excluded)
@@ -58,20 +66,85 @@ npm run build:client  # Build client only
 - Override data root with `KIAMA_DATA_DIR`; override persisted config path with `KIAMA_CONFIG_PATH`.
 - Default data layout: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/` under the data root.
 
-## Code Commenting Guidelines
+## Common Components Quick Reference
 
-- Add a brief comment above every class, exported function, and React component describing its role.
-- For helper functions inside components, include one-line comments when behavior is non-trivial (API calls, state transitions, IPC, etc.).
-- Prefer concise JSDoc-style blocks when parameters or return values are helpful to future readers.
-- Keep inline comments sparing but use them to flag important side effects, security considerations, or non-obvious defaults.
-- Avoid restating obvious code; focus on intent and constraints (why this exists, what to watch out for).
+### Shared UI Primitives
 
-## Common Development Tasks
+| Component | Import | Notes |
+|-----------|--------|-------|
+| `Button` | `./Button` | `variant`: primary / ghost / danger; `size`: sm / md / lg |
+| `TextField` | `./TextField` | `label`, `error`, `containerClassName` props |
+| `Select` | `./Select` | Wraps `<select>` with theme styling |
+| `Toggle` | `./Toggle` | Boolean on/off with label; `inline` puts label to the right; `size="small"` for compact rows; `tintColor` colours the track when on |
+| `ColorPicker` | `./ColorPicker` | Swatch-grid colour selector |
+| `SegmentedControl` | `./SegmentedControl` | Pill tab strip |
+| `ModalPanel` | `./ModalPanel` | Side-panel sheet with soft-3D support |
+| `PopoverPanel` | `./PopoverPanel` | Floating picker panel (tray or anchored popover) |
+| `Page` | `./Page` | Header/body split with `scroll` and `padded` options |
+
+### PopoverPanel at a glance
+
+```tsx
+import PopoverPanel, { PopoverAnchorRect } from '../components/PopoverPanel';
+
+// Tray mode (no anchorRect) — absolute, bottom: 100%, right: 0
+<PopoverPanel title="Stickers" onClose={close} width={320} height={340} className="sticker-picker">
+  {/* content */}
+</PopoverPanel>
+
+// Popover mode — portalled to document.body, fixed, arrow pointing at trigger
+<PopoverPanel title="Stickers" onClose={close} anchorRect={buttonRect} className="sticker-picker">
+  {/* content */}
+</PopoverPanel>
+```
+
+### Capturing an anchor rect
+
+```tsx
+const [anchorRect, setAnchorRect] = useState<PopoverAnchorRect | null>(null);
+
+<button onClick={(e) => setAnchorRect(e.currentTarget.getBoundingClientRect())}>
+  Open Picker
+</button>
+{
+  anchorRect && (
+    <MyPicker anchorRect={anchorRect} onClose={() => setAnchorRect(null)} />
+  )
+}
+```
+
+### SurfaceContext / useSurface
+
+```tsx
+import { useSurface } from '../utils/SurfaceContext';
+
+const { soft3DEnabled } = useSurface();
+// Use in portalled or non-portalled components; SurfaceProvider wraps AppContent in App.tsx
+```
+
+### Font in headings
+
+```scss
+// Always use --app-font for h2/h3 etc. — `inherit` is overridden by the browser UA stylesheet
+h3 { font-family: var(--app-font, inherit); }
+```
+
+---
+
+
 
 ### Add New Component
 1. Create `src/client/renderer/src/components/NewComponent.tsx`
 2. Add styles in `src/client/renderer/src/styles/components/`
 3. Import in parent component
+
+### Add Picker Panel (uses PopoverPanel)
+1. Create `src/client/renderer/src/components/MyPicker.tsx`
+2. Import `PopoverPanel, { PopoverAnchorRect }` from `./PopoverPanel`
+3. Wrap content: `<PopoverPanel title="…" onClose={…} width={…} height={…} anchorRect={…} className="my-picker">…</PopoverPanel>`
+4. Add **content-only** SCSS in `src/client/renderer/src/styles/components/MyPicker.scss` scoped to `.my-picker` (no backdrop/arrow/header — PopoverPanel owns those)
+5. Wire anchor state in parent with `e.currentTarget.getBoundingClientRect()` on the trigger button
+6. See `EmotePicker.tsx` / `GifPicker.tsx` as reference implementations
 
 ### Add Server Endpoint
 1. Add route in `src/server/src/server.ts`
@@ -285,6 +358,49 @@ curl http://localhost:3000/channels
 curl http://localhost:3000/sections
 ```
 
+## Role Management
+
+### REST Endpoints
+```bash
+# List all roles
+curl http://localhost:3000/roles
+
+# Create a role
+curl -X POST http://localhost:3000/roles \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Moderator", "color": "#ed4245", "permissions": {"kickMembers": true, "banMembers": false, "manageServer": false, "manageChannels": false, "manageRoles": false, "sendMessages": true, "viewChannels": true}}'
+
+# Update an existing role
+curl -X PATCH http://localhost:3000/roles/<roleId> \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Senior Mod", "color": "#fee75c", "permissions": {"kickMembers": true, "banMembers": true, "manageServer": false, "manageChannels": false, "manageRoles": false, "sendMessages": true, "viewChannels": true}}'
+```
+
+### Channel Permissions (read/write by role)
+```bash
+# Update which roles can read/write a channel
+curl -X POST http://localhost:3000/channels/<channelId>/permissions \
+  -H "Content-Type: application/json" \
+  -d '{"readRoles": ["owner", "mod"], "writeRoles": ["owner"]}'
+```
+
+### ServerSettingsPage Props
+```tsx
+<ServerSettingsPage
+  server={server}                   // { id, name, url }
+  channels={channels}               // Channel[]
+  roles={roles}                     // Role[] — id/name/color/permissions
+  selectedChannelId={channelId}
+  onSelectChannel={fn}              // (channelId: string) => void
+  onSavePermissions={fn}            // (channelId, readRoles, writeRoles) => Promise<void>
+  onCreateRole={fn}                 // ({ name, color?, permissions }) => Promise<void>
+  onUpdateRole={fn}                 // (id, { name, color?, permissions }) => Promise<void>
+  onBack={fn}
+  loading={false}
+  passwordRequired={null}           // null | boolean
+/>
+```
+
 ## Socket.IO Events
 
 ### Channel Events
@@ -322,5 +438,21 @@ socket.on('channel_history', (data) => {
 // Receive new messages
 socket.on('message', (message) => {
   // message.channelId indicates which channel it belongs to
+  // message.userRole  — role id assigned to the sender at send-time;
+  //                     used to look up role color for the username badge in chat
 });
+```
+
+### TypedMessage shape (plugin.ts)
+```typescript
+interface TypedMessage {
+  id: string;
+  user: string;       // display name
+  userRole?: string;  // role id stamped at send-time — drives username colour in MessageList
+  content: string;
+  timestamp: string;
+  channelId: string;
+  type?: string;
+  // ... reactions, replyTo, attachments, etc.
+}
 ```

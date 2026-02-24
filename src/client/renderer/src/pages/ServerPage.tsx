@@ -26,19 +26,25 @@ interface PickerGif {
   title: string;
 }
 
+interface ReplyReference {
+  id: string;
+  user: string;
+  content: string;
+}
+
 interface ServerPageProps {
   showMobileNavButtons: boolean;
   onToggleNavPanels: () => void;
   onToggleMembers: () => void;
   currentChannel?: Channel;
   currentMessages: TypedMessage[];
-  renderMessage: (msg: TypedMessage) => React.ReactNode;
+  renderMessage: (msg: TypedMessage, index?: number, arr?: TypedMessage[]) => React.ReactNode;
   message: string;
   onMessageChange: (val: string) => void;
   onSendMessage: () => void;
   showMessageOptions: boolean;
   onToggleMessageOptions: () => void;
-  openEmojiPicker: () => void;
+  openEmojiPicker: (anchor?: DOMRect) => void;
   openGifPicker: () => void;
   closeEmotePicker: () => void;
   closeGifPicker: () => void;
@@ -50,6 +56,12 @@ interface ServerPageProps {
   handleFileUpload: () => void;
   sendPollMessage: () => void;
   servers: Server[];
+  replyingTo: ReplyReference | null;
+  onClearReply: () => void;
+  reactToMessageId: string | null;
+  onCloseReactionPicker: () => void;
+  handleReactionEmoteSelect: (emote: PickerEmote) => void;
+  pickerAnchor: { top: number; left: number; width: number; height: number } | null;
 }
 
 // Server view that shows channel header, message list, and composer controls.
@@ -76,7 +88,13 @@ const ServerPage: React.FC<ServerPageProps> = ({
   handleImageUpload,
   handleFileUpload,
   sendPollMessage,
-  servers
+  servers,
+  replyingTo,
+  onClearReply,
+  reactToMessageId,
+  onCloseReactionPicker,
+  handleReactionEmoteSelect,
+  pickerAnchor,
 }) => {
   return (
     <Page
@@ -123,10 +141,28 @@ const ServerPage: React.FC<ServerPageProps> = ({
       }
     >
       <div className="message-list">
-        {currentMessages.map(renderMessage)}
+        {currentMessages.map((msg, i, arr) => renderMessage(msg, i, arr))}
       </div>
 
       <div className="message-input">
+        {/* Reply bar shown above the composer when replying */}
+        {replyingTo && (
+          <div className="reply-bar">
+            <span className="reply-bar-label">
+              <i className="fas fa-reply reply-bar-icon" />
+              Replying to <strong>{replyingTo.user}</strong>
+            </span>
+            <span className="reply-bar-preview">
+              {replyingTo.content.length > 60
+                ? replyingTo.content.slice(0, 60) + '…'
+                : replyingTo.content}
+            </span>
+            <button className="reply-bar-close" onClick={onClearReply} title="Cancel reply">
+              <i className="fas fa-times" />
+            </button>
+          </div>
+        )}
+
         <div className="message-input-container">
           <button
             className="message-options-btn"
@@ -142,10 +178,10 @@ const ServerPage: React.FC<ServerPageProps> = ({
             placeholder={`Message #${currentChannel?.name || 'general'}`}
           />
           <div className="message-function-tray">
-            <button className="tray-btn emote-btn" onClick={openEmojiPicker} title="Add Emoji">
+            <button className="tray-btn emote-btn" onClick={(e) => openEmojiPicker(e.currentTarget.getBoundingClientRect())} title="Add Emoji">
               <i className="far fa-smile"></i>
             </button>
-            <button className="tray-btn gif-btn" onClick={openGifPicker} title="Add GIF">
+            <button className="tray-btn gif-btn" onClick={() => openGifPicker()} title="Add GIF">
               <i className="fas fa-film"></i>
             </button>
           </div>
@@ -159,6 +195,7 @@ const ServerPage: React.FC<ServerPageProps> = ({
             onSelect={handleEmoteSelect}
             onClose={closeEmotePicker}
             servers={servers}
+            anchorRect={pickerAnchor}
           />
         )}
 
@@ -166,6 +203,16 @@ const ServerPage: React.FC<ServerPageProps> = ({
           <GifPicker
             onSelect={handleGifSelect}
             onClose={closeGifPicker}
+          />
+        )}
+
+        {/* Reaction emote picker — launched from message hover toolbar */}
+        {reactToMessageId && (
+          <EmotePicker
+            onSelect={handleReactionEmoteSelect}
+            onClose={onCloseReactionPicker}
+            servers={servers}
+            anchorRect={pickerAnchor}
           />
         )}
 

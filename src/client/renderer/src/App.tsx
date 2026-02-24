@@ -4,6 +4,7 @@ import PluginManager from './utils/PluginManager';
 import { TypedMessage, Channel, ChannelSection } from './types/plugin';
 import { ModalProvider, useModal } from './components/Modal';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
+import { SurfaceProvider } from './utils/SurfaceContext';
 import AddServerPanel from './panels/AddServerPanel';
 import LoadingScreen from './components/LoadingScreen';
 import Login from './components/Login';
@@ -162,8 +163,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [showMobileUserList, setShowMobileUserList] = useState(false);
   const [activeAddMenu, setActiveAddMenu] = useState<string | null>(null);
   const [userSidebarTab, setUserSidebarTab] = useState<'members' | 'metrics'>('members');
-  const [serverRoles, setServerRoles] = useState<Role[]>([]);
+  const [serverRoles, setServerRoles] = useState<Role[]>([
+    { id: 'role-owner', name: 'owner', color: '#f59e0b', permissions: { manageServer: true, manageChannels: true, manageRoles: true, kickMembers: true, banMembers: true, sendMessages: true, viewChannels: true } },
+    { id: 'role-mod', name: 'mod', color: '#10b981', permissions: { manageServer: false, manageChannels: true, manageRoles: false, kickMembers: true, banMembers: false, sendMessages: true, viewChannels: true } },
+    { id: 'role-support', name: 'Support', color: '#3b82f6', permissions: { manageServer: false, manageChannels: false, manageRoles: false, kickMembers: false, banMembers: false, sendMessages: true, viewChannels: true } },
+    { id: 'role-members', name: 'Members', color: '#9ca3af', permissions: { manageServer: false, manageChannels: false, manageRoles: false, kickMembers: false, banMembers: false, sendMessages: true, viewChannels: true } },
+  ]);
   const [serverSettingsChannelId, setServerSettingsChannelId] = useState<string>('');
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [reactToMessageId, setReactToMessageId] = useState<string | null>(null);
+  const [pickerAnchor, setPickerAnchor] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  const [localReactions, setLocalReactions] = useState<Map<string, { emoji: string; users: string[] }[]>>(new Map());
   const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null);
   const [serverSettingsLoading, setServerSettingsLoading] = useState(false);
   const [serverPasswordRequired, setServerPasswordRequired] = useState<boolean | null>(null);
@@ -394,13 +404,19 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       const res = await fetch(`${server.url}/roles`);
       if (res.ok) {
         const data = await res.json();
-        setServerRoles(data.roles || []);
-      } else {
-        setServerRoles([]);
+        // Merge fetched roles with existing ones: server roles take precedence for
+        // shared names, but local roles whose names aren't on the server are preserved
+        // so that previously-resolved role colors in chat don't disappear.
+        setServerRoles(prev => {
+          const incoming: Role[] = data.roles || [];
+          const incomingNames = new Set(incoming.map(r => r.name));
+          const preserved = prev.filter(r => !incomingNames.has(r.name));
+          return [...incoming, ...preserved];
+        });
       }
+      // On non-OK or error, leave serverRoles untouched to avoid breaking existing colors.
     } catch (error) {
       console.error('Failed to load roles', error);
-      setServerRoles([]);
     }
 
     try {
@@ -485,6 +501,26 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       setServerRoles(prev => [...prev, created]);
     } catch (error) {
       console.error('Failed to create role', error);
+    }
+  };
+
+  // Update an existing server role and reflect changes locally.
+  const updateServerRole = async (id: string, input: { name: string; color?: string; permissions: RolePermissions }) => {
+    const serverId = serverSettingsServerId || currentServerId;
+    const server = servers.find(s => s.id === serverId);
+    if (!server) return;
+
+    // Optimistic local update so the UI reflects immediately.
+    setServerRoles(prev => prev.map(r => r.id === id ? { ...r, ...input } : r));
+
+    try {
+      await fetch(`${server.url}/roles/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input)
+      });
+    } catch (error) {
+      console.error('Failed to update role', error);
     }
   };
 
@@ -647,19 +683,36 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
   // Send a message over the socket, defaulting to plain text.
   const sendMessage = (type: string = 'text', data?: any) => {
+    if (!message.trim() && type === 'text' && !data) return;
+    const senderRole = users.find(u => u.name === 'You')?.role;
     const messageData: Partial<Message> = {
+      id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       user: 'You',
+      userRole: senderRole,
       content: message,
       type,
       data,
       serverId: currentServer,
-      channelId: currentChannelId
+      channelId: currentChannelId,
+      timestamp: new Date(),
+      replyTo: replyingTo
+        ? { id: replyingTo.id, user: replyingTo.user, content: replyingTo.content }
+        : undefined,
     };
+
+    // Add optimistically to local state so it shows immediately.
+    setMessages(prev => {
+      const newMessages = new Map(prev);
+      const channelMessages = newMessages.get(currentChannelId) || [];
+      newMessages.set(currentChannelId, [...channelMessages, messageData as Message]);
+      return newMessages;
+    });
 
     if (socketRef.current) {
       socketRef.current.emit('message', messageData);
     }
     setMessage('');
+    setReplyingTo(null);
   };
 
   // Shortcut helper for sending a demo poll payload.
@@ -724,7 +777,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   // Toggle the emoji picker while hiding other trays.
-  const openEmojiPicker = () => {
+  const openEmojiPicker = (anchor?: DOMRect) => {
+    setPickerAnchor(anchor ? { top: anchor.top, left: anchor.left, width: anchor.width, height: anchor.height } : null);
     setShowGifPicker(false);
     setShowMessageOptions(false);
     setShowEmotePicker(prev => !prev);
@@ -740,6 +794,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   // Hide emoji picker overlay.
   const closeEmotePicker = () => {
     setShowEmotePicker(false);
+    setPickerAnchor(null);
   };
 
   // Hide GIF picker overlay.
@@ -752,6 +807,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setShowMessageOptions(prev => !prev);
     setShowEmotePicker(false);
     setShowGifPicker(false);
+    setPickerAnchor(null);
   };
 
   // Insert a selected emoji or emote token into the composer text.
@@ -893,6 +949,36 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }
   };
 
+  // Toggle a reaction emoji for the current user on a specific message.
+  const handleLocalReaction = (messageId: string, emoji: string) => {
+    setLocalReactions(prev => {
+      const newMap = new Map(prev);
+      const reactions = (newMap.get(messageId) || []).map(r => ({ ...r, users: [...r.users] }));
+      const existing = reactions.find(r => r.emoji === emoji);
+      if (existing) {
+        if (existing.users.includes('You')) {
+          existing.users = existing.users.filter(u => u !== 'You');
+          newMap.set(messageId, reactions.filter(r => r.users.length > 0));
+        } else {
+          existing.users.push('You');
+          newMap.set(messageId, reactions);
+        }
+      } else {
+        newMap.set(messageId, [...reactions, { emoji, users: ['You'] }]);
+      }
+      return newMap;
+    });
+    setReactToMessageId(null);
+  };
+
+  // Handle emote selected from the reaction picker overlay.
+  const handleReactionEmoteSelect = (emote: { name: string; url: string; unicode?: string }) => {
+    if (!reactToMessageId) return;
+    const emoji = emote.unicode || emote.url;
+    handleLocalReaction(reactToMessageId, emoji);
+    setPickerAnchor(null);
+  };
+
   // Optimistically drop a message from local state; real deletion would call the API.
   const deleteMessage = (messageId: string) => {
     // In a real implementation, you'd send a delete request to the server
@@ -906,7 +992,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   // Render a message with plugin overrides, falling back to sanitized HTML.
-  const renderMessage = (msg: Message) => {
+  const renderMessage = (msg: Message, index?: number, arr?: Message[]) => {
     const processedMessage = pluginManager.processMessage(msg);
     const userMeta = users.find(u => u.name === processedMessage.user);
 
@@ -927,7 +1013,6 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         );
       }
 
-      // If the component returns a JSX-like structure, render it
       try {
         const componentResult = (MessageComponent as any)({ message: processedMessage });
         if (componentResult && componentResult.type) {
@@ -937,40 +1022,193 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         console.error('Error rendering plugin component:', error);
       }
 
-      // Otherwise, assume it's a React component
       const Component = MessageComponent as React.ComponentType<{ message: Message; key?: string }>;
       return React.createElement(Component, { key: processedMessage.id, message: processedMessage });
     }
 
     const safeContent = toSafeHtml(processedMessage);
+    const resolvedRole = processedMessage.userRole || userMeta?.role;
+    const roleColor = getRoleColor(resolvedRole);
+    const msgReactions = localReactions.get(processedMessage.id) || [];
+    // First message in a channel OR first message from a new author → extra top margin
+    const isGroupStart = index == null || index === 0 || !arr || arr[index - 1].user !== processedMessage.user;
 
-    const roleColor = getRoleColor(userMeta?.role);
+    // Avatar: use provided avatar URL or generate 1-2 letter initials
+    const avatarInitials = processedMessage.user
+      .split(' ')
+      .slice(0, 2)
+      .map(w => w[0]?.toUpperCase() || '')
+      .join('');
 
-    // Default rendering
+    // Deterministic pastel background for the avatar circle
+    const AVATAR_COLORS = ['#5865f2','#eb459e','#57f287','#fee75c','#ed4245','#3ba55d','#faa61a','#9c27b0','#00b0f4','#ff7043'];
+    const avatarBg = AVATAR_COLORS[
+      [...processedMessage.user].reduce((acc, c) => acc + c.charCodeAt(0), 0) % AVATAR_COLORS.length
+    ];
+
+    // Compact timestamp — HH:MM
+    const formatTime = (value?: Date | string) => {
+      if (!value) return '';
+      const d = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(d.getTime())) return '';
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    };
+
     return (
-      <div 
-        key={processedMessage.id} 
-        className="message"
+      <div
+        key={processedMessage.id}
+        className={`message${isGroupStart ? ' message--group-start' : ''}`}
         onContextMenu={(e) => {
-          // Only show context menu for user's own messages
           if (processedMessage.user === 'You') {
             e.preventDefault();
-            const deleteOption = confirm('Delete this message?');
-            if (deleteOption) {
-              deleteMessage(processedMessage.id);
-            }
+            if (confirm('Delete this message?')) deleteMessage(processedMessage.id);
           }
         }}
       >
-        <span className="username" style={roleColor ? { color: roleColor } : undefined}>
-          {processedMessage.user}:
-        </span>
-        <span className="content" dangerouslySetInnerHTML={{ __html: safeContent }} />
-        {processedMessage.type !== 'text' && <span className="message-type">[{processedMessage.type}]</span>}
-        {processedMessage.embeds && processedMessage.embeds.map((embed, j) => {
-          const Component = embed.component;
-          return <Component key={j} {...embed} />;
-        })}
+        {/* Hover action toolbar — floats top-right on hover */}
+        <div className="message-actions">
+          <button
+            className="message-action-btn"
+            title="Add Reaction"
+            onClick={(e) => {
+              e.stopPropagation();
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setPickerAnchor({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+              setReactToMessageId(prev =>
+                prev === processedMessage.id ? null : processedMessage.id
+              );
+            }}
+          >
+            <i className="far fa-smile-beam" />
+          </button>
+          <button
+            className="message-action-btn"
+            title="Reply"
+            onClick={() => setReplyingTo(processedMessage as Message)}
+          >
+            <i className="fas fa-reply" />
+          </button>
+          <button
+            className="message-action-btn"
+            title="Forward"
+          >
+            <i className="fas fa-share" />
+          </button>
+          <button
+            className="message-action-btn"
+            title="More options"
+            onClick={(e) => {
+              if (processedMessage.user === 'You') {
+                e.preventDefault();
+                if (confirm('Delete this message?')) deleteMessage(processedMessage.id);
+              }
+            }}
+          >
+            <i className="fas fa-ellipsis-h" />
+          </button>
+        </div>
+
+        {/* Reply reference shown above (greyed banner) */}
+        {processedMessage.replyTo && (
+          <div className="message-reply-context">
+            <div className="reply-context-line" />
+            <i className="fas fa-reply reply-context-icon" />
+            <span
+              className="reply-context-name"
+              style={(() => {
+                const refMeta = users.find(u => u.name === processedMessage.replyTo!.user);
+                const refColor = getRoleColor(refMeta?.role);
+                return refColor ? { color: refColor } : undefined;
+              })()}
+            >
+              {processedMessage.replyTo.user}
+            </span>
+            <span className="reply-context-content">
+              {processedMessage.replyTo.content.length > 80
+                ? processedMessage.replyTo.content.slice(0, 80) + '…'
+                : processedMessage.replyTo.content}
+            </span>
+          </div>
+        )}
+
+        {/* Main message row: avatar + content column */}
+        <div className="message-row">
+          {/* Avatar */}
+          <div className="message-avatar" style={userMeta?.avatar ? undefined : { background: avatarBg }}>
+            {userMeta?.avatar
+              ? <img src={userMeta.avatar} alt={processedMessage.user} />
+              : <span className="avatar-initials">{avatarInitials}</span>
+            }
+          </div>
+
+          {/* Content column */}
+          <div className="message-main">
+            {/* Header: username, role badge, timestamp */}
+            <div className="message-header">
+              <span
+                className="message-username"
+                style={roleColor ? { color: roleColor } : undefined}
+              >
+                {processedMessage.user}
+              </span>
+              {resolvedRole && (
+                <span className="message-role-badge" style={roleColor ? { color: roleColor, borderColor: roleColor } : undefined}>
+                  {resolvedRole}
+                </span>
+              )}
+              <span className="message-timestamp">
+                {formatTime(processedMessage.timestamp)}
+              </span>
+            </div>
+
+            {/* Content */}
+            <div className="message-content">
+              <span dangerouslySetInnerHTML={{ __html: safeContent }} />
+              {processedMessage.type !== 'text' && (
+                <span className="message-type-tag">[{processedMessage.type}]</span>
+              )}
+              {processedMessage.embeds && processedMessage.embeds.map((embed, j) => {
+                const EmbedComp = embed.component;
+                return <EmbedComp key={j} {...embed} />;
+              })}
+            </div>
+
+            {/* Reactions row */}
+            {msgReactions.length > 0 && (
+              <div className="message-reactions">
+                {msgReactions.map(reaction => (
+                  <button
+                    key={reaction.emoji}
+                    className={`reaction-chip ${reaction.users.includes('You') ? 'reaction-chip--active' : ''}`}
+                    onClick={() => handleLocalReaction(processedMessage.id, reaction.emoji)}
+                    title={reaction.users.join(', ')}
+                  >
+                    {reaction.emoji.startsWith('http') ? (
+                      <img src={reaction.emoji} alt="emote" className="reaction-img" />
+                    ) : (
+                      <span className="reaction-emoji">{reaction.emoji}</span>
+                    )}
+                    <span className="reaction-count">{reaction.users.length}</span>
+                  </button>
+                ))}
+                <button
+                  className="reaction-chip reaction-chip--add"
+                  title="Add Reaction"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setPickerAnchor({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+                    setReactToMessageId(prev =>
+                      prev === processedMessage.id ? null : processedMessage.id
+                    );
+                  }}
+                >
+                  <i className="far fa-smile" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     );
   };
@@ -1050,7 +1288,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
   const showMobileNavButtons = viewportWidth <= 1100;
   const showServerListPanel = !isMobile || showMobileServerList;
-  const showSidebarPanel = (isServerView || isServerSettingsView) && ((!sidebarCollapsed && !isMobile) || (isMobile && showMobileSidebar));
+  const showSidebarPanel = isServerView && ((!sidebarCollapsed && !isMobile) || (isMobile && showMobileSidebar));
   const showUserListPanel = isServerView && ((!userListCollapsed && !isMobile) || (isMobile && showMobileUserList));
 
   // Dismiss all mobile drawers at once.
@@ -1168,6 +1406,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     .filter(entry => entry.mediaCount > 0);
 
   return (
+    <SurfaceProvider soft3DEnabled={soft3DEnabled}>
     <div className={`app-shell ${soft3DEnabled ? 'soft-3d' : 'soft-3d-off'}`}>
       <TitleBar />
       <div className="app">
@@ -1385,9 +1624,6 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
         <div className="page-surface">
           <div className="main-content">
-            {isSwitchingServer && isServerView && (
-              <LoadingScreen type="server-switch" />
-            )}
             {isSettingsView ? (
               <SettingsPage
                 userName={user?.name}
@@ -1428,6 +1664,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 loading={serverSettingsLoading}
                 passwordRequired={serverPasswordRequired}
                 onCreateRole={createServerRole}
+                onUpdateRole={updateServerRole}
               />
             ) : (
               <ServerPage
@@ -1454,6 +1691,12 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 handleFileUpload={handleFileUpload}
                 sendPollMessage={sendPollMessage}
                 servers={servers}
+                replyingTo={replyingTo ? { id: replyingTo.id, user: replyingTo.user, content: replyingTo.content } : null}
+                onClearReply={() => setReplyingTo(null)}
+                reactToMessageId={reactToMessageId}
+                onCloseReactionPicker={() => { setReactToMessageId(null); setPickerAnchor(null); }}
+                handleReactionEmoteSelect={handleReactionEmoteSelect}
+                pickerAnchor={pickerAnchor}
               />
             )}
           </div>
@@ -1681,6 +1924,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
           </>
         )}
 
+        {isSwitchingServer && (
+          <LoadingScreen type="server-switch" />
+        )}
+
         {!isMobile && userListCollapsed && isServerView && (
           <div className="user-list-collapsed">
             <button className="expand-btn" onClick={toggleUserList} title="Expand User List">
@@ -1691,6 +1938,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       </div>
       </div>
     </div>
+    </SurfaceProvider>
   );
 }
 

@@ -1,4 +1,10 @@
 .server-settings-page {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
+    linear-gradient(160deg, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.15)),
+    var(--primary-bg);
+  color: var(--text-primary);
+
   .page-header {
     padding: 24px 28px 0;
   }
@@ -225,6 +231,51 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     background: var(--secondary-bg);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+
+    &:hover {
+      background: var(--hover-bg);
+    }
+
+    &.selected {
+      border-color: var(--accent);
+      background: rgba(var(--accent-rgb, 88, 101, 242), 0.12);
+    }
+  }
+
+  .role-new-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    width: 100%;
+    transition: color 0.15s ease, border-color 0.15s ease;
+
+    &:hover {
+      color: var(--text-primary);
+      border-color: var(--text-secondary);
+    }
+  }
+
+  .role-form-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+
+    .role-form-title {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
   }
 
   .role-meta {

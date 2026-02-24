@@ -4,6 +4,17 @@
   align-items: center;
   justify-content: center;
   padding: 48px 32px;
+
+  .drag-zone {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 36px;
+    -webkit-app-region: drag;
+    z-index: 10000;
+    pointer-events: auto;
+  }
   background: radial-gradient(circle at 20% 20%, rgba(106, 188, 255, 0.18), transparent 32%),
     radial-gradient(circle at 80% 0%, rgba(255, 111, 145, 0.18), transparent 30%),
     linear-gradient(135deg, var(--primary-bg), var(--tertiary-bg));

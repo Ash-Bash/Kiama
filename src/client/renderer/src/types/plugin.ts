@@ -29,10 +29,24 @@ export interface ServerPluginMetadata {
   enabled?: boolean; // Server controls enable/disable for server-provided plugins
 }
 
+// Reaction on a message (emoji + list of usernames who reacted)
+export interface MessageReaction {
+  emoji: string;
+  users: string[];
+}
+
+// Reference to the message being replied to
+export interface ReplyReference {
+  id: string;
+  user: string;
+  content: string;
+}
+
 // Message with type information
 export interface TypedMessage {
   id: string;
   user: string;
+  userRole?: string; // Role name of the message sender (e.g. 'owner', 'mod')
   content: string;
   type: string; // 'text', 'poll', 'embed', etc.
   timestamp: Date;
@@ -41,6 +55,8 @@ export interface TypedMessage {
   channelId: string;
   embeds?: any[];
   renderedContent?: string; // Sanitized HTML produced by formatter plugins
+  reactions?: MessageReaction[]; // Emoji reactions on this message
+  replyTo?: ReplyReference; // Reply reference if this message is a reply
 }
 
 export interface MessageInputButton {

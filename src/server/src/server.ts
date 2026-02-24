@@ -13,6 +13,7 @@ import { ClientPluginMetadata } from './types/plugin';
 export interface TypedMessage {
   id: string;
   user: string;
+  userRole?: string; // Role name of the message sender
   content: string;
   type: string;
   timestamp: Date;
@@ -640,6 +641,46 @@ export class Server {
       res.json(stats);
     });
 
+    // Role management endpoints
+    this.app.get('/roles', (_req, res) => {
+      res.json({ roles: Array.from(this.roles.values()) });
+    });
+
+    this.app.post('/roles', (req, res) => {
+      const { name, color, permissions } = req.body;
+      if (!name || typeof name !== 'string' || name.trim().length === 0) {
+        return res.status(400).json({ error: 'Role name is required' });
+      }
+      const role: Role = {
+        id: uuidv4(),
+        name: name.trim(),
+        color,
+        permissions: permissions || { manageServer: false, manageChannels: false, manageRoles: false, viewChannels: true, sendMessages: true, manageMessages: false },
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      this.roles.set(role.id, role);
+      res.json(role);
+    });
+
+    this.app.patch('/roles/:roleId', (req, res) => {
+      const { roleId } = req.params;
+      const existing = this.roles.get(roleId);
+      if (!existing) {
+        return res.status(404).json({ error: 'Role not found' });
+      }
+      const { name, color, permissions } = req.body;
+      const updated: Role = {
+        ...existing,
+        name: (name && typeof name === 'string') ? name.trim() : existing.name,
+        color: color !== undefined ? color : existing.color,
+        permissions: permissions || existing.permissions,
+        updatedAt: new Date()
+      };
+      this.roles.set(roleId, updated);
+      res.json(updated);
+    });
+
     // Channel management endpoints
     this.app.get('/channels', (req, res) => {
       const channels = Array.from(this.channels.values()).map(channel => ({
@@ -1022,6 +1063,7 @@ export class Server {
         const message: TypedMessage = {
           id: uuidv4(),
           user: data.user || 'Anonymous',
+          userRole: data.userRole,
           content: data.content || '',
           type: data.type || 'text',
           timestamp: new Date(),

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import PopoverPanel, { PopoverAnchorRect } from './PopoverPanel';
 import '../styles/components/EmotePicker.scss';
 
 interface Emote {
@@ -9,14 +10,20 @@ interface Emote {
   serverName?: string;
 }
 
+// Re-export so existing callers using `import { AnchorRect } from './EmotePicker'`
+// keep working without changes.
+export type { PopoverAnchorRect as AnchorRect };
+
 interface EmotePickerProps {
   onSelect: (emote: Emote) => void;
   onClose: () => void;
   servers: Array<{ id: string; name: string; url: string }>;
+  /** When provided the picker floats as a fixed popover anchored to this rect */
+  anchorRect?: PopoverAnchorRect | null;
 }
 
 // Consolidated emoji/emote picker that pulls assets from all connected servers.
-const EmotePicker: React.FC<EmotePickerProps> = ({ onSelect, onClose, servers }) => {
+const EmotePicker: React.FC<EmotePickerProps> = ({ onSelect, onClose, servers, anchorRect }) => {
   const [emotes, setEmotes] = useState<Emote[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedServer, setSelectedServer] = useState<string>('all');
@@ -166,12 +173,14 @@ const EmotePicker: React.FC<EmotePickerProps> = ({ onSelect, onClose, servers })
   };
 
   return (
-    <div className="emote-picker">
-      <div className="emote-picker-header">
-        <h3>Emotes</h3>
-        <button className="close-btn" onClick={onClose}>×</button>
-      </div>
-
+    <PopoverPanel
+      title="Emotes"
+      onClose={onClose}
+      width={360}
+      height={380}
+      anchorRect={anchorRect}
+      className="emote-picker"
+    >
       <div className="server-tabs">
         <button
           className={selectedServer === 'all' ? 'active' : ''}
@@ -218,7 +227,7 @@ const EmotePicker: React.FC<EmotePickerProps> = ({ onSelect, onClose, servers })
           ))
         )}
       </div>
-    </div>
+    </PopoverPanel>
   );
 };
 

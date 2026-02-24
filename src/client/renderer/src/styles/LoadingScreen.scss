@@ -12,6 +12,10 @@
 
   &.server-switch {
     position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100;
     background: rgba(10, 12, 24, 0.95);
     backdrop-filter: blur(8px);
   }
@@ -56,6 +60,17 @@
     border-radius: 50%;
     animation: spin 2s linear infinite reverse;
   }
+}
+
+.drag-zone {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  -webkit-app-region: drag;
+  z-index: 10000;
+  pointer-events: auto;
 }
 
 .loading-title {

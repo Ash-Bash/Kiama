@@ -1,11 +1,16 @@
 // MessageList styles
 .message-list {
   flex: 1;
-  padding: 16px;
+  padding: 16px 0 8px;
   overflow-y: auto;
 
   .message {
-    margin-bottom: 8px;
+    padding: 6px 16px;
+    margin-bottom: 0;
+
+    &.message--group-start {
+      margin-top: 12px;
+    }
 
     .username {
       font-weight: bold;

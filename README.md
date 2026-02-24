@@ -7,11 +7,17 @@ A decentralized Discord-like chat application built with modern web technologies
 - **Decentralized Architecture**: Self-hosted chat servers with federation capabilities
 - **Channel Organization**: Discord-style channels organized into collapsible sections
 - **Real-time Messaging**: Socket.IO-powered instant messaging with channel-specific chat
+- **Discord-Style Message Layout**: Avatar, username, role-colour badge, timestamp header, hover toolbar — grouped consecutive messages by the same author
+- **Emoji Reactions & Replies**: Per-message reaction picker and threaded-style reply references
+- **Emote & GIF Pickers**: iOS-style popover pickers backed by custom server emotes (Tenor API for GIFs)
 - **Voice & Video Chat**: WebRTC-based voice and video communication
 - **End-to-End Encryption**: Secure communication channels
+- **Role-Based Access Control**: Create/edit server roles with per-permission toggles (manage server, kick, ban, send, view); assign read/write roles per channel from the Server Settings panel
 - **Moderation System**: Advanced moderation with whitelists/blacklists
 - **Plugin Architecture**: Extensible client and server plugins
-- **Theming System**: JSON-based themes with light/dark mode support
+- **Modern Surface (Soft-3D) Mode**: Optional per-surface highlight-and-shadow styling for panels, toolbars, and picker overlays
+- **Theming System**: JSON-based themes with light/dark mode support and per-theme font selection
+- **Common UI Component Library**: Shared `Button`, `TextField`, `ModalPanel`, `PopoverPanel`, `Select`, `Toggle`, `ColorPicker`, `SegmentedControl` — usable from plugins and core pages alike
 - **Cross-Platform Client**: Electron-based desktop application
 - **Responsive UI**: Mobile drawers for server/channel/member lists with coordinated toggles
 - **CLI Server Management**: Command-line interface for server administration
@@ -81,6 +87,8 @@ Server Name
 ### Page Layout
 - **Page wrapper**: `Page` component handles header/body split, optional padding/scroll, and masks rounded corners via inherited radius.
 - **Pages directory**: Place page-level views in `src/client/renderer/src/pages` (e.g., `HomePage`, `ServerPage`) and wire them through `App.tsx`.
+- **Server Settings**: Full-width view (no sidebar) with the same darker gradient background as Account/App Settings; covers access control (read/write role toggles per channel), role management (create/edit roles with color + permissions), and join-password status.
+- **Role colors in chat**: Each message carries `userRole` (sender's role id at send-time); `MessageList` looks up the role color and applies it to the username badge so colors survive reconnects and role renames.
 
 ### Project Structure
 
@@ -102,9 +110,19 @@ Kiama/
 │   │   │   └── main.ts           # Main process entry
 │   │   ├── renderer/              # React renderer process
 │   │   │   ├── src/              # React source
-│   │   │   │   ├── components/   # React components
-│   │   │   │   ├── pages/        # Page-level views (HomePage, ServerPage, etc.)
+│   │   │   │   ├── components/   # Shared React components
+│   │   │   │   │   ├── Button.tsx          # Primary, ghost, danger variants + sizes
+│   │   │   │   │   ├── TextField.tsx       # Labelled text input with error state
+│   │   │   │   │   ├── Select.tsx          # Styled select element
+│   │   │   │   │   ├── Toggle.tsx          # On/off toggle switch
+│   │   │   │   │   ├── ColorPicker.tsx     # Colour swatch picker
+│   │   │   │   │   ├── SegmentedControl.tsx# Pill-style tab strip
+│   │   │   │   │   ├── Modal.tsx           # Full-screen overlay wrapper
+│   │   │   │   │   ├── ModalPanel.tsx      # Soft-3D modal sheet (side panels)
+│   │   │   │   │   ├── PopoverPanel.tsx    # Shared floating picker panel (tray or popover)
 │   │   │   │   │   ├── ChannelList.tsx
+│   │   │   │   │   ├── EmotePicker.tsx     # Emoji / server-emote picker
+│   │   │   │   │   ├── GifPicker.tsx       # Tenor GIF picker
 │   │   │   │   │   ├── MessageInput.tsx
 │   │   │   │   │   ├── MessageList.tsx
 │   │   │   │   │   └── UserList.tsx
@@ -117,7 +135,8 @@ Kiama/
 │   │   │   │   ├── types/        # TypeScript types
 │   │   │   │   │   └── plugin.ts
 │   │   │   │   ├── utils/        # Utilities
-│   │   │   │   │   └── PluginManager.ts
+│   │   │   │   │   ├── PluginManager.ts
+│   │   │   │   │   └── SurfaceContext.tsx  # React context exposing soft-3D state to portalled components
 │   │   │   │   ├── App.tsx       # Main React shell wiring pages/layout
 │   │   │   │   └── index.tsx     # React entry point
 │   │   │   ├── public/           # Static assets

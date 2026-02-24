@@ -48,6 +48,108 @@ See `src/client/renderer/src/plugins/darkModeToggle.tsx` for an example client-o
 
 **Note**: KIAMA now includes a comprehensive theming system that supports both light and dark modes. See the [Theming Guide](#theming) below for details on creating custom themes.
 
+---
+
+## Using PopoverPanel in Plugins
+
+Client plugins can create floating picker panels using the shared `PopoverPanel` component. It handles the backdrop, directional arrow, portal rendering, and Modern Surface (soft-3D) styling automatically — no boilerplate required.
+
+### Quick Reference
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `title` | `string` | — | Header text |
+| `onClose` | `() => void` | — | Called on close button or backdrop click |
+| `width` | `number` | `360` | Panel width in px |
+| `height` | `number` | `380` | Max panel height in px |
+| `anchorRect` | `PopoverAnchorRect \| null` | `null` | Trigger button rect (popover mode). Omit for tray mode |
+| `className` | `string` | — | Extra class added to the panel root for scoped SCSS |
+| `children` | `ReactNode` | — | Panel content |
+
+### Example: Sticker Picker Plugin
+
+```typescript
+import React, { useState } from 'react';
+import { ClientPlugin } from '../types/plugin';
+import PopoverPanel, { PopoverAnchorRect } from '../components/PopoverPanel';
+
+// Minimal content-only styles for the sticker grid
+import '../styles/components/StickerPicker.scss';
+
+const StickerPickerTrigger: React.FC = () => {
+  const [anchorRect, setAnchorRect] = useState<PopoverAnchorRect | null>(null);
+
+  return (
+    <>
+      <button
+        className="sticker-trigger"
+        onClick={(e) => setAnchorRect(e.currentTarget.getBoundingClientRect())}
+        title="Open Sticker Picker"
+      >
+        🎨
+      </button>
+
+      {anchorRect && (
+        <PopoverPanel
+          title="Stickers"
+          onClose={() => setAnchorRect(null)}
+          width={320}
+          height={340}
+          anchorRect={anchorRect}
+          className="sticker-picker"
+        >
+          <div className="sticker-grid">
+            {/* Sticker content here */}
+          </div>
+        </PopoverPanel>
+      )}
+    </>
+  );
+};
+
+const stickerPickerPlugin: ClientPlugin = {
+  name: 'Sticker Picker',
+  version: '1.0.0',
+  init: (api) => {
+    api.addUIComponent(StickerPickerTrigger);
+  },
+};
+
+export default stickerPickerPlugin;
+```
+
+### Modes
+
+- **Popover mode** (pass `anchorRect`): Panel is portalled to `document.body`, rendered at `position: fixed` above or below the trigger button with an iOS-style directional arrow. Safe inside transformed/overflow-hidden ancestors.
+- **Tray mode** (omit `anchorRect`): Panel renders inline, absolutely positioned (`bottom: 100%; right: 0`). Useful when the trigger is already in a safe stacking context.
+
+### SCSS Convention
+
+Scope all plugin SCSS to your `className` and add **only content rules** — the panel chrome (backdrop, border-radius, header, arrow, soft-3D gradient) is owned by `PopoverPanel.scss`:
+
+```scss
+// StickerPicker.scss
+.sticker-picker {
+  // Override panel dimensions if needed
+  width: 320px;
+  max-height: 340px;
+
+  .sticker-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    padding: 8px;
+  }
+
+  // Soft-3D content overrides (optional)
+  &.soft-3d .sticker-grid {
+    // any adjustments when Modern Surface is enabled
+  }
+}
+```
+
+---
+
 ## Theming System
 
 KIAMA supports a JSON-based theming system that allows users to customize the application's appearance with both light and dark mode support.

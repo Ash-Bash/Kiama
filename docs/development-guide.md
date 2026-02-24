@@ -111,9 +111,145 @@ const NewPage: React.FC = () => (
    }
    ```
 
-### Plugin Enable/Disable
+## Common UI Components
 
-Plugins can be enabled or disabled at runtime:
+All shared UI primitives live in `src/client/renderer/src/components/`.  Use these instead of raw HTML elements to ensure consistent styling, theme-variable support, and Modern Surface compatibility.
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `Button` | `Button.tsx` | `variant` (primary / ghost / danger) × `size` (sm / md / lg) |
+| `TextField` | `TextField.tsx` | Labelled input with optional error state |
+| `Select` | `Select.tsx` | Styled `<select>` element |
+| `Toggle` | `Toggle.tsx` | On/off switch; `inline` prop puts the label to the right; `size="small"` for compact list rows; `tintColor` tints the track colour when checked |
+| `ColorPicker` | `ColorPicker.tsx` | Colour swatch grid |
+| `SegmentedControl` | `SegmentedControl.tsx` | Pill-style tab strip |
+| `Modal` | `Modal.tsx` | Full-screen overlay wrapper |
+| `ModalPanel` | `ModalPanel.tsx` | Soft-3D side-panel sheet |
+| `PopoverPanel` | `PopoverPanel.tsx` | Generic floating picker panel (see below) |
+| `Page` | `Page.tsx` | Header/body split with optional scroll + padding |
+| `TitleBar` | `TitleBar.tsx` | Custom Electron title bar |
+
+### PopoverPanel — generic floating picker
+
+`PopoverPanel` is the shared chrome for all tray/popover picker panels.  It handles backdrop dismiss, iOS-style directional arrow, `position:fixed` portal, soft-3D surface, and the header bar.  Content-specific UI (grids, search forms, etc.) goes inside as `children`.
+
+**Props:**
+
+```tsx
+import PopoverPanel, { PopoverAnchorRect } from '../components/PopoverPanel';
+
+<PopoverPanel
+  title="My Picker"           // header title text
+  onClose={handleClose}       // called on X button or backdrop click
+  width={360}                 // panel width in px (default 360)
+  height={400}                // max-height in px (default 380)
+  anchorRect={buttonRect}     // DOMRect of trigger — omit for inline tray mode
+  className="my-picker"       // scopes your SCSS content rules
+>
+  {/* your content */}
+</PopoverPanel>
+```
+
+**Tray mode** (no `anchorRect`): renders `position: absolute; bottom: 100%; right: 0` — sits above the parent container.  
+**Popover mode** (with `anchorRect`): rendered via `ReactDOM.createPortal` to `document.body` as `position: fixed`, centred on the trigger button, with an arrow pointing at it.
+
+To get the anchor rect from a button click:
+
+```tsx
+const handleOpen = (e: React.MouseEvent<HTMLButtonElement>) => {
+  setAnchorRect(e.currentTarget.getBoundingClientRect());
+};
+```
+
+Content-specific SCSS should be scoped to your `className` value and placed in `src/client/renderer/src/styles/components/MyPicker.scss`.
+
+---
+
+## Modern Surface System (Soft-3D)
+
+KIAMA supports an optional *Modern Surface* mode that adds highlight-and-shadow depth cues to floating panels, modals, and toolbars.  When enabled, a `.soft-3d` class is added to `.app-shell` and individual panels apply their own soft-3D styles.
+
+### SurfaceContext
+
+Because picker panels are portalled outside `.app-shell`, they cannot inherit the `.soft-3d` class via CSS.  Instead, read the setting through `SurfaceContext`:
+
+```tsx
+import { useSurface } from '../utils/SurfaceContext';
+
+const MyComponent = () => {
+  const { soft3DEnabled } = useSurface();
+  return <div className={soft3DEnabled ? 'my-panel soft-3d' : 'my-panel'}>...</div>;
+};
+```
+
+`SurfaceProvider` wraps the entire `AppContent` return in `App.tsx`, so any component — including portalled ones — can call `useSurface()`.
+
+### Soft-3D CSS pattern
+
+The recommended pattern is a `&.soft-3d` modifier block inside the component's own SCSS:
+
+```scss
+.my-panel {
+  background-color: var(--secondary-bg);
+
+  &.soft-3d {
+    background: linear-gradient(160deg, rgba(255,255,255,0.05), rgba(0,0,0,0.10)), var(--secondary-bg);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.12),
+      inset 0 -1px 3px rgba(0,0,0,0.12),
+      0 12px 28px rgba(0,0,0,0.32);
+  }
+}
+```
+
+Panel-level soft-3D (background gradient, inset shadows, border colour) for `PopoverPanel`-based pickers is handled centrally in `PopoverPanel.scss` — content SCSS files only need to override inner elements (tabs, grids, etc.).
+
+### --app-font CSS property
+
+`ThemeProvider` writes the selected font stack to `--app-font` on `:root` via `document.documentElement.style.setProperty`.  Because browser UA stylesheets set `font-family` directly on heading elements, always use:
+
+```scss
+h3 { font-family: var(--app-font, inherit); }
+```
+
+`inherit` alone is insufficient for `<h3>` and similar elements.
+
+---
+
+## Adding a New Picker Panel
+
+To create a new picker (e.g., a sticker picker from a plugin):
+
+1. **Create the component** in `src/client/renderer/src/components/StickerPicker.tsx`:
+
+   ```tsx
+   import React from 'react';
+   import PopoverPanel, { PopoverAnchorRect } from './PopoverPanel';
+   import '../styles/components/StickerPicker.scss';
+
+   interface StickerPickerProps {
+     onSelect: (url: string) => void;
+     onClose: () => void;
+     anchorRect?: PopoverAnchorRect | null;
+   }
+
+   const StickerPicker: React.FC<StickerPickerProps> = ({ onSelect, onClose, anchorRect }) => (
+     <PopoverPanel title="Stickers" onClose={onClose} width={320} height={340}
+                   anchorRect={anchorRect} className="sticker-picker">
+       {/* grid of sticker buttons */}
+     </PopoverPanel>
+   );
+
+   export default StickerPicker;
+   ```
+
+2. **Create SCSS** in `src/client/renderer/src/styles/components/StickerPicker.scss` and scope all rules to `.sticker-picker`.
+
+3. **Wire in App.tsx** with an `anchorRect` state and an opener function that captures `e.currentTarget.getBoundingClientRect()`.
+
+---
+
+
 
 **Server Plugins**: Controlled via server API
 ```bash
@@ -174,7 +310,80 @@ KIAMA uses separate compilation for plugins to maintain modularity:
 - Breakpoints: drawers engage at ≤768px (server/channel/member), mobile nav buttons appear at ≤1100px.
 - Drawer coordination: closing the channel drawer on mobile also hides the server drawer to prevent overlap; backdrop taps close all.
 - UI controls: server drawer has no close button; “Add Section” lives in the section plus menu (no bottom button).
+## Settings & Server-Settings Layout
 
+Both `SettingsPage` and `ServerSettingsPage` render as **full-width** inside `.content-shell` — the channel/member sidebar is intentionally hidden for these views.  This is controlled by `showSidebarPanel` in `App.tsx`:
+
+```ts
+// Sidebar only visible on the active-server view, never during settings pages
+const showSidebarPanel = isServerView && ((!sidebarCollapsed && !isMobile) || (isMobile && showMobileSidebar));
+```
+
+Both pages share the same darker background:
+
+```scss
+background:
+  radial-gradient(circle at 20% 20%, rgba(255,255,255,0.04), transparent),
+  linear-gradient(160deg, rgba(0,0,0,0.35), rgba(0,0,0,0.15)),
+  var(--primary-bg);
+```
+
+`SettingsPage` gets this from the global `.settings-page` rule in `App.scss`; `ServerSettingsPage` gets it directly in `ServerSettings.scss`.
+
+## Role Management System
+
+Roles are stored server-side and exposed over three REST endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/roles` | Return all roles |
+| `POST` | `/roles` | Create a new role (`name` required; `color`, `permissions` optional) |
+| `PATCH` | `/roles/:roleId` | Update an existing role's `name`, `color`, and/or `permissions` |
+
+### Role shape
+
+```typescript
+interface Role {
+  id: string;
+  name: string;
+  color?: string;
+  permissions?: {
+    manageServer: boolean;
+    manageChannels: boolean;
+    manageRoles: boolean;
+    kickMembers: boolean;
+    banMembers: boolean;
+    sendMessages: boolean;
+    viewChannels: boolean;
+  };
+}
+```
+
+### Client integration
+
+The `App.tsx` `openServerSettings()` function fetches `GET /roles` and **merges** the response into the local `serverRoles` map (keyed by server id) — it does not replace, so roles loaded before the settings panel opens are preserved.
+
+`updateServerRole(id, input)` issues `PATCH /roles/:id` with an optimistic local update before the request resolves.
+
+Both are wired into `<ServerSettingsPage>` via props:
+
+```tsx
+<ServerSettingsPage
+  roles={serverRoles[server.id] ?? []}
+  onCreateRole={createServerRole}
+  onUpdateRole={updateServerRole}
+  ...
+/>
+```
+
+### Username colour in chat
+
+When a message is sent, `userRole` (the sender's current role id) is stamped onto the `TypedMessage` object and broadcast to all channel subscribers.  `MessageList` reads `message.userRole`, looks it up in the roles list, and applies `role.color` as the username foreground colour.  This means the colour is preserved even if roles are later renamed or the client reconnects.
+
+```typescript
+// plugin.ts — TypedMessage
+userRole?: string;  // role id stamped at send time; drives username colour badge
+```
 ## Context for Future AI Prompts
 
 - Recent UI intent: keep mobile drawers non-overlapping and simplify controls (no server close button, channel close also hides server on mobile, add-section only in section menu).

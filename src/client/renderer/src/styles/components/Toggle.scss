@@ -47,8 +47,9 @@
 
   .ios-toggle .thumb {
     position: absolute;
-    top: 2px;
-    left: 2px;
+    top: 50%;
+    left: 3px;
+    transform: translateY(-50%);
     width: 22px;
     height: 22px;
     border-radius: 50%;
@@ -64,7 +65,7 @@
   }
 
   .ios-toggle.on .thumb {
-    transform: translateX(20px);
+    transform: translateY(-50%) translateX(20px);
     background: #fff;
   }
 
@@ -79,7 +80,7 @@
   }
 
   .ios-toggle.small.on .thumb {
-    transform: translateX(16px);
+    transform: translateY(-50%) translateX(16px);
   }
 
   .ios-toggle:disabled {

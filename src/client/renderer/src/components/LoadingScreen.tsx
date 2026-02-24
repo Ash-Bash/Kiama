@@ -28,6 +28,7 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ type = 'initial' }) => {
 
   return (
     <div className={`loading-screen ${type === 'server-switch' ? 'server-switch' : ''}`}>
+      {type === 'initial' && <div className="drag-zone" aria-hidden="true" />}
       <div className="loading-container">
         <div className="loading-content">
           <div className="spinner" aria-hidden="true" />

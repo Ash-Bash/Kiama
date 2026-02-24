@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import PopoverPanel, { PopoverAnchorRect } from './PopoverPanel';
+import Button from './Button';
+import TextField from './TextField';
 import '../styles/components/GifPicker.scss';
 
 interface Gif {
@@ -8,16 +11,22 @@ interface Gif {
   title: string;
 }
 
+// Re-export so existing callers using `import { GifAnchorRect } from './GifPicker'`
+// keep working without changes.
+export type { PopoverAnchorRect as GifAnchorRect };
+
 interface GifPickerProps {
   onSelect: (gif: Gif) => void;
   onClose: () => void;
+  /** When provided the picker floats as a fixed popover anchored to this rect */
+  anchorRect?: PopoverAnchorRect | null;
 }
 
 const TENOR_API_KEY = 'AIzaSyC8QWKWL8Z3I2q8o8o8o8o8o8o8o8o8o8'; // Replace with actual API key
 const TENOR_BASE_URL = 'https://tenor.googleapis.com/v2';
 
 // Tenor-backed GIF picker with pagination support.
-const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose }) => {
+const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose, anchorRect }) => {
   const [gifs, setGifs] = useState<Gif[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -86,20 +95,22 @@ const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose }) => {
   };
 
   return (
-    <div className="gif-picker">
-      <div className="gif-picker-header">
-        <h3>GIFs</h3>
-        <button className="close-btn" onClick={onClose}>×</button>
-      </div>
-
+    <PopoverPanel
+      title="GIFs"
+      onClose={onClose}
+      width={400}
+      height={500}
+      anchorRect={anchorRect}
+      className="gif-picker"
+    >
       <form className="gif-search" onSubmit={handleSearch}>
-        <input
-          type="text"
+        <TextField
           placeholder="Search GIFs..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
+          containerClassName="gif-search-field"
         />
-        <button type="submit">Search</button>
+        <Button variant="primary" size="sm" type="submit">Search</Button>
       </form>
 
       <div className="gif-grid">
@@ -121,10 +132,10 @@ const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose }) => {
 
       {nextPos && !loading && (
         <div className="load-more">
-          <button onClick={handleLoadMore}>Load More</button>
+          <Button variant="ghost" size="sm" onClick={handleLoadMore}>Load More</Button>
         </div>
       )}
-    </div>
+    </PopoverPanel>
   );
 };
 
