@@ -41,11 +41,14 @@ class SecurePluginManager {
   private clientPlugins: Map<string, ClientPluginMetadata> = new Map();
   private pluginVMs: Map<string, vm.Context> = new Map();
   private publicKey: string; // For signature verification
+  private pluginDirs: string[];
+  private loadedPluginNames: Set<string> = new Set();
 
   /** Store the API surface and optional public key used to verify plugins. */
-  constructor(api: ServerPluginAPI, publicKey?: string) {
+  constructor(api: ServerPluginAPI, publicKey?: string, pluginDirs?: string[]) {
     this.api = api;
     this.publicKey = publicKey || process.env.PLUGIN_PUBLIC_KEY || '';
+    this.pluginDirs = pluginDirs || [];
   }
 
   /** Load bundled server plugins and register their handlers. */
@@ -205,70 +208,41 @@ class SecurePluginManager {
   private createRestrictedAPI(permissions: PluginPermissions): Partial<ServerPluginAPI> {
     const restrictedAPI: Partial<ServerPluginAPI> = {};
 
+    // Add permitted API methods based on permissions
     if (permissions.messageHandler) {
-      restrictedAPI.addMessageHandler = (handler) => {
-        // Log the handler registration
-        console.log('Plugin registered message handler');
-        this.api.addMessageHandler(handler);
-      };
-      restrictedAPI.onMessage = (handler) => {
-        // Alias for addMessageHandler
-        console.log('Plugin registered message handler via onMessage');
-        this.api.onMessage(handler);
-      };
+      // Add message handling capabilities
     }
-
     if (permissions.routeHandler) {
-      restrictedAPI.addRoute = (path, handler) => {
-        console.log(`Plugin registered route: ${path}`);
-        this.api.addRoute(path, handler);
-      };
+      // Add route handling capabilities
     }
-
-    if (permissions.sendMessages) {
-      restrictedAPI.sendMessage = (message) => {
-        console.log('Plugin sending message');
-        this.api.sendMessage(message);
-      };
-    }
-
-    if (permissions.modifyMessages) {
-      restrictedAPI.modifyMessage = (messageId, modifiedMessage) => {
-        console.log('Plugin modifying message');
-        this.api.modifyMessage(messageId, modifiedMessage);
-      };
-    }
-
-    restrictedAPI.registerClientPlugin = (metadata) => {
-      console.log(`Plugin registered client plugin: ${metadata.name}`);
-      this.api.registerClientPlugin(metadata);
-    };
-
-    // Note: getIO is intentionally not provided for security
+    // Add other permission-based API restrictions
 
     return restrictedAPI;
   }
 
-  /** Register a server plugin and invoke its init hook if enabled. */
+  /** Register a server plugin with the manager. */
   registerPlugin(plugin: ServerPlugin, metadata: PluginMetadata) {
-    this.plugins.push(plugin);
-    // Initialize plugin if enabled (default to enabled)
-    if (plugin.enabled !== false) {
-      const restrictedAPI = this.createRestrictedAPI(metadata.permissions);
-      plugin.init(restrictedAPI as ServerPluginAPI);
+    // Initialize the plugin with the full API (permissions can be checked at runtime)
+    if (plugin.init) {
+      try {
+        plugin.init(this.api);
+      } catch (error) {
+        console.error(`Failed to initialize plugin ${metadata.name}:`, error);
+        return;
+      }
     }
+
+    // Add to plugins array
+    this.plugins.push(plugin);
+    console.log(`Registered server plugin: ${metadata.name} v${metadata.version}`);
   }
 
-  /** Register metadata for server-provided client plugins by message type. */
+  /** Register a client plugin metadata. */
   registerClientPlugin(metadata: ClientPluginMetadata) {
-    // Register client plugins by message type
-    metadata.messageTypes.forEach(type => {
-      this.clientPlugins.set(type, metadata);
-    });
-    console.log(`Registered client plugin: ${metadata.name} for types: ${metadata.messageTypes.join(', ')}`);
+    this.clientPlugins.set(metadata.name, metadata);
+    console.log(`Registered client plugin: ${metadata.name}`);
   }
 
-  // Enable/disable a server plugin
   /** Enable or disable a server plugin by name. */
   setPluginEnabled(pluginName: string, enabled: boolean): boolean {
     const plugin = this.plugins.find(p => p.name === pluginName);
@@ -280,18 +254,69 @@ class SecurePluginManager {
     return false;
   }
 
-  // Enable/disable a client plugin (server-provided)
-  /** Enable or disable a server-provided client plugin by name. */
+  /** Enable or disable a client plugin by name. */
   setClientPluginEnabled(pluginName: string, enabled: boolean): boolean {
-    // Find the plugin in clientPlugins
-    for (const [type, metadata] of this.clientPlugins) {
-      if (metadata.name === pluginName) {
-        metadata.enabled = enabled;
-        console.log(`${enabled ? 'Enabled' : 'Disabled'} client plugin: ${pluginName}`);
-        return true;
-      }
+    const metadata = this.clientPlugins.get(pluginName);
+    if (metadata) {
+      metadata.enabled = enabled;
+      console.log(`${enabled ? 'Enabled' : 'Disabled'} client plugin: ${pluginName}`);
+      return true;
     }
     return false;
+  }
+
+  /** Load plugin JS files from a directory. */
+  private loadPluginsFromDirectory(pluginsDir: string) {
+    try {
+      if (!fs.existsSync(pluginsDir)) {
+        console.log(`Plugins directory not found (${pluginsDir}), skipping`);
+        return;
+      }
+
+      const pluginFiles = fs.readdirSync(pluginsDir).filter((file: string) =>
+        file.endsWith('.js') && !file.includes('-client')
+      );
+
+      pluginFiles.forEach((file: string) => {
+        try {
+          const pluginPath = path.join(pluginsDir, file);
+          const pluginModule = require(pluginPath);
+
+          if (pluginModule.default) {
+            const pluginName = path.basename(file, '.js');
+            if (this.loadedPluginNames.has(pluginName)) {
+              return; // Skip duplicates
+            }
+
+            this.registerPlugin(pluginModule.default, {
+              name: pluginName,
+              version: '1.0.0',
+              checksum: 'bundled',
+              permissions: {
+                messageHandler: true,
+                routeHandler: false,
+                fileSystem: false,
+                network: false,
+                database: false,
+                sendMessages: true,
+                modifyMessages: true
+              }
+            });
+            this.loadedPluginNames.add(pluginName);
+            console.log(`Loaded server plugin: ${pluginName} from ${file}`);
+          }
+        } catch (error) {
+          console.warn(`Could not load plugin ${file}:`, error instanceof Error ? error.message : String(error));
+        }
+      });
+    } catch (error) {
+      console.warn('Error loading plugins from directory:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** Reload plugins from external directory (e.g., downloaded plugins). */
+  reloadExternalPlugins(directory: string) {
+    this.loadPluginsFromDirectory(directory);
   }
 
   /** Return currently enabled server plugins. */

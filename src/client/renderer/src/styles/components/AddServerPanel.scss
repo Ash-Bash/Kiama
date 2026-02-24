@@ -1,0 +1,52 @@
+// Add Server panel — specificity uses .modal-body parent to beat the generic
+// .modal-body .modal-panel padding rule (two classes vs one).
+.modal-body .add-server-panel {
+  padding: 24px;
+  gap: 20px;
+
+  .modal-panel__header {
+    gap: 12px;
+    align-items: flex-start;
+
+    .modal-panel__icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    h3 {
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    p {
+      font-size: 13px;
+      margin-top: 3px;
+      line-height: 1.4;
+    }
+  }
+
+  .modal-panel__body {
+    gap: 0;
+  }
+
+  .add-server-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+
+    input {
+      padding: 11px 14px;
+      font-size: 14px;
+    }
+  }
+
+  .modal-panel__footer {
+    padding-top: 8px;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+}

@@ -58,8 +58,8 @@
   }
 
   .ios-toggle.on {
-    background: var(--accent);
-    border-color: var(--accent);
+    background: var(--toggle-tint, var(--accent));
+    border-color: var(--toggle-tint, var(--accent));
     box-shadow: none;
   }
 

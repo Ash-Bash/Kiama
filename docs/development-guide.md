@@ -52,6 +52,12 @@ The client uses Electron's dual-process architecture:
 - Server lifecycle management
 - Configuration handling
 
+**Data & Admin Token Handling**
+- Data root defaults to `dist/server/data` (or `src/server/data` when running from source); override with `KIAMA_DATA_DIR`.
+- Layout created on startup: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/` under the data root.
+- Persisted config lives at `<data-root>/configs/<serverId>.json` (override with `KIAMA_CONFIG_PATH`) and stores sections/channels/roles plus a hashed admin token.
+- Admin token: set `KIAMA_ADMIN_TOKEN` to supply your own; otherwise the server generates one, writes it to `<data-root>/secrets/admin.token` with mode 600, and uses it for admin endpoints and CLI commands.
+
 ## Development Tasks
 
 ### Adding a New Feature

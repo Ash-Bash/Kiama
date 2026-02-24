@@ -4,6 +4,7 @@ import PluginManager from './utils/PluginManager';
 import { TypedMessage, Channel, ChannelSection } from './types/plugin';
 import { ModalProvider, useModal } from './components/Modal';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
+import AddServerPanel from './panels/AddServerPanel';
 import LoadingScreen from './components/LoadingScreen';
 import Login from './components/Login';
 import TitleBar from './components/TitleBar';
@@ -569,19 +570,15 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }, 1500); // Show loading for 1.5 seconds
   };
 
-  // Quick-add a server by prompting for URL and name.
+  // Quick-add a server — delegates UI to AddServerPanel.
   const addServer = () => {
-    const serverUrl = prompt('Enter server URL:');
-    if (!serverUrl) return;
-
-    const serverName = prompt('Enter server name:') || 'New Server';
-    const newServer: Server = {
-      id: `server-${Date.now()}`,
-      name: serverName,
-      url: serverUrl
-    };
-
-    setServers(prev => [...prev, newServer]);
+    openModal(
+      <AddServerPanel
+        onAdd={(server) => setServers(prev => [...prev, server])}
+        onClose={closeModal}
+      />,
+      { size: 'small' }
+    );
   };
 
   // Join a server via invite/URL prompts.
@@ -911,6 +908,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   // Render a message with plugin overrides, falling back to sanitized HTML.
   const renderMessage = (msg: Message) => {
     const processedMessage = pluginManager.processMessage(msg);
+    const userMeta = users.find(u => u.name === processedMessage.user);
 
     // Check if there's a custom component for this message type
     const MessageComponent = pluginManager.getMessageTypeComponent(processedMessage.type);
@@ -946,6 +944,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
     const safeContent = toSafeHtml(processedMessage);
 
+    const roleColor = getRoleColor(userMeta?.role);
+
     // Default rendering
     return (
       <div 
@@ -962,7 +962,9 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
           }
         }}
       >
-        <span className="username">{processedMessage.user}:</span>
+        <span className="username" style={roleColor ? { color: roleColor } : undefined}>
+          {processedMessage.user}:
+        </span>
         <span className="content" dangerouslySetInnerHTML={{ __html: safeContent }} />
         {processedMessage.type !== 'text' && <span className="message-type">[{processedMessage.type}]</span>}
         {processedMessage.embeds && processedMessage.embeds.map((embed, j) => {
@@ -1032,6 +1034,20 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const isSettingsView = activeView === 'settings';
   const isServerView = activeView === 'server';
   const isServerSettingsView = activeView === 'server-settings';
+  const roleColorByName = React.useMemo(() => {
+    const map = new Map<string, string>();
+    serverRoles.forEach(role => {
+      if (role.name) {
+        map.set(role.name, role.color || '#9ca3af');
+      }
+    });
+    return map;
+  }, [serverRoles]);
+
+  const getRoleColor = (role?: string) => {
+    if (!role) return undefined;
+    return roleColorByName.get(role);
+  };
   const showMobileNavButtons = viewportWidth <= 1100;
   const showServerListPanel = !isMobile || showMobileServerList;
   const showSidebarPanel = (isServerView || isServerSettingsView) && ((!sidebarCollapsed && !isMobile) || (isMobile && showMobileSidebar));
@@ -1201,463 +1217,478 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         </div>
       )}
 
-      {showSidebarPanel && (
-        <>
-          <div
-            className={`sidebar ${isMobile ? 'mobile-drawer' : ''} ${showMobileSidebar ? 'mobile-open' : ''} ${isMobile && showMobileServerList ? 'mobile-offset' : ''}`}
-            style={!isMobile ? { width: `${sidebarWidth}px` } : undefined}
-          >
-            {isMobile && (
-              <button
-                className="mobile-close"
-                onClick={() => {
-                  setShowMobileSidebar(false);
-                  setShowMobileServerList(false);
-                }}
-                aria-label="Close channel list"
-              >
-                <i className="fas fa-times"></i>
-              </button>
-            )}
-            <div className="server-header">
-              <div className="server-header-left">
-                <h2>{currentServerName}</h2>
-                <div className="server-header-actions">
-                  <button
-                    className="server-menu-btn"
-                    onClick={toggleServerMenu}
-                    title="Server menu"
-                  >
-                    <i className="fas fa-cog"></i>
-                  </button>
-                  {showServerMenu && (
-                    <div className="server-menu" onMouseLeave={closeServerMenu}>
-                      <button onClick={() => { openServerSettings(); closeServerMenu(); }}>
-                        <i className="fas fa-sliders-h"></i> Server settings
-                      </button>
-                      <button className="danger" onClick={() => { leaveServer(currentServerId); closeServerMenu(); }}>
-                        <i className="fas fa-sign-out-alt"></i> Leave {currentServerName}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {!isMobile && (
-                <button className="collapse-btn" onClick={toggleSidebar} title="Collapse Sidebar">
-                  <i className="fas fa-chevron-left"></i>
+      <div className="content-shell">
+        {showSidebarPanel && (
+          <>
+            <div
+              className={`sidebar ${isMobile ? 'mobile-drawer' : ''} ${showMobileSidebar ? 'mobile-open' : ''} ${isMobile && showMobileServerList ? 'mobile-offset' : ''}`}
+              style={!isMobile ? { width: `${sidebarWidth}px` } : undefined}
+            >
+              {isMobile && (
+                <button
+                  className="mobile-close"
+                  onClick={() => {
+                    setShowMobileSidebar(false);
+                    setShowMobileServerList(false);
+                  }}
+                  aria-label="Close channel list"
+                >
+                  <i className="fas fa-times"></i>
                 </button>
               )}
-            </div>
-
-            <div className="channels-list">
-              {sections
-                .filter(section => section.serverId === currentServerId)
-                .sort((a, b) => a.position - b.position)
-                .map(section => {
-                  const sectionChannels = channelsBySection[section.id] || [];
-                  return (
-                    <div key={section.id} className="channel-section">
-                      <div className="section-header">
-                        <span className="section-name">{section.name}</span>
-                        <button 
-                          className="section-plus-btn" 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveAddMenu(prev => prev === section.id ? null : section.id);
-                          }}
-                          title="Add Channel"
-                        >
-                          +
+              <div className="server-header">
+                <div className="server-header-left">
+                  <h2>{currentServerName}</h2>
+                  <div className="server-header-actions">
+                    <button
+                      className="server-menu-btn"
+                      onClick={toggleServerMenu}
+                      title="Server menu"
+                    >
+                      <i className="fas fa-cog"></i>
+                    </button>
+                    {showServerMenu && (
+                      <div className="server-menu" onMouseLeave={closeServerMenu}>
+                        <button onClick={() => { openServerSettings(); closeServerMenu(); }}>
+                          <i className="fas fa-sliders-h"></i> Server settings
                         </button>
-                        {activeAddMenu === section.id && (
-                          <div className="section-menu">
-                            <button
-                              onClick={() => {
-                                const name = prompt('Channel name:');
-                                if (name) createChannel(name, 'text', section.id).then(() => loadChannelsAndSections());
-                                setActiveAddMenu(null);
-                              }}
-                            >
-                              Add Channel
-                            </button>
-                            <button
-                              onClick={() => {
-                                const name = prompt('Section name:');
-                                if (name) createSection(name).then(() => loadChannelsAndSections());
-                                setActiveAddMenu(null);
-                              }}
-                            >
-                              Add Section
-                            </button>
-                          </div>
-                        )}
+                        <button className="danger" onClick={() => { leaveServer(currentServerId); closeServerMenu(); }}>
+                          <i className="fas fa-sign-out-alt"></i> Leave {currentServerName}
+                        </button>
                       </div>
-                      <div className="section-channels">
-                        {sectionChannels
-                          .sort((a, b) => a.position - b.position)
-                          .map(channel => (
-                            <div
-                              key={channel.id}
-                              className={`channel ${channel.id === currentChannelId ? 'active' : ''} ${channel.settings?.nsfw ? 'nsfw' : ''}`}
-                              onClick={() => joinChannel(channel.id)}
-                            >
-                              <span className="channel-icon">
-                                {channel.type === 'text' && '#'}
-                                {channel.type === 'voice' && '🔊'}
-                                {channel.type === 'announcement' && '📢'}
-                              </span>
-                              <span className="channel-name">
-                                {channel.name}
-                                {channel.settings?.nsfw && <span className="nsfw-indicator">🔞</span>}
-                              </span>
-                              {channel.messageCount && channel.messageCount > 0 && (
-                                <span className="message-count">({channel.messageCount})</span>
-                              )}
-                            </div>
-                          ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              {unsectionedChannels.length > 0 && (
-                <div className="channel-section">
-                  <div className="section-channels">
-                    {unsectionedChannels
-                      .sort((a, b) => a.position - b.position)
-                      .map(channel => (
-                        <div
-                          key={channel.id}
-                          className={`channel ${channel.id === currentChannelId ? 'active' : ''} ${channel.settings?.nsfw ? 'nsfw' : ''}`}
-                          onClick={() => joinChannel(channel.id)}
-                        >
-                          <span className="channel-icon">
-                            {channel.type === 'text' && '#'}
-                            {channel.type === 'voice' && '🔊'}
-                            {channel.type === 'announcement' && '📢'}
-                          </span>
-                          <span className="channel-name">
-                            {channel.name}
-                            {channel.settings?.nsfw && <span className="nsfw-indicator">🔞</span>}
-                          </span>
-                          {channel.messageCount && channel.messageCount > 0 && (
-                            <span className="message-count">({channel.messageCount})</span>
-                          )}
-                        </div>
-                      ))}
+                    )}
                   </div>
                 </div>
-              )}
-            </div>
-          </div>
-          {!isMobile && (
-            <div
-              className="resize-handle sidebar-resize"
-              onMouseDown={handleSidebarResizeStart}
-            />
-          )}
-        </>
-      )}
-
-      {!isMobile && sidebarCollapsed && isServerView && (
-        <div className="sidebar-collapsed">
-          <button className="expand-btn" onClick={toggleSidebar} title="Expand Sidebar">
-            <i className="fas fa-chevron-right"></i>
-          </button>
-        </div>
-      )}
-
-      <div className="main-content">
-        {isSwitchingServer && isServerView && (
-          <LoadingScreen type="server-switch" />
-        )}
-        {isSettingsView ? (
-          <SettingsPage
-            userName={user?.name}
-            userStatus={user?.status}
-            themeId={settingsSelectedTheme}
-            mode={settingsThemeMode}
-            fontId={settingsFontId}
-            availableThemes={availableThemes}
-            availableFonts={availableFonts}
-            soft3DEnabled={soft3DEnabled}
-            onThemeChange={setSettingsSelectedTheme}
-            onModeChange={(mode) => setSettingsThemeMode(mode)}
-            onFontChange={setSettingsFontId}
-            onToggleSoft3D={(next) => setSoft3DEnabled(next)}
-            onSave={saveSettingsView}
-            onLogout={() => { onLogout(); setActiveView('home'); setCurrentServerId('home'); }}
-          />
-        ) : isHomeView ? (
-          <HomePage
-            user={user}
-            nonHomeServers={nonHomeServers}
-            currentServerId={currentServerId}
-            addServer={addServer}
-            joinServer={joinServer}
-            switchServer={switchServer}
-            openAccountSettings={openAccountSettings}
-            generateServerInitials={generateServerInitials}
-          />
-        ) : isServerSettingsView && settingsServer ? (
-          <ServerSettingsPage
-            server={settingsServer}
-            channels={settingsChannels}
-            roles={serverRoles}
-            selectedChannelId={selectedSettingsChannelId}
-            onSelectChannel={(id) => setServerSettingsChannelId(id)}
-            onSavePermissions={saveChannelPermissions}
-            onBack={closeServerSettings}
-            loading={serverSettingsLoading}
-            passwordRequired={serverPasswordRequired}
-            onCreateRole={createServerRole}
-          />
-        ) : (
-          <ServerPage
-            showMobileNavButtons={showMobileNavButtons}
-            onToggleNavPanels={toggleMobileNavPanels}
-            onToggleMembers={toggleMobileMembers}
-            currentChannel={currentChannel}
-            currentMessages={currentMessages}
-            renderMessage={renderMessage}
-            message={message}
-            onMessageChange={(val) => setMessage(val)}
-            onSendMessage={() => sendMessage()}
-            showMessageOptions={showMessageOptions}
-            onToggleMessageOptions={toggleMessageOptions}
-            openEmojiPicker={openEmojiPicker}
-            openGifPicker={openGifPicker}
-            closeEmotePicker={closeEmotePicker}
-            closeGifPicker={closeGifPicker}
-            showEmotePicker={showEmotePicker}
-            showGifPicker={showGifPicker}
-            handleEmoteSelect={handleEmoteSelect}
-            handleGifSelect={handleGifSelect}
-            handleImageUpload={handleImageUpload}
-            handleFileUpload={handleFileUpload}
-            sendPollMessage={sendPollMessage}
-            servers={servers}
-          />
-        )}
-      </div>
-
-      {showUserListPanel && (
-        <>
-          {!isMobile && (
-            <div
-              className="resize-handle userlist-resize"
-              onMouseDown={handleUserListResizeStart}
-            />
-          )}
-          <div
-            className={`user-list ${isMobile ? 'mobile-drawer' : ''} ${showMobileUserList ? 'mobile-open' : ''}`}
-            style={!isMobile ? { width: `${userListWidth}px` } : undefined}
-          >
-            {isMobile && (
-              <button
-                className="mobile-close"
-                onClick={() => setShowMobileUserList(false)}
-                aria-label="Close member list"
-              >
-                <i className="fas fa-times"></i>
-              </button>
-            )}
-            <div className="user-list-header">
-              <div className="user-list-title">
-                <h3>
-                  {userSidebarTab === 'members' ? 'Channel Members' : 'Channel Insights'}
-                </h3>
+                {!isMobile && (
+                  <button className="collapse-btn" onClick={toggleSidebar} title="Collapse Sidebar">
+                    <i className="fas fa-chevron-left"></i>
+                  </button>
+                )}
               </div>
-              {!isMobile && (
-                <button className="collapse-btn" onClick={toggleUserList} title="Collapse User List">
-                  <i className="fas fa-chevron-right"></i>
-                </button>
-              )}
-            </div>
-            <div className="user-list-tabs">
-              <button
-                className={userSidebarTab === 'members' ? 'active' : ''}
-                onClick={() => setUserSidebarTab('members')}
-                aria-label="Show server users"
-                title="Server users"
-              >
-                <i className="fas fa-users"></i>
-                <span className="sr-only">Server Users</span>
-              </button>
-              <button
-                className={userSidebarTab === 'metrics' ? 'active' : ''}
-                onClick={() => setUserSidebarTab('metrics')}
-                aria-label="Show channel metrics and media"
-                title="Channel metrics and media"
-              >
-                <i className="fas fa-chart-line"></i>
-                <span className="sr-only">Metrics & Media</span>
-              </button>
-            </div>
 
-            <div className="user-list-content">
-              {userSidebarTab === 'members' ? (
-                channelMembers.length === 0 ? (
-                  <div className="empty-state">No members can view this channel yet.</div>
-                ) : (
-                  <>
-                    <div className="user-list-footnote">{channelMemberOnlineCount} online — {channelMembers.length} total</div>
-                    {groupedChannelMembers.map(group => (
-                      <div key={group.label} className="user-group">
-                        <div className="user-group-header">{group.label} · {group.users.length}</div>
-                        {group.users
-                          .slice()
-                          .sort((a, b) => {
-                            const statusOrder = { online: 0, idle: 1, dnd: 2, offline: 3 } as const;
-                            return statusOrder[a.status] - statusOrder[b.status] || a.name.localeCompare(b.name);
-                          })
-                          .map(user => (
-                            <div key={user.id} className={`user-item ${user.status}`}>
-                              <div className="user-avatar">
-                                {user.avatar ? (
-                                  <img src={user.avatar} alt={user.name} />
-                                ) : (
-                                  <span>{user.name.charAt(0).toUpperCase()}</span>
+              <div className="channels-list">
+                {sections
+                  .filter(section => section.serverId === currentServerId)
+                  .sort((a, b) => a.position - b.position)
+                  .map(section => {
+                    const sectionChannels = channelsBySection[section.id] || [];
+                    return (
+                      <div key={section.id} className="channel-section">
+                        <div className="section-header">
+                          <span className="section-name">{section.name}</span>
+                          <button 
+                            className="section-plus-btn" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveAddMenu(prev => prev === section.id ? null : section.id);
+                            }}
+                            title="Add Channel"
+                          >
+                            +
+                          </button>
+                          {activeAddMenu === section.id && (
+                            <div className="section-menu">
+                              <button
+                                onClick={() => {
+                                  const name = prompt('Channel name:');
+                                  if (name) createChannel(name, 'text', section.id).then(() => loadChannelsAndSections());
+                                  setActiveAddMenu(null);
+                                }}
+                              >
+                                Add Channel
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const name = prompt('Section name:');
+                                  if (name) createSection(name).then(() => loadChannelsAndSections());
+                                  setActiveAddMenu(null);
+                                }}
+                              >
+                                Add Section
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        <div className="section-channels">
+                          {sectionChannels
+                            .sort((a, b) => a.position - b.position)
+                            .map(channel => (
+                              <div
+                                key={channel.id}
+                                className={`channel ${channel.id === currentChannelId ? 'active' : ''} ${channel.settings?.nsfw ? 'nsfw' : ''}`}
+                                onClick={() => joinChannel(channel.id)}
+                              >
+                                <span className="channel-icon">
+                                  {channel.type === 'text' && '#'}
+                                  {channel.type === 'voice' && '🔊'}
+                                  {channel.type === 'announcement' && '📢'}
+                                </span>
+                                <span className="channel-name">
+                                  {channel.name}
+                                  {channel.settings?.nsfw && <span className="nsfw-indicator">🔞</span>}
+                                </span>
+                                {channel.messageCount && channel.messageCount > 0 && (
+                                  <span className="message-count">({channel.messageCount})</span>
                                 )}
-                                <div className={`user-status ${user.status}`}></div>
                               </div>
-                              <div className="user-meta">
-                                <span className="user-name">{user.name}</span>
-                                {user.role && <span className="user-role">{user.role}</span>}
-                              </div>
-                              {user.accessibleChannels && !user.accessibleChannels.includes(currentChannelId) && (
-                                <span className="user-access-note">No access</span>
-                              )}
-                            </div>
-                          ))}
+                            ))}
+                        </div>
                       </div>
-                    ))}
-                  </>
-                )
-              ) : (
-                <div className="channel-insights">
-                  {!currentChannelId ? (
-                    <div className="empty-state">Select a channel to view its metrics and media cache.</div>
-                  ) : (
-                    <>
-                      <div className="metric-cards">
-                        {[
-                          {
-                            label: 'Messages',
-                            value: channelMetrics?.totalMessages ?? 0,
-                            icon: 'fa-comment-dots',
-                            tone: 'blue'
-                          },
-                          {
-                            label: 'Unique Senders',
-                            value: channelMetrics?.uniqueSenders ?? 0,
-                            icon: 'fa-user-friends',
-                            tone: 'teal'
-                          },
-                          {
-                            label: 'Media Items',
-                            value: channelMetrics?.mediaCount ?? 0,
-                            icon: 'fa-photo-video',
-                            tone: 'purple'
-                          },
-                          {
-                            label: 'Last Activity',
-                            value: formatTimestamp(channelMetrics?.lastActivity),
-                            icon: 'fa-clock',
-                            tone: 'amber'
-                          }
-                        ].map(metric => (
-                          <div className={`metric-card tone-${metric.tone}`} key={metric.label}>
-                            <div className="metric-icon">
-                              <i className={`fas ${metric.icon}`}></i>
-                            </div>
-                            <div className="metric-text">
-                              <span className="label">{metric.label}</span>
-                              <span className="value">{metric.value}</span>
-                            </div>
+                    );
+                  })}
+                {unsectionedChannels.length > 0 && (
+                  <div className="channel-section">
+                    <div className="section-channels">
+                      {unsectionedChannels
+                        .sort((a, b) => a.position - b.position)
+                        .map(channel => (
+                          <div
+                            key={channel.id}
+                            className={`channel ${channel.id === currentChannelId ? 'active' : ''} ${channel.settings?.nsfw ? 'nsfw' : ''}`}
+                            onClick={() => joinChannel(channel.id)}
+                          >
+                            <span className="channel-icon">
+                              {channel.type === 'text' && '#'}
+                              {channel.type === 'voice' && '🔊'}
+                              {channel.type === 'announcement' && '📢'}
+                            </span>
+                            <span className="channel-name">
+                              {channel.name}
+                              {channel.settings?.nsfw && <span className="nsfw-indicator">🔞</span>}
+                            </span>
+                            {channel.messageCount && channel.messageCount > 0 && (
+                              <span className="message-count">({channel.messageCount})</span>
+                            )}
                           </div>
                         ))}
-                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            {!isMobile && (
+              <div
+                className="resize-handle sidebar-resize"
+                onMouseDown={handleSidebarResizeStart}
+              />
+            )}
+          </>
+        )}
 
-                      <div className="media-cache">
-                        <div className="media-cache-header">
-                          <h4>Media Cache</h4>
-                          <span className="hint">Latest 10 media items in this channel</span>
-                        </div>
-                        {currentChannelMedia.length === 0 ? (
-                          <div className="empty-state">No media has been shared in this channel yet.</div>
-                        ) : (
-                          <div className="media-grid">
-                            {currentChannelMedia.map(item => (
-                              <div key={item.id} className="media-item" title={item.name}>
-                                <div className="thumb">
-                                  {item.isImage ? (
-                                    <img src={item.url} alt={item.name} />
+        {!isMobile && sidebarCollapsed && isServerView && (
+          <div className="sidebar-collapsed">
+            <button className="expand-btn" onClick={toggleSidebar} title="Expand Sidebar">
+              <i className="fas fa-chevron-right"></i>
+            </button>
+          </div>
+        )}
+
+        <div className="page-surface">
+          <div className="main-content">
+            {isSwitchingServer && isServerView && (
+              <LoadingScreen type="server-switch" />
+            )}
+            {isSettingsView ? (
+              <SettingsPage
+                userName={user?.name}
+                userStatus={user?.status}
+                themeId={settingsSelectedTheme}
+                mode={settingsThemeMode}
+                fontId={settingsFontId}
+                availableThemes={availableThemes}
+                availableFonts={availableFonts}
+                soft3DEnabled={soft3DEnabled}
+                onThemeChange={setSettingsSelectedTheme}
+                onModeChange={(mode) => setSettingsThemeMode(mode)}
+                onFontChange={setSettingsFontId}
+                onToggleSoft3D={(next) => setSoft3DEnabled(next)}
+                onSave={saveSettingsView}
+                onLogout={() => { onLogout(); setActiveView('home'); setCurrentServerId('home'); }}
+              />
+            ) : isHomeView ? (
+              <HomePage
+                user={user}
+                nonHomeServers={nonHomeServers}
+                currentServerId={currentServerId}
+                addServer={addServer}
+                joinServer={joinServer}
+                switchServer={switchServer}
+                openAccountSettings={openAccountSettings}
+                generateServerInitials={generateServerInitials}
+              />
+            ) : isServerSettingsView && settingsServer ? (
+              <ServerSettingsPage
+                server={settingsServer}
+                channels={settingsChannels}
+                roles={serverRoles}
+                selectedChannelId={selectedSettingsChannelId}
+                onSelectChannel={(id) => setServerSettingsChannelId(id)}
+                onSavePermissions={saveChannelPermissions}
+                onBack={closeServerSettings}
+                loading={serverSettingsLoading}
+                passwordRequired={serverPasswordRequired}
+                onCreateRole={createServerRole}
+              />
+            ) : (
+              <ServerPage
+                showMobileNavButtons={showMobileNavButtons}
+                onToggleNavPanels={toggleMobileNavPanels}
+                onToggleMembers={toggleMobileMembers}
+                currentChannel={currentChannel}
+                currentMessages={currentMessages}
+                renderMessage={renderMessage}
+                message={message}
+                onMessageChange={(val) => setMessage(val)}
+                onSendMessage={() => sendMessage()}
+                showMessageOptions={showMessageOptions}
+                onToggleMessageOptions={toggleMessageOptions}
+                openEmojiPicker={openEmojiPicker}
+                openGifPicker={openGifPicker}
+                closeEmotePicker={closeEmotePicker}
+                closeGifPicker={closeGifPicker}
+                showEmotePicker={showEmotePicker}
+                showGifPicker={showGifPicker}
+                handleEmoteSelect={handleEmoteSelect}
+                handleGifSelect={handleGifSelect}
+                handleImageUpload={handleImageUpload}
+                handleFileUpload={handleFileUpload}
+                sendPollMessage={sendPollMessage}
+                servers={servers}
+              />
+            )}
+          </div>
+        </div>
+
+        {showUserListPanel && (
+          <>
+            {!isMobile && (
+              <div
+                className="resize-handle userlist-resize"
+                onMouseDown={handleUserListResizeStart}
+              />
+            )}
+            <div
+              className={`user-list ${isMobile ? 'mobile-drawer' : ''} ${showMobileUserList ? 'mobile-open' : ''}`}
+              style={!isMobile ? { width: `${userListWidth}px` } : undefined}
+            >
+              {isMobile && (
+                <button
+                  className="mobile-close"
+                  onClick={() => setShowMobileUserList(false)}
+                  aria-label="Close member list"
+                >
+                  <i className="fas fa-times"></i>
+                </button>
+              )}
+              <div className="user-list-header">
+                <div className="user-list-title">
+                  <h3>
+                    {userSidebarTab === 'members' ? 'Channel Members' : 'Channel Insights'}
+                  </h3>
+                </div>
+                {!isMobile && (
+                  <button className="collapse-btn" onClick={toggleUserList} title="Collapse User List">
+                    <i className="fas fa-chevron-right"></i>
+                  </button>
+                )}
+              </div>
+              <div className="user-list-tabs">
+                <button
+                  className={userSidebarTab === 'members' ? 'active' : ''}
+                  onClick={() => setUserSidebarTab('members')}
+                  aria-label="Show server users"
+                  title="Server users"
+                >
+                  <i className="fas fa-users"></i>
+                  <span className="sr-only">Server Users</span>
+                </button>
+                <button
+                  className={userSidebarTab === 'metrics' ? 'active' : ''}
+                  onClick={() => setUserSidebarTab('metrics')}
+                  aria-label="Show channel metrics and media"
+                  title="Channel metrics and media"
+                >
+                  <i className="fas fa-chart-line"></i>
+                  <span className="sr-only">Metrics & Media</span>
+                </button>
+              </div>
+
+              <div className="user-list-content">
+                {userSidebarTab === 'members' ? (
+                  channelMembers.length === 0 ? (
+                    <div className="empty-state">No members can view this channel yet.</div>
+                  ) : (
+                    <>
+                      <div className="user-list-footnote">{channelMemberOnlineCount} online — {channelMembers.length} total</div>
+                      {groupedChannelMembers.map(group => (
+                        <div key={group.label} className="user-group">
+                          <div className="user-group-header">{group.label} · {group.users.length}</div>
+                          {group.users
+                            .slice()
+                            .sort((a, b) => {
+                              const statusOrder = { online: 0, idle: 1, dnd: 2, offline: 3 } as const;
+                              return statusOrder[a.status] - statusOrder[b.status] || a.name.localeCompare(b.name);
+                            })
+                            .map(user => (
+                              <div key={user.id} className={`user-item ${user.status}`}>
+                                <div className="user-avatar">
+                                  {user.avatar ? (
+                                    <img src={user.avatar} alt={user.name} />
                                   ) : (
-                                    <div className={`icon ${item.isVideo ? 'video' : 'file'}`}>
-                                      <i className={`fas ${item.isVideo ? 'fa-video' : 'fa-file'}`}></i>
-                                    </div>
+                                    <span>{user.name.charAt(0).toUpperCase()}</span>
                                   )}
+                                  <div className={`user-status ${user.status}`}></div>
                                 </div>
-                                <div className="meta">
-                                  <span className="name">{item.name}</span>
-                                  <div className="meta-row">
-                                    <span className="pill">{item.type}</span>
-                                    <span className="subtle">{formatTimestamp(item.timestamp)}</span>
-                                  </div>
+                                <div className="user-meta">
+                                  {(() => {
+                                    const color = getRoleColor(user.role);
+                                    return (
+                                      <>
+                                        <span className="user-name" style={color ? { color } : undefined}>{user.name}</span>
+                                        {user.role && (
+                                          <span className="user-role" style={color ? { color } : undefined}>
+                                            {user.role}
+                                          </span>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
                                 </div>
+                                {user.accessibleChannels && !user.accessibleChannels.includes(currentChannelId) && (
+                                  <span className="user-access-note">No access</span>
+                                )}
                               </div>
                             ))}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="channel-rollup">
-                        <div className="media-cache-header">
-                          <h4>Media by Channel</h4>
-                          <span className="hint">Jump to a channel to view its cache</span>
                         </div>
-                        {mediaRollupByChannel.length === 0 ? (
-                          <div className="empty-state">No media shared across channels yet.</div>
-                        ) : (
-                          <div className="channel-rollup-list">
-                            {mediaRollupByChannel.map(entry => (
-                              <button
-                                key={entry.channel.id}
-                                className={`channel-rollup-item ${entry.channel.id === currentChannelId ? 'active' : ''}`}
-                                onClick={() => joinChannel(entry.channel.id)}
-                              >
-                                <div className="rollup-text">
-                                  <span className="name">#{entry.channel.name}</span>
-                                  <span className="meta">{entry.mediaCount} media · Last {formatTimestamp(entry.lastActivity)}</span>
-                                </div>
-                                <div className="rollup-preview">
-                                  {entry.sampleMedia?.isImage ? (
-                                    <img src={entry.sampleMedia.url} alt={entry.sampleMedia.name} />
-                                  ) : (
-                                    <i className="fas fa-image"></i>
-                                  )}
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      ))}
                     </>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
+                  )
+                ) : (
+                  <div className="channel-insights">
+                    {!currentChannelId ? (
+                      <div className="empty-state">Select a channel to view its metrics and media cache.</div>
+                    ) : (
+                      <>
+                        <div className="metric-cards">
+                          {[
+                            {
+                              label: 'Messages',
+                              value: channelMetrics?.totalMessages ?? 0,
+                              icon: 'fa-comment-dots',
+                              tone: 'blue'
+                            },
+                            {
+                              label: 'Unique Senders',
+                              value: channelMetrics?.uniqueSenders ?? 0,
+                              icon: 'fa-user-friends',
+                              tone: 'teal'
+                            },
+                            {
+                              label: 'Media Items',
+                              value: channelMetrics?.mediaCount ?? 0,
+                              icon: 'fa-photo-video',
+                              tone: 'purple'
+                            },
+                            {
+                              label: 'Last Activity',
+                              value: formatTimestamp(channelMetrics?.lastActivity),
+                              icon: 'fa-clock',
+                              tone: 'amber'
+                            }
+                          ].map(metric => (
+                            <div className={`metric-card tone-${metric.tone}`} key={metric.label}>
+                              <div className="metric-icon">
+                                <i className={`fas ${metric.icon}`}></i>
+                              </div>
+                              <div className="metric-text">
+                                <span className="label">{metric.label}</span>
+                                <span className="value">{metric.value}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
 
-      {!isMobile && userListCollapsed && isServerView && (
-        <div className="user-list-collapsed">
-          <button className="expand-btn" onClick={toggleUserList} title="Expand User List">
-            <i className="fas fa-chevron-left"></i>
-          </button>
-        </div>
-      )}
+                        <div className="media-cache">
+                          <div className="media-cache-header">
+                            <h4>Media Cache</h4>
+                            <span className="hint">Latest 10 media items in this channel</span>
+                          </div>
+                          {currentChannelMedia.length === 0 ? (
+                            <div className="empty-state">No media has been shared in this channel yet.</div>
+                          ) : (
+                            <div className="media-grid">
+                              {currentChannelMedia.map(item => (
+                                <div key={item.id} className="media-item" title={item.name}>
+                                  <div className="thumb">
+                                    {item.isImage ? (
+                                      <img src={item.url} alt={item.name} />
+                                    ) : (
+                                      <div className={`icon ${item.isVideo ? 'video' : 'file'}`}>
+                                        <i className={`fas ${item.isVideo ? 'fa-video' : 'fa-file'}`}></i>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="meta">
+                                    <span className="name">{item.name}</span>
+                                    <div className="meta-row">
+                                      <span className="pill">{item.type}</span>
+                                      <span className="subtle">{formatTimestamp(item.timestamp)}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="channel-rollup">
+                          <div className="media-cache-header">
+                            <h4>Media by Channel</h4>
+                            <span className="hint">Jump to a channel to view its cache</span>
+                          </div>
+                          {mediaRollupByChannel.length === 0 ? (
+                            <div className="empty-state">No media shared across channels yet.</div>
+                          ) : (
+                            <div className="channel-rollup-list">
+                              {mediaRollupByChannel.map(entry => (
+                                <button
+                                  key={entry.channel.id}
+                                  className={`channel-rollup-item ${entry.channel.id === currentChannelId ? 'active' : ''}`}
+                                  onClick={() => joinChannel(entry.channel.id)}
+                                >
+                                  <div className="rollup-text">
+                                    <span className="name">#{entry.channel.name}</span>
+                                    <span className="meta">{entry.mediaCount} media · Last {formatTimestamp(entry.lastActivity)}</span>
+                                  </div>
+                                  <div className="rollup-preview">
+                                    {entry.sampleMedia?.isImage ? (
+                                      <img src={entry.sampleMedia.url} alt={entry.sampleMedia.name} />
+                                    ) : (
+                                      <i className="fas fa-image"></i>
+                                    )}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {!isMobile && userListCollapsed && isServerView && (
+          <div className="user-list-collapsed">
+            <button className="expand-btn" onClick={toggleUserList} title="Expand User List">
+              <i className="fas fa-chevron-left"></i>
+            </button>
+          </div>
+        )}
+      </div>
       </div>
     </div>
   );

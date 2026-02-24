@@ -73,6 +73,8 @@
 @import 'components/Toggle';
 @import 'components/Button';
 @import 'components/Select';
+@import 'components/ServerSettings';
+@import 'components/AddServerPanel';
 
 // Reset html/body padding
 html, body {
@@ -112,6 +114,103 @@ html, body {
 @import 'components/poll';
 @import 'components/MessageInput';
 
+// ── TextField (.field) global base ──────────────────────────────────────────
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  & > span {
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+
+  input,
+  select {
+    background: var(--primary-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    width: 100%;
+    box-sizing: border-box;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1.4;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+    &::placeholder {
+      color: var(--text-secondary);
+      opacity: 0.6;
+    }
+
+    &:focus {
+      outline: none;
+      border-color: var(--field-tint, var(--accent));
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+    }
+  }
+
+  small.hint {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .error-text {
+    color: var(--error, #ff4d4f);
+    font-size: 12px;
+  }
+}
+
+// ── SegmentedControl (.segmented) global base ────────────────────────────────
+.segmented {
+  display: flex;
+  background: var(--tertiary-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px;
+  gap: 4px;
+
+  button {
+    flex: 1;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 10px;
+    padding: 9px 12px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    font-family: inherit;
+    line-height: 1.2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+
+    &.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    &:hover:not(.active):not(:disabled) {
+      background: var(--hover-bg, rgba(255,255,255,0.06));
+      color: var(--text-primary);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+}
+
 // Modal styles
 .modal-overlay {
   position: fixed;
@@ -119,17 +218,21 @@ html, body {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
+  background-color: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  font-family: var(--app-font);
 
   .modal-content {
-    background-color: var(--secondary-bg);
-    border-radius: 8px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    max-width: 90vw;
+    background: transparent;
+    border: none;
+    border-radius: 16px;
+    box-shadow: none;
+    max-width: min(640px, 90vw);
     max-height: 90vh;
     overflow: hidden;
     display: flex;
@@ -177,8 +280,95 @@ html, body {
         }
       }
     }
+
+    .modal-body {
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      background: transparent;
+    }
+
+    .modal-body .modal-panel {
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--surface-card-bg, var(--secondary-bg));
+      border: 1px solid var(--surface-border, var(--border));
+      border-radius: 16px;
+      box-shadow: var(--surface-card-shadow, 0 12px 28px rgba(0, 0, 0, 0.26));
+      padding: 18px 20px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
   }
 }
+
+// Structured panel shell for modal content.
+.modal-panel {
+  background: var(--surface-card-bg, var(--secondary-bg));
+  border: 1px solid var(--surface-border, var(--border));
+  border-radius: 14px;
+  box-shadow: var(--surface-card-shadow, 0 10px 24px rgba(0, 0, 0, 0.24));
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+
+  h3 {
+    font-size: 20px;
+  }
+
+  p {
+    font-size: 14px;
+  }
+
+  &.tone-accent {
+    border-color: var(--accent);
+  }
+
+  .modal-panel__header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    h3 {
+      margin: 0;
+      color: var(--text-primary);
+      font-size: 18px;
+    }
+
+    p {
+      margin: 4px 0 0;
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    .modal-panel__icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: var(--surface-chip-bg, var(--tertiary-bg));
+      display: grid;
+      place-items: center;
+      color: var(--accent);
+    }
+  }
+
+  .modal-panel__body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .modal-panel__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+}
+
+// .add-server-panel styles live in styles/components/AddServerPanel.scss
 
 // Mobile drawer helpers
 .mobile-backdrop {
@@ -401,6 +591,24 @@ html, body {
   overflow: hidden;
 }
 
+.content-shell {
+  flex: 1;
+  display: flex;
+  min-height: 100%;
+  background-color: var(--primary-bg);
+  border-top-left-radius: 25px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: -10px 8px 18px rgba(0, 0, 0, 0.12);
+}
+
+.page-surface {
+  flex: 1;
+  display: flex;
+  min-height: 100%;
+  position: relative;
+}
+
 // Modern surfaces and controls (soft 3D, no glass)
 .app-shell.soft-3d {
   // Elevated surface tokens
@@ -438,7 +646,7 @@ html, body {
 
   input,
   select,
-  .segmented button,
+  .btn,
   .message-input .send-btn,
   .hero-actions button,
   .modal-actions button,
@@ -446,7 +654,8 @@ html, body {
   .server-pill,
   .settings-page .status,
   .settings-page .pill,
-  .settings-page .chip {
+  .settings-page .chip,
+  .segmented {
     background: linear-gradient(150deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.04));
     border: 1px solid var(--surface-border);
     box-shadow:
@@ -454,6 +663,129 @@ html, body {
       inset 0 -1px 3px rgba(0, 0, 0, 0.12),
       0 4px 10px rgba(0, 0, 0, 0.12);
     transition: transform 0.1s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  }
+
+  // Soft 3D buttons aligned to the Send button treatment.
+  .btn {
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.06)), var(--surface-card-bg);
+    border-color: var(--surface-border);
+    color: var(--text-primary);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 4px rgba(0, 0, 0, 0.14),
+      0 6px 14px rgba(0, 0, 0, 0.14);
+
+    &:hover:not(:disabled) {
+      border-color: var(--accent);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.16),
+        inset 0 -1px 4px rgba(0, 0, 0, 0.16),
+        0 8px 18px rgba(0, 0, 0, 0.16);
+      transform: translateY(-1px);
+    }
+
+    &:active:not(:disabled) {
+      transform: translateY(0);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.12),
+        inset 0 -1px 3px rgba(0, 0, 0, 0.14),
+        0 3px 8px rgba(0, 0, 0, 0.14);
+    }
+
+    &:disabled {
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        inset 0 -1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    &.primary {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover, var(--accent)) 100%);
+      color: #fff;
+      border-color: var(--accent);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.14),
+        inset 0 -1px 3px rgba(0, 0, 0, 0.18),
+        var(--surface-cta-shadow),
+        0 0 0 1px rgba(0, 0, 0, 0.04);
+
+      &:hover:not(:disabled) {
+        background: linear-gradient(135deg, var(--accent-hover, var(--accent)) 0%, var(--accent) 100%);
+      }
+    }
+
+    &.secondary {
+      background: linear-gradient(150deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.05)), var(--surface-card-bg);
+      border-color: var(--surface-border);
+      color: var(--text-primary);
+    }
+
+    &.ghost {
+      background: linear-gradient(150deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.04));
+      border-color: var(--surface-border);
+      color: var(--text-secondary);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.12),
+        inset 0 -1px 3px rgba(0, 0, 0, 0.1),
+        0 4px 10px rgba(0, 0, 0, 0.08);
+    }
+
+    &.danger {
+      background: linear-gradient(135deg, #ff6b6b 0%, #ff4d4f 100%);
+      border-color: #ff4d4f;
+      color: #fff;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.16),
+        inset 0 -1px 3px rgba(0, 0, 0, 0.18),
+        0 8px 18px rgba(255, 77, 79, 0.24);
+    }
+  }
+
+  // Tab buttons: flat when inactive, 3D when active.
+  .user-list-tabs button {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+
+    &:hover:not(.active) {
+      border-color: var(--surface-border);
+      color: var(--text-primary);
+    }
+
+    &.active {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover, var(--accent)) 100%);
+      border-color: var(--accent);
+      color: #fff;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.14),
+        inset 0 -1px 3px rgba(0, 0, 0, 0.18),
+        var(--surface-cta-shadow),
+        0 0 0 1px rgba(0, 0, 0, 0.04);
+      transform: translateY(-0.25px);
+    }
+  }
+
+  // Emote picker server tabs follow the same flat/inactive, elevated/active treatment.
+  .server-tabs button {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+
+    &:hover:not(.active) {
+      border-color: var(--surface-border);
+      color: var(--text-primary);
+    }
+
+    &.active {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover, var(--accent)) 100%);
+      border-color: var(--accent);
+      color: #fff;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.14),
+        inset 0 -1px 3px rgba(0, 0, 0, 0.18),
+        var(--surface-cta-shadow),
+        0 0 0 1px rgba(0, 0, 0, 0.04);
+      transform: translateY(-0.25px);
+    }
   }
 
   // Keep the chat textarea flat/unstyled inside the message input
@@ -529,8 +861,6 @@ html, body {
 
   input:focus,
   select:focus,
-  .segmented button:focus,
-  .segmented button.active,
   .hero-actions button:hover,
   .action-list button:hover,
   .modal-actions button:hover,
@@ -558,11 +888,32 @@ html, body {
   }
 
   .segmented button.active {
-    background: linear-gradient(150deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05));
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05)), var(--surface-card-bg);
+    border-color: var(--accent);
+    color: #fff;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.2),
       inset 0 -1px 3px rgba(0, 0, 0, 0.18),
       0 5px 12px rgba(0, 0, 0, 0.12);
+  }
+
+  // Segmented controls: flat idle, only active lifts.
+  .segmented button {
+    &:not(.active) {
+      background: transparent;
+      border: 1px solid transparent;
+      box-shadow: none;
+      transform: none;
+    }
+
+    &:hover:not(.active) {
+      border-color: var(--surface-border);
+      color: var(--text-primary);
+    }
+
+    &:focus-visible:not(.active) {
+      border-color: var(--accent);
+    }
   }
 
   .settings-page .hero,
@@ -2275,7 +2626,10 @@ html, body {
 
 // Settings Page
 .settings-page {
-  background-color: var(--primary-bg);
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
+    linear-gradient(160deg, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.15)),
+    var(--primary-bg);
   color: var(--text-primary);
 
   .page-header {
@@ -2447,16 +2801,26 @@ html, body {
       select {
         background-color: var(--primary-bg);
         border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 12px 14px;
+        border-radius: 7px;
+        padding: 7px 10px;
+        min-height: 32px;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
         color: var(--text-primary);
         font-size: 14px;
+        line-height: 1.2;
         font-family: inherit;
 
         &:focus {
           outline: none;
-          border-color: var(--accent);
+          border-color: var(--field-tint, var(--accent));
         }
+      }
+
+      .error-text {
+        color: var(--error);
+        font-size: 12px;
       }
     }
 

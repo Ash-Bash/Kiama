@@ -51,14 +51,15 @@
   }
 
   &.primary {
-    background: var(--accent);
-    border-color: var(--accent);
+    background: var(--btn-tint, var(--accent));
+    border-color: var(--btn-tint, var(--accent));
     color: #fff;
     box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
 
     &:hover:not(:disabled) {
-      background: var(--accent-hover, var(--accent));
-      border-color: var(--accent-hover, var(--accent));
+      background: var(--btn-tint, var(--accent));
+      border-color: var(--btn-tint, var(--accent));
+      filter: brightness(1.06) saturate(1.02);
     }
   }
 

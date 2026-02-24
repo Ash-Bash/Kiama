@@ -20,6 +20,14 @@ npm run start:server  # Start production server
 npm run start:client  # Start production client
 ```
 
+### Server Management CLI
+```bash
+kiama-server notify --message "Maintenance in 5m" --type maintenance
+kiama-server stop --message "Shutting down"
+kiama-server restart --message "Rebooting" --delay 1000
+kiama-server init-config --name "My Server" --output server.config.json
+```
+
 ### Individual Builds
 ```bash
 npm run build:server  # Build server only
@@ -44,6 +52,11 @@ npm run build:client  # Build client only
 - `src/client/webpack.config.js` - Client bundling
 - `src/client/tsconfig.main.json` - Main process TS
 - `src/server/tsconfig.json` - Server TS
+
+### Admin Token & Data Paths
+- Set `KIAMA_ADMIN_TOKEN` to control admin endpoints; otherwise the server writes a generated token to `<data-root>/secrets/admin.token` (mode 600).
+- Override data root with `KIAMA_DATA_DIR`; override persisted config path with `KIAMA_CONFIG_PATH`.
+- Default data layout: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/` under the data root.
 
 ## Code Commenting Guidelines
 
@@ -110,10 +123,16 @@ interface PluginAPI {
 ```typescript
 interface ServerPluginAPI {
   addMessageHandler: (handler: (message: any) => any) => void;
-  addRoute: (path: string, handler: any) => void;
+  onMessage: (handler: (message: any) => void) => void; // Alias for addMessageHandler
+  sendMessage: (message: any) => void; // Broadcast server-origin messages/commands
+  modifyMessage: (messageId: string, modifiedMessage: any) => void; // Update existing messages
+  addRoute: (path: string, handler: any) => void; // Custom endpoints/command handlers
+  registerClientPlugin: (metadata: ClientPluginMetadata) => void; // Ship companion client plugins
   getIO: () => Server;
 }
 ```
+
+Server plugins can expose new command surfaces (e.g., slash-style handlers via routes) and pair them with client-side renderers delivered through `registerClientPlugin`.
 
 ### Theme API
 ```typescript

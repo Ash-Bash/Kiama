@@ -214,6 +214,24 @@ Key options:
 - `--mode <public|private>` - Server access mode
 - `--help` - Show help information
 
+Server management CLI (requires admin token):
+- `kiama-server notify --message "Planned maintenance" --type maintenance` – broadcast a notice
+- `kiama-server stop --message "Shutting down"` – graceful stop with optional notice
+- `kiama-server restart --message "Rebooting" --delay 1000` – graceful restart (process manager should relaunch)
+- `kiama-server init-config --name "My Server" --output server.config.json` – scaffold a starter config (sections, channels, roles)
+
+Environment variables:
+- `KIAMA_ADMIN_TOKEN` – admin token for protected endpoints/CLI (if unset, the server generates one and writes it to `data/secrets/admin.token` with mode 600)
+- `KIAMA_DATA_DIR` – root for runtime data (configs, plugins, uploads, logs, secrets). Defaults to `dist/server/data` (or equivalent when running from source).
+- `KIAMA_CONFIG_PATH` – override path to the persisted config JSON (defaults to `<data-root>/configs/<serverId>.json`).
+
+Data layout created on startup:
+- `<data-root>/configs/` – persisted server config (includes sections/channels/roles and hashed admin token)
+- `<data-root>/plugins/` – server-side plugins
+- `<data-root>/uploads/` – user uploads (emotes, etc.)
+- `<data-root>/logs/` – server logs
+- `<data-root>/secrets/admin.token` – generated admin token (mode 600) when no token is supplied
+
 ### Client Configuration
 
 The client automatically connects to `http://localhost:3000`. To change this, modify the socket URL in `src/client/renderer/src/App.tsx`.
@@ -283,11 +301,16 @@ interface ServerPlugin {
 
 interface ServerPluginAPI {
   addMessageHandler: (handler: (message: any) => any) => void;
-  addRoute: (path: string, handler: any) => void;
+  onMessage: (handler: (message: any) => void) => void; // Alias for addMessageHandler
+  sendMessage: (message: any) => void; // Broadcast new server-side messages/commands
+  modifyMessage: (messageId: string, modifiedMessage: any) => void; // Adjust messages in-place
+  addRoute: (path: string, handler: any) => void; // Expose REST-ish endpoints for commands/config
+  registerClientPlugin: (metadata: ClientPluginMetadata) => void; // Ship companion client plugins
   getIO: () => any;
-  registerClientPlugin: (metadata: ClientPluginMetadata) => void;
 }
 ```
+
+Server plugins can wire in new command surfaces (e.g., slash-like commands via routes), broadcast automation messages, and ship paired client plugins to render UI for those commands.
 
 ### Server-Provided Client Plugins
 

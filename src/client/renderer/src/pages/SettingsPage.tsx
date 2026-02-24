@@ -3,6 +3,8 @@ import Page from '../components/Page';
 import Toggle from '../components/Toggle';
 import Button from '../components/Button';
 import Select from '../components/Select';
+import TextField from '../components/TextField';
+import SegmentedControl from '../components/SegmentedControl';
 
 interface SettingsPageProps {
   userName?: string;
@@ -88,15 +90,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
           </div>
           <div className="card-body">
-            <label className="field">
-              <span>Display name</span>
-              <input
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Your name"
-              />
-            </label>
+            <TextField
+              label="Display name"
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Your name"
+            />
             <label className="field">
               <span>Status</span>
               <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
@@ -128,22 +128,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             </label>
             <label className="field">
               <span>Mode</span>
-              <div className="segmented">
-                <button
-                  className={mode === 'light' ? 'active' : ''}
-                  onClick={() => onModeChange('light')}
-                  type="button"
-                >
-                  Light
-                </button>
-                <button
-                  className={mode === 'dark' ? 'active' : ''}
-                  onClick={() => onModeChange('dark')}
-                  type="button"
-                >
-                  Dark
-                </button>
-              </div>
+              <SegmentedControl
+                value={mode}
+                onChange={onModeChange}
+                options={[
+                  { label: 'Light', value: 'light' },
+                  { label: 'Dark', value: 'dark' }
+                ]}
+              />
             </label>
             <Toggle
               className="field"

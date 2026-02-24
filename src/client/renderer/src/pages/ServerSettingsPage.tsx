@@ -3,6 +3,8 @@ import Page from '../components/Page';
 import Toggle from '../components/Toggle';
 import Button from '../components/Button';
 import Select from '../components/Select';
+import TextField from '../components/TextField';
+import ColorPicker from '../components/ColorPicker';
 import '../styles/components/ServerSettings.scss';
 import { Channel } from '../types/plugin';
 
@@ -329,30 +331,37 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
             <div className="role-form">
               <div className="preset-row">
                 {rolePresets.map(preset => (
-                  <button key={preset.label} className="preset-btn" onClick={() => applyPreset(preset)}>
+                  <Button
+                    key={preset.label}
+                    className="preset-btn"
+                    variant="primary"
+                    size="sm"
+                    tintColor={preset.color}
+                    style={{
+                      '--preset-color': preset.color,
+                      '--btn-tint': preset.color,
+                      background: `linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(0, 0, 0, 0.08) 100%), ${preset.color}`,
+                      borderColor: preset.color
+                    } as React.CSSProperties}
+                    onClick={() => applyPreset(preset)}
+                  >
                     {preset.label}
-                  </button>
+                  </Button>
                 ))}
               </div>
-              <label className="field">
-                <span>Role name</span>
-                <input
-                  value={roleName}
-                  onChange={(e) => setRoleName(e.target.value)}
-                  placeholder="e.g., Admin"
-                  disabled={isCreatingRole}
-                />
-              </label>
-              <label className="field">
-                <span>Role color</span>
-                <input
-                  type="color"
-                  value={roleColor}
-                  onChange={(e) => setRoleColor(e.target.value)}
-                  disabled={isCreatingRole}
-                  style={{ width: '80px', padding: 0, height: '36px' }}
-                />
-              </label>
+              <TextField
+                label="Role name"
+                value={roleName}
+                onChange={(e) => setRoleName(e.target.value)}
+                placeholder="e.g., Admin"
+                disabled={isCreatingRole}
+              />
+              <ColorPicker
+                label="Role color"
+                value={roleColor}
+                onChange={setRoleColor}
+                disabled={isCreatingRole}
+              />
 
               <div className="permissions-grid">
                 {permissionKeys.map((permKey) => (

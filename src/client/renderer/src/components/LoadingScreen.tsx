@@ -1,59 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import '../styles/LoadingScreen.scss';
 
-const initialLoadingMessages = [
+const loadingMessages = [
   'Loading...',
   'Connecting to servers...',
   'Loading plugins...',
   'Almost ready...'
 ];
 
-const serverSwitchMessages = [
-  'Switching servers...',
-  'Loading channels...',
-  'Connecting...',
-  'Almost there...'
-];
-
 interface LoadingScreenProps {
   type?: 'initial' | 'server-switch';
 }
 
-// Reusable loading overlay for boot and server-switch flows.
+// Modern, simplified loading screen with clean design
 const LoadingScreen: React.FC<LoadingScreenProps> = ({ type = 'initial' }) => {
-  const messages = type === 'initial' ? initialLoadingMessages : serverSwitchMessages;
   const [currentMessage, setCurrentMessage] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setCurrentMessage((prev) => (prev + 1) % messages.length);
-    }, 800); // Change message every 800ms
+      setCurrentMessage((prev) => (prev + 1) % loadingMessages.length);
+    }, 1200);
 
     return () => clearInterval(interval);
-  }, [messages.length]);
+  }, []);
+
+  const title = type === 'initial' ? 'Starting Kiama' : 'Switching server';
 
   return (
-    <div className={`loading-screen ${type === 'server-switch' ? 'server-switch' : ''}`} style={{ background: 'linear-gradient(135deg, #5865f2 0%, #4752c4 100%)' }}>
-      <div className="loading-content">
-        {type === 'initial' && (
-          <div className="loading-logo">
-            <div className="logo-icon">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-              </svg>
-            </div>
-            <h1>KIAMA</h1>
-          </div>
-        )}
-        {type === 'server-switch' && (
-          <div className="server-switch-icon">
-            <div className="switch-spinner"></div>
-          </div>
-        )}
-        <div className="loading-spinner">
-          <div className="spinner"></div>
+    <div className={`loading-screen ${type === 'server-switch' ? 'server-switch' : ''}`}>
+      <div className="loading-container">
+        <div className="loading-content">
+          <div className="spinner" aria-hidden="true" />
+          <h1 className="loading-title">{title}</h1>
+          <p className="loading-message">{loadingMessages[currentMessage]}</p>
         </div>
-        <p className="loading-text">{messages[currentMessage]}</p>
       </div>
     </div>
   );

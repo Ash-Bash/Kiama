@@ -1,0 +1,64 @@
+.color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  input[type='color'] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 44px;
+    padding: 0;
+    border-radius: 12px;
+    border: 1px solid var(--surface-border, var(--border));
+    background: transparent;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      inset 0 -1px 3px rgba(0, 0, 0, 0.12),
+      0 4px 10px rgba(0, 0, 0, 0.12);
+    cursor: pointer;
+    transition: border-color 0.12s ease, box-shadow 0.16s ease, transform 0.1s ease;
+    display: block;
+
+    &:hover:not(:disabled) {
+      border-color: var(--color-picker-tint, var(--accent));
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.16),
+        inset 0 -1px 3px rgba(0, 0, 0, 0.14),
+        0 6px 14px rgba(0, 0, 0, 0.14);
+      transform: translateY(-0.25px);
+    }
+
+    &:active:not(:disabled) {
+      transform: translateY(0);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        inset 0 -1px 2px rgba(0, 0, 0, 0.12),
+        0 3px 8px rgba(0, 0, 0, 0.12);
+    }
+
+    &:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        inset 0 -1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    &::-webkit-color-swatch-wrapper {
+      padding: 0;
+      border-radius: 12px;
+    }
+
+    &::-webkit-color-swatch {
+      border: none;
+      border-radius: 12px;
+      padding: 0;
+    }
+
+    &::-moz-focus-inner {
+      border: 0;
+      padding: 0;
+    }
+  }
+}

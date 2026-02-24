@@ -9,11 +9,15 @@ interface Option {
 interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   options?: Option[];
   className?: string;
+  tintColor?: string;
 }
 
-const Select: React.FC<SelectProps> = ({ options, children, className = '', ...rest }) => {
+const Select: React.FC<SelectProps> = ({ options, children, className = '', tintColor, style, ...rest }) => {
+  const styleVars = tintColor ? ({ '--select-tint': tintColor } as React.CSSProperties) : undefined;
+  const mergedStyle = styleVars || style ? { ...styleVars, ...style } : style;
+
   return (
-    <div className={['ui-select', className].filter(Boolean).join(' ')}>
+    <div className={['ui-select', className].filter(Boolean).join(' ')} style={mergedStyle}>
       <select {...rest}>
         {options?.map(option => (
           <option key={option.value} value={option.value} disabled={option.disabled}>

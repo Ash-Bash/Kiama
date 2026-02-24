@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
 interface ModalContextType {
   openModal: (content: ReactNode, options?: ModalOptions) => void;
@@ -33,6 +33,18 @@ export const ModalProvider: React.FC<ModalProviderProps> = ({ children }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [modalContent, setModalContent] = useState<ReactNode | null>(null);
   const [modalOptions, setModalOptions] = useState<ModalOptions>({});
+
+  // Toggle a body class so we can blur only the content area (not server list or title bar).
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const body = document.body;
+    if (isOpen) {
+      body.classList.add('modal-open');
+    } else {
+      body.classList.remove('modal-open');
+    }
+    return () => body.classList.remove('modal-open');
+  }, [isOpen]);
 
   // Show a modal with supplied content and optional sizing.
   const openModal = (content: ReactNode, options: ModalOptions = {}) => {

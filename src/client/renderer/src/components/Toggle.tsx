@@ -10,6 +10,8 @@ interface ToggleProps {
   inline?: boolean; // Toggle rendered before the label when true
   size?: 'default' | 'small';
   ariaLabel?: string;
+  tintColor?: string;
+  style?: React.CSSProperties;
 }
 
 const Toggle: React.FC<ToggleProps> = ({
@@ -21,12 +23,16 @@ const Toggle: React.FC<ToggleProps> = ({
   className = '',
   inline = false,
   size = 'default',
-  ariaLabel
+  ariaLabel,
+  tintColor,
+  style
 }) => {
   const containerClass = ['toggle-row', inline ? 'inline' : '', className].filter(Boolean).join(' ');
   const toggleClass = ['ios-toggle', checked ? 'on' : 'off', size === 'small' ? 'small' : '', 'toggle-control']
     .filter(Boolean)
     .join(' ');
+  const containerStyle = tintColor ? ({ '--toggle-tint': tintColor } as React.CSSProperties) : undefined;
+  const mergedStyle = containerStyle || style ? { ...containerStyle, ...style } : style;
 
   const handleToggle = () => {
     if (disabled) return;
@@ -48,7 +54,7 @@ const Toggle: React.FC<ToggleProps> = ({
   );
 
   return (
-    <div className={containerClass}>
+    <div className={containerClass} style={mergedStyle}>
       {inline && toggleButton}
       {(label || description) && (
         <div className="toggle-copy">
