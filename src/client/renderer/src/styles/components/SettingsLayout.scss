@@ -1,0 +1,547 @@
+// SettingsLayout — Discord-style settings shell
+// Used by both SettingsPage (account) and ServerSettingsPage.
+
+.settings-layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  background: color-mix(in srgb, var(--tertiary-bg) 72%, black);
+  overflow: hidden;
+  font-family: var(--app-font);
+
+  // ── Sidebar ──────────────────────────────────────────────────────────────
+  &__sidebar {
+    flex: 0 0 232px;
+    min-width: 0;
+    background: var(--secondary-bg);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    // The inner wrapper is scrollable so the close button stays pinned at the
+    // bottom of the sidebar while nav overflows.
+    &-inner {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    &-footer {
+      flex-shrink: 0;
+      padding: 12px 14px 18px;
+      border-top: 1px solid var(--border);
+    }
+  }
+
+  // ── Identity block (username / server name) ───────────────────────────────
+  &__identity {
+    padding: 18px 16px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  // ── Nav ───────────────────────────────────────────────────────────────────
+  &__nav {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  &__nav-section {
+    margin-bottom: 6px;
+  }
+
+  &__nav-label {
+    padding: 10px 10px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    user-select: none;
+  }
+
+  &__nav-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.12s ease, color 0.12s ease;
+    line-height: 1.3;
+
+    &:hover:not(.is-active) {
+      background: var(--hover-bg, rgba(255, 255, 255, 0.06));
+      color: var(--text-primary);
+    }
+
+    &.is-active {
+      background: var(--settings-nav-active-bg, rgba(255, 255, 255, 0.1));
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    &.is-danger {
+      color: var(--error, #f04747);
+
+      &:hover {
+        background: rgba(240, 71, 71, 0.08);
+        color: var(--error, #f04747);
+      }
+    }
+  }
+
+  &__nav-icon {
+    width: 16px;
+    text-align: center;
+    font-size: 13px;
+    opacity: 0.8;
+    flex-shrink: 0;
+  }
+
+  // ── Divider separating nav groups ─────────────────────────────────────────
+  &__nav-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 6px 10px;
+  }
+
+  // ── Close / back button ───────────────────────────────────────────────────
+  &__close-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    width: 100%;
+    transition: background 0.12s ease, color 0.12s ease;
+
+    &:hover {
+      background: var(--hover-bg, rgba(255, 255, 255, 0.06));
+      color: var(--text-primary);
+    }
+  }
+
+  &__close-circle {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1.5px solid var(--text-secondary);
+    font-size: 11px;
+    flex-shrink: 0;
+    transition: border-color 0.12s ease;
+
+    .settings-layout__close-btn:hover & {
+      border-color: var(--text-primary);
+    }
+  }
+
+  // ── Content area ──────────────────────────────────────────────────────────
+  &__content {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: color-mix(in srgb, var(--tertiary-bg) 72%, black);
+  }
+
+  &__content-inner {
+    max-width: 800px;
+    padding: 40px 40px 60px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+}
+
+// ── Shared sub-page styles ────────────────────────────────────────────────────
+// Used by the content rendered inside .settings-layout__content-inner.
+
+.settings-sub-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+
+  &__header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+    margin-bottom: 0;
+
+    h2 {
+      margin: 0 0 4px;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    p {
+      margin: 0;
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+  }
+
+  &__section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  &__section-title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  &__card {
+    background: var(--secondary-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  // A row within a card — label + control pair
+  &__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    gap: 16px;
+    border-bottom: 1px solid var(--border);
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    &--column {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
+
+  &__row-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1 1 0;
+    min-width: 0;
+
+    strong {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    span {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+  }
+
+  &__row-control {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  // Full-width field area used for text inputs inside a card
+  &__field {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+  }
+
+  // Danger zone card
+  &__danger-card {
+    background: color-mix(in srgb, var(--error, #f04747) 6%, var(--secondary-bg));
+    border: 1px solid color-mix(in srgb, var(--error, #f04747) 25%, var(--border));
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  // Badge status pill
+  &__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+
+    &--success {
+      background: rgba(67, 181, 129, 0.15);
+      color: #43b581;
+      border: 1px solid rgba(67, 181, 129, 0.3);
+    }
+
+    &--warning {
+      background: rgba(250, 166, 26, 0.15);
+      color: #faa61a;
+      border: 1px solid rgba(250, 166, 26, 0.3);
+    }
+
+    &--danger {
+      background: rgba(240, 71, 71, 0.12);
+      color: #f04747;
+      border: 1px solid rgba(240, 71, 71, 0.25);
+    }
+  }
+
+  &__hint {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  // Actions / footer row
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 0 16px 16px;
+  }
+}
+
+// ── Identity block inside sidebar ─────────────────────────────────────────────
+.settings-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  &__avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: grid;
+    place-items: center;
+    font-size: 15px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+    text-transform: uppercase;
+  }
+
+  &__meta {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  &__name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__tag {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+// ── Roles editor layout ───────────────────────────────────────────────────────
+.role-editor {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 300px;
+
+  &__list {
+    border-right: 1px solid var(--border);
+    background: var(--secondary-bg);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  &__list-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.12s ease, color 0.12s ease;
+
+    &:last-child { border-bottom: none; }
+
+    &:hover {
+      background: var(--hover-bg);
+      color: var(--text-primary);
+    }
+
+    &.is-active {
+      background: var(--settings-nav-active-bg, rgba(255, 255, 255, 0.08));
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+  }
+
+  &__dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  &__new-btn {
+    margin: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px dashed var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+
+    &:hover {
+      background: var(--hover-bg);
+      color: var(--text-primary);
+      border-color: var(--text-secondary);
+    }
+  }
+
+  &__form {
+    background: var(--primary-bg);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+  }
+
+  &__form-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__perm-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 6px;
+  }
+
+  &__perm-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+  }
+
+  &__perm-pill {
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--tertiary-bg);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+}
+
+// ── Channel permissions grid ───────────────────────────────────────────────────
+.channel-perms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+
+  &__col {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--secondary-bg);
+  }
+
+  &__col-header {
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    background: var(--tertiary-bg);
+    border-bottom: 1px solid var(--border);
+  }
+
+  &__col-body {
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+}

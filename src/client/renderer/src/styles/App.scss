@@ -74,6 +74,7 @@
 @import 'components/Button';
 @import 'components/Select';
 @import 'components/ServerSettings';
+@import 'components/SettingsLayout';
 @import 'components/AddServerPanel';
 
 // Reset html/body padding
@@ -928,7 +929,7 @@ html, body {
   }
 
   .segmented button.active {
-    background: linear-gradient(150deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05)), var(--surface-card-bg);
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0.08)), var(--accent);
     border-color: var(--accent);
     color: #fff;
     box-shadow:
