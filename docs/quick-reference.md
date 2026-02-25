@@ -64,7 +64,8 @@ npm run build:client  # Build client only
 ### Admin Token & Data Paths
 - Set `KIAMA_ADMIN_TOKEN` to control admin endpoints; otherwise the server writes a generated token to `<data-root>/secrets/admin.token` (mode 600).
 - Override data root with `KIAMA_DATA_DIR`; override persisted config path with `KIAMA_CONFIG_PATH`.
-- Default data layout: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/` under the data root.
+- Default data layout: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/`, `media/`, `Backups/` under the data root.
+- Backup schedule is saved to `<data-root>/backup-config.json`. The `Backups/` folder is always excluded from archive contents.
 
 ## Common Components Quick Reference
 
@@ -358,6 +359,58 @@ curl http://localhost:3000/channels
 curl http://localhost:3000/sections
 ```
 
+## Backup Management
+
+All backup endpoints require the `x-admin-token` header (or `?token=` query param for download links).
+
+### List backups & config
+```bash
+curl http://localhost:3000/admin/backups \
+  -H "x-admin-token: <your-token>"
+```
+
+### Trigger a manual backup
+```bash
+curl -X POST http://localhost:3000/admin/backups/create \
+  -H "x-admin-token: <your-token>"
+```
+
+### Set backup schedule
+```bash
+# Schedules: manual | daily | weekly | monthly
+curl -X POST http://localhost:3000/admin/backups/config \
+  -H "Content-Type: application/json" \
+  -H "x-admin-token: <your-token>" \
+  -d '{"schedule": "daily", "maxBackups": 14}'
+```
+
+### Restore from a backup
+```bash
+curl -X POST \
+  "http://localhost:3000/admin/backups/restore/MyServer_Backup_2026-02-25_14-30-00.zip" \
+  -H "x-admin-token: <your-token>"
+# Restart the server after restoring to apply changes.
+```
+
+### Download a backup zip (browser-friendly)
+```
+http://localhost:3000/admin/backups/download/MyServer_Backup_2026-02-25_14-30-00.zip?token=<your-token>
+```
+
+### Delete a backup
+```bash
+curl -X DELETE \
+  "http://localhost:3000/admin/backups/MyServer_Backup_2026-02-25_14-30-00.zip" \
+  -H "x-admin-token: <your-token>"
+```
+
+### Zip filename format
+```
+[ServerName]_Backup_[YYYY-MM-DD]_[HH-MM-SS].zip
+```
+
+---
+
 ## Role Management
 
 ### REST Endpoints
@@ -398,6 +451,7 @@ curl -X POST http://localhost:3000/channels/<channelId>/permissions \
   onBack={fn}
   loading={false}
   passwordRequired={null}           // null | boolean
+  adminToken="..."                  // optional; pre-fills Backups tab token field
 />
 ```
 

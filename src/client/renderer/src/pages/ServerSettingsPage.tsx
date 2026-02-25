@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SettingsLayout, { SettingsNavSection } from '../components/SettingsLayout';
 import Toggle from '../components/Toggle';
 import Button from '../components/Button';
@@ -53,9 +53,10 @@ interface ServerSettingsPageProps {
   onUpdateRole?: (id: string, input: { name: string; color?: string; permissions: RolePermissions }) => Promise<void> | void;
   loading?: boolean;
   passwordRequired?: boolean | null;
+  adminToken?: string;
 }
 
-type ServerTab = 'overview' | 'roles' | 'permissions' | 'security';
+type ServerTab = 'overview' | 'roles' | 'permissions' | 'security' | 'backups';
 
 const defaultRolePermissions: RolePermissions = {
   manageServer: false,
@@ -325,6 +326,335 @@ const PermissionsSubPage: React.FC<PermissionsSubPageProps> = ({
   );
 };
 
+// == Backups sub-page ==========================================================
+
+type BackupSchedule = 'manual' | 'daily' | 'weekly' | 'monthly';
+
+interface BackupEntry {
+  filename: string;
+  createdAt: string;
+  sizeBytes: number;
+  checksum: string;
+}
+
+interface BackupConfig {
+  schedule: BackupSchedule;
+  lastBackupAt?: string;
+  maxBackups?: number;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+interface BackupsSubPageProps {
+  serverUrl: string;
+  adminToken?: string;
+}
+
+const BackupsSubPage: React.FC<BackupsSubPageProps> = ({ serverUrl, adminToken: tokenProp }) => {
+  const [token, setToken]             = useState(tokenProp || '');
+  const [tokenSaved, setTokenSaved]   = useState(!!tokenProp);
+  const [backups, setBackups]         = useState<BackupEntry[]>([]);
+  const [config, setConfig]           = useState<BackupConfig | null>(null);
+  const [loading, setLoading]         = useState(false);
+  const [creating, setCreating]       = useState(false);
+  const [restoring, setRestoring]     = useState<string | null>(null);
+  const [deleting, setDeleting]       = useState<string | null>(null);
+  const [savingCfg, setSavingCfg]     = useState(false);
+  const [statusMsg, setStatusMsg]     = useState<{ text: string; ok: boolean } | null>(null);
+  const [pendingSchedule, setPendingSchedule] = useState<BackupSchedule>('manual');
+  const [pendingMax, setPendingMax]   = useState<number>(10);
+  const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const authHeaders = useCallback(() => ({
+    'Content-Type': 'application/json',
+    'x-admin-token': token
+  }), [token]);
+
+  const showStatus = (text: string, ok: boolean) => {
+    setStatusMsg({ text, ok });
+    if (statusTimer.current) clearTimeout(statusTimer.current);
+    statusTimer.current = setTimeout(() => setStatusMsg(null), 4000);
+  };
+
+  const fetchBackups = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${serverUrl}/admin/backups`, { headers: authHeaders() });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json() as { backups: BackupEntry[]; config: BackupConfig };
+      setBackups(data.backups.reverse()); // newest first
+      setConfig(data.config);
+      setPendingSchedule(data.config.schedule);
+      setPendingMax(data.config.maxBackups ?? 10);
+    } catch (err) {
+      showStatus(`Failed to load backups: ${err}`, false);
+    } finally {
+      setLoading(false);
+    }
+  }, [serverUrl, token, authHeaders]);
+
+  useEffect(() => {
+    if (tokenSaved && token) fetchBackups();
+  }, [tokenSaved, fetchBackups, token]);
+
+  const handleCreateBackup = async () => {
+    setCreating(true);
+    try {
+      const res = await fetch(`${serverUrl}/admin/backups/create`, { method: 'POST', headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `${res.status}`);
+      showStatus(`Backup created: ${data.backup.filename}`, true);
+      fetchBackups();
+    } catch (err) {
+      showStatus(`Backup failed: ${err}`, false);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleRestore = async (filename: string) => {
+    if (!confirm(`Restore from "${filename}"? Current data will be overwritten. The server should be restarted after.`)) return;
+    setRestoring(filename);
+    try {
+      const res = await fetch(`${serverUrl}/admin/backups/restore/${encodeURIComponent(filename)}`, { method: 'POST', headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `${res.status}`);
+      showStatus(data.message || 'Restored successfully.', true);
+    } catch (err) {
+      showStatus(`Restore failed: ${err}`, false);
+    } finally {
+      setRestoring(null);
+    }
+  };
+
+  const handleDelete = async (filename: string) => {
+    if (!confirm(`Delete backup "${filename}"? This cannot be undone.`)) return;
+    setDeleting(filename);
+    try {
+      const res = await fetch(`${serverUrl}/admin/backups/${encodeURIComponent(filename)}`, { method: 'DELETE', headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `${res.status}`);
+      showStatus('Backup deleted.', true);
+      setBackups(prev => prev.filter(b => b.filename !== filename));
+    } catch (err) {
+      showStatus(`Delete failed: ${err}`, false);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    setSavingCfg(true);
+    try {
+      const res = await fetch(`${serverUrl}/admin/backups/config`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ schedule: pendingSchedule, maxBackups: pendingMax })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `${res.status}`);
+      setConfig(data.config);
+      showStatus('Backup schedule saved.', true);
+    } catch (err) {
+      showStatus(`Failed to save config: ${err}`, false);
+    } finally {
+      setSavingCfg(false);
+    }
+  };
+
+  const scheduleOptions: Array<{ value: BackupSchedule; label: string }> = [
+    { value: 'manual',  label: 'Manual only' },
+    { value: 'daily',   label: 'Every day' },
+    { value: 'weekly',  label: 'Every week' },
+    { value: 'monthly', label: 'Every month' }
+  ];
+
+  return (
+    <div className="settings-sub-page">
+      <div className="settings-sub-page__header">
+        <h2>Backups</h2>
+        <p>Create and manage server data backups. Requires your admin token.</p>
+      </div>
+
+      {/* Token entry */}
+      {!tokenSaved && (
+        <div className="settings-sub-page__section">
+          <p className="settings-sub-page__section-title">Admin Token</p>
+          <div className="settings-sub-page__card">
+            <div className="settings-sub-page__field">
+              <TextField
+                type="password"
+                label="Enter your server admin token to manage backups"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="Admin token"
+              />
+            </div>
+            <Button
+              variant="primary"
+              onClick={() => { if (token.trim()) setTokenSaved(true); }}
+              disabled={!token.trim()}
+              iconLeft={<i className="fas fa-key" />}
+            >
+              Authenticate
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {tokenSaved && (
+        <>
+          {/* Schedule config */}
+          <div className="settings-sub-page__section">
+            <p className="settings-sub-page__section-title">Automatic Backup Schedule</p>
+            <div className="settings-sub-page__card">
+              <div className="backup-config-row">
+                <div className="settings-sub-page__field" style={{ flex: 1 }}>
+                  <label className="field">
+                    <span>Backup frequency</span>
+                    <Select
+                      value={pendingSchedule}
+                      onChange={(e) => setPendingSchedule(e.target.value as BackupSchedule)}
+                    >
+                      {scheduleOptions.map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </Select>
+                  </label>
+                </div>
+                <div className="settings-sub-page__field" style={{ flex: 1 }}>
+                  <label className="field">
+                    <span>Max backups to keep <span className="settings-sub-page__hint">(0 = unlimited)</span></span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={pendingMax}
+                      onChange={(e) => setPendingMax(Number(e.target.value))}
+                      style={{ background: 'var(--primary-bg)', border: '1px solid var(--border)', borderRadius: 7, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 14, width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </label>
+                </div>
+              </div>
+              {config?.lastBackupAt && (
+                <p className="settings-sub-page__hint" style={{ marginTop: 4 }}>
+                  Last backup: {formatDate(config.lastBackupAt)}
+                </p>
+              )}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 4 }}>
+                <Button
+                  variant="primary"
+                  onClick={handleSaveConfig}
+                  disabled={savingCfg}
+                  iconLeft={<i className="fas fa-save" />}
+                >
+                  {savingCfg ? 'Saving...' : 'Save schedule'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={handleCreateBackup}
+                  disabled={creating}
+                  iconLeft={<i className={creating ? 'fas fa-spinner fa-spin' : 'fas fa-archive'} />}
+                >
+                  {creating ? 'Creating...' : 'Back up now'}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Status message */}
+          {statusMsg && (
+            <div className={`backup-status-msg${statusMsg.ok ? '' : ' backup-status-msg--error'}`}>
+              <i className={`fas ${statusMsg.ok ? 'fa-check-circle' : 'fa-exclamation-circle'}`} />
+              {statusMsg.text}
+            </div>
+          )}
+
+          {/* Backups list */}
+          <div className="settings-sub-page__section">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <p className="settings-sub-page__section-title" style={{ margin: 0 }}>Backups</p>
+              <button className="backup-refresh-btn" onClick={fetchBackups} title="Refresh" disabled={loading}>
+                <i className={`fas fa-sync-alt${loading ? ' fa-spin' : ''}`} />
+              </button>
+            </div>
+            {loading && <p className="settings-sub-page__hint">Loading...</p>}
+            {!loading && backups.length === 0 && (
+              <p className="settings-sub-page__hint">No backups yet. Click "Back up now" to create one.</p>
+            )}
+            {!loading && backups.length > 0 && (
+              <div className="backup-list">
+                {backups.map(b => (
+                  <div key={b.filename} className="backup-entry">
+                    <div className="backup-entry__info">
+                      <span className="backup-entry__name">{b.filename}</span>
+                      <span className="backup-entry__meta">
+                        {formatDate(b.createdAt)} &middot; {formatBytes(b.sizeBytes)}
+                      </span>
+                    </div>
+                    <div className="backup-entry__actions">
+                      <a
+                        className="backup-action-btn"
+                        href={`${serverUrl}/admin/backups/download/${encodeURIComponent(b.filename)}?token=${encodeURIComponent(token)}`}
+                        download={b.filename}
+                        title="Download"
+                      >
+                        <i className="fas fa-download" />
+                      </a>
+                      <button
+                        className="backup-action-btn"
+                        onClick={() => handleRestore(b.filename)}
+                        disabled={!!restoring}
+                        title="Restore from this backup"
+                      >
+                        {restoring === b.filename
+                          ? <i className="fas fa-spinner fa-spin" />
+                          : <i className="fas fa-undo-alt" />
+                        }
+                      </button>
+                      <button
+                        className="backup-action-btn backup-action-btn--danger"
+                        onClick={() => handleDelete(b.filename)}
+                        disabled={!!deleting}
+                        title="Delete backup"
+                      >
+                        {deleting === b.filename
+                          ? <i className="fas fa-spinner fa-spin" />
+                          : <i className="fas fa-trash-alt" />
+                        }
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop: 8 }}>
+            <button
+              className="backup-refresh-btn"
+              style={{ color: 'var(--text-secondary)', fontSize: 12 }}
+              onClick={() => { setTokenSaved(false); setToken(''); }}
+            >
+              <i className="fas fa-sign-out-alt" /> Clear token
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 // == Security sub-page =========================================================
 
 const SecuritySubPage: React.FC<{ passwordRequired: boolean | null }> = ({ passwordRequired }) => (
@@ -374,7 +704,8 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
   onCreateRole,
   onUpdateRole,
   loading = false,
-  passwordRequired = null
+  passwordRequired = null,
+  adminToken
 }) => {
   const [activeTab, setActiveTab] = useState<ServerTab>('overview');
 
@@ -386,6 +717,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
         { id: 'roles',       label: 'Roles',       icon: 'fas fa-shield-alt'  },
         { id: 'permissions', label: 'Permissions', icon: 'fas fa-lock'        },
         { id: 'security',    label: 'Security',    icon: 'fas fa-key'         },
+        { id: 'backups',     label: 'Backups',     icon: 'fas fa-archive'     },
       ],
     },
   ];
@@ -426,6 +758,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
         />
       )}
       {activeTab === 'security'    && <SecuritySubPage passwordRequired={passwordRequired} />}
+      {activeTab === 'backups'     && <BackupsSubPage serverUrl={server.url} adminToken={adminToken} />}
     </SettingsLayout>
   );
 };

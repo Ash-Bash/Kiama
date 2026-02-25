@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import io from 'socket.io-client';
+import CryptoJS from 'crypto-js';
 import PluginManager from './utils/PluginManager';
 import { TypedMessage, Channel, ChannelSection } from './types/plugin';
 import { ModalProvider, useModal } from './components/Modal';
@@ -177,6 +178,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null);
   const [serverSettingsLoading, setServerSettingsLoading] = useState(false);
   const [serverPasswordRequired, setServerPasswordRequired] = useState<boolean | null>(null);
+  const [e2eeEnabled, setE2eeEnabled] = useState(false);
 
   // Sync settings with current values
   React.useEffect(() => {
@@ -305,7 +307,11 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     });
 
     socketRef.current.on('message', (msg: Message) => {
-      const processedMessage = pluginManager.processMessage(msg);
+      let processedMessage = { ...msg };
+      if (e2eeEnabled) {
+        processedMessage.content = CryptoJS.AES.decrypt(msg.content, 'secret-key').toString(CryptoJS.enc.Utf8);
+      }
+      processedMessage = pluginManager.processMessage(processedMessage);
 
       // Add message to the appropriate channel
       setMessages(prev => {
@@ -318,7 +324,13 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     });
 
     socketRef.current.on('channel_history', (data: { channelId: string, messages: Message[] }) => {
-      const processedMessages = data.messages.map(msg => pluginManager.processMessage(msg));
+      const processedMessages = data.messages.map(msg => {
+        let processed = { ...msg };
+        if (e2eeEnabled) {
+          processed.content = CryptoJS.AES.decrypt(msg.content, 'secret-key').toString(CryptoJS.enc.Utf8);
+        }
+        return pluginManager.processMessage(processed);
+      });
 
       setMessages(prev => {
         const newMessages = new Map(prev);
@@ -685,11 +697,15 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const sendMessage = (type: string = 'text', data?: any) => {
     if (!message.trim() && type === 'text' && !data) return;
     const senderRole = users.find(u => u.name === 'You')?.role;
+    let content = message;
+    if (e2eeEnabled) {
+      content = CryptoJS.AES.encrypt(message, 'secret-key').toString();
+    }
     const messageData: Partial<Message> = {
       id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       user: 'You',
       userRole: senderRole,
-      content: message,
+      content,
       type,
       data,
       serverId: currentServer,
@@ -726,26 +742,30 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   // Open a file picker and stream attachments to the current channel.
-  const handleFileUpload = () => {
+  const handleFileUpload = async () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
     input.accept = '*/*';
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const files = (e.target as HTMLInputElement).files;
       if (files) {
-        Array.from(files).forEach(file => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            sendMessage('file', {
-              name: file.name,
-              size: file.size,
-              type: file.type,
-              data: reader.result
+        for (const file of Array.from(files)) {
+          const formData = new FormData();
+          formData.append('media', file);
+          try {
+            const res = await fetch(`${SERVER_URL}/upload-media`, {
+              method: 'POST',
+              body: formData
             });
-          };
-          reader.readAsDataURL(file);
-        });
+            if (res.ok) {
+              const { filename, url } = await res.json();
+              sendMessage('file', { name: file.name, size: file.size, type: file.type, mediaPath: filename });
+            }
+          } catch (error) {
+            console.error('Upload failed', error);
+          }
+        }
       }
     };
     input.click();
@@ -753,23 +773,27 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   // Upload a single image and send it as a message payload.
-  const handleImageUpload = () => {
+  const handleImageUpload = async () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          sendMessage('image', {
-            name: file.name,
-            size: file.size,
-            type: file.type,
-            data: reader.result
+        const formData = new FormData();
+        formData.append('media', file);
+        try {
+          const res = await fetch(`${SERVER_URL}/upload-media`, {
+            method: 'POST',
+            body: formData
           });
-        };
-        reader.readAsDataURL(file);
+          if (res.ok) {
+            const { filename, url } = await res.json();
+            sendMessage('image', { name: file.name, size: file.size, type: file.type, mediaPath: filename });
+          }
+        } catch (error) {
+          console.error('Upload failed', error);
+        }
       }
     };
     input.click();

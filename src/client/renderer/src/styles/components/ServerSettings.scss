@@ -373,6 +373,144 @@
     box-shadow: 0 8px 20px rgba(34, 197, 94, 0.25);
   }
 
+  // ── Backup styles ─────────────────────────────────────────────────────────
+
+  .backup-config-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+  }
+
+  .backup-status-msg {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    background: rgba(34, 197, 94, 0.12);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    color: #22c55e;
+    margin-bottom: 4px;
+
+    &--error {
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.3);
+      color: #ef4444;
+    }
+  }
+
+  .backup-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .backup-entry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    background: var(--secondary-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    transition: border-color 0.15s ease, background 0.15s ease;
+
+    &:hover {
+      border-color: var(--accent);
+      background: var(--hover-bg);
+    }
+
+    &__info {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    &__name {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text-primary);
+      font-family: monospace;
+    }
+
+    &__meta {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    &__actions {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+  }
+
+  .backup-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--tertiary-bg);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    text-decoration: none;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+
+    &:hover {
+      background: var(--hover-bg);
+      color: var(--text-primary);
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    &--danger {
+      &:hover {
+        border-color: #ef4444;
+        color: #ef4444;
+        background: rgba(239, 68, 68, 0.1);
+      }
+    }
+  }
+
+  .backup-refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px 0;
+    transition: color 0.15s ease;
+
+    &:hover {
+      color: var(--text-primary);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+
   // Align text fields with the shared settings style (compact height)
   .field {
     display: flex;

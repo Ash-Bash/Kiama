@@ -21,6 +21,7 @@ A decentralized Discord-like chat application built with modern web technologies
 - **Cross-Platform Client**: Electron-based desktop application
 - **Responsive UI**: Mobile drawers for server/channel/member lists with coordinated toggles
 - **CLI Server Management**: Command-line interface for server administration
+- **Backup System**: Scheduled or manual zip backups of all server data; manage, restore, and download backups from the Server Settings panel
 - **Friends System**: User relationship management
 - **Custom Emotes**: Server-specific emoji support
 
@@ -249,7 +250,10 @@ Data layout created on startup:
 - `<data-root>/plugins/` – server-side plugins
 - `<data-root>/uploads/` – user uploads (emotes, etc.)
 - `<data-root>/logs/` – server logs
+- `<data-root>/media/` – uploaded media files
+- `<data-root>/Backups/` – backup zip archives (`[ServerName]_Backup_[Datetime].zip`)
 - `<data-root>/secrets/admin.token` – generated admin token (mode 600) when no token is supplied
+- `<data-root>/backup-config.json` – persisted backup schedule and max-count settings
 
 ### Client Configuration
 

@@ -54,9 +54,15 @@ The client uses Electron's dual-process architecture:
 
 **Data & Admin Token Handling**
 - Data root defaults to `dist/server/data` (or `src/server/data` when running from source); override with `KIAMA_DATA_DIR`.
-- Layout created on startup: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/` under the data root.
+- Layout created on startup: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/`, `media/` under the data root.
 - Persisted config lives at `<data-root>/configs/<serverId>.json` (override with `KIAMA_CONFIG_PATH`) and stores sections/channels/roles plus a hashed admin token.
 - Admin token: set `KIAMA_ADMIN_TOKEN` to supply your own; otherwise the server generates one, writes it to `<data-root>/secrets/admin.token` with mode 600, and uses it for admin endpoints and CLI commands.
+
+**Backup System** (`src/server/src/utils/BackupManager.ts`)
+- Manages automated and manual backups of all server data.
+- Backups are stored in `<data-root>/Backups/` and are excluded from subsequent backup archives (no recursive backup-of-backups).
+- Backup schedule config is persisted to `<data-root>/backup-config.json`.
+- See [Backup System](#backup-system) section for full API details.
 
 ## Development Tasks
 
@@ -340,6 +346,96 @@ Roles are stored server-side and exposed over three REST endpoints:
 | `POST` | `/roles` | Create a new role (`name` required; `color`, `permissions` optional) |
 | `PATCH` | `/roles/:roleId` | Update an existing role's `name`, `color`, and/or `permissions` |
 
+---
+
+## Backup System
+
+`BackupManager` (`src/server/src/utils/BackupManager.ts`) handles all server-side backup logic. It is instantiated inside `Server` and started automatically with `backupManager.startScheduler()` after the server initialises.
+
+### Data layout
+
+```
+<data-root>/
+  Backups/                        ← all zip archives live here
+    MyServer_Backup_2026-02-25_14-30-00.zip
+    ...
+  backup-config.json              ← persisted schedule / maxBackups config
+  configs/
+  media/
+  plugins/
+  secrets/
+  kiama.db
+```
+
+The `Backups/` folder and `backup-config.json` are **always excluded** from the archive content, preventing recursive backup-of-backups.
+
+### Zip filename format
+
+```
+[ServerName]_Backup_[YYYY-MM-DD]_[HH-MM-SS].zip
+```
+
+Special characters in the server name are replaced with underscores before use.
+
+### Schedules
+
+| Value | Interval |
+|-------|----------|
+| `manual` | No automatic backups |
+| `daily` | Every 24 hours |
+| `weekly` | Every 7 days |
+| `monthly` | Every 30 days |
+
+The scheduler checks on startup whether a scheduled backup is overdue; if so it runs one immediately.
+
+### Admin API endpoints (all require `x-admin-token` header)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/admin/backups` | List all backups + current config |
+| `GET` | `/admin/backups/config` | Return schedule config only |
+| `POST` | `/admin/backups/config` | Set `schedule` and/or `maxBackups` |
+| `POST` | `/admin/backups/create` | Trigger an immediate backup |
+| `POST` | `/admin/backups/restore/:filename` | Restore data from a named zip |
+| `DELETE` | `/admin/backups/:filename` | Delete a named zip |
+| `GET` | `/admin/backups/download/:filename` | Download a zip (also accepts `?token=` query param for browser links) |
+
+### BackupConfig shape
+
+```typescript
+interface BackupConfig {
+  schedule: 'manual' | 'daily' | 'weekly' | 'monthly';
+  lastBackupAt?: string;  // ISO timestamp of most recent backup
+  maxBackups?: number;    // 0 = keep all; default 10
+}
+```
+
+### BackupEntry shape
+
+```typescript
+interface BackupEntry {
+  filename: string;    // e.g. "MyServer_Backup_2026-02-25_14-30-00.zip"
+  createdAt: string;   // ISO timestamp
+  sizeBytes: number;
+  checksum: string;    // SHA-256 of the zip file
+}
+```
+
+### Client UI
+
+The **Backups** tab is available in `ServerSettingsPage` under the side-nav.  It prompts for the admin token (stored in component state only — never persisted), then offers:
+
+- Schedule picker + max-backups input with a **Save schedule** button
+- **Back up now** button for an immediate manual backup
+- Backup list with per-entry download, restore, and delete actions
+- Toast-style status messages for success/error feedback
+
+The `adminToken` prop on `ServerSettingsPage` can pre-fill the token field if the host context already knows it.
+
+### webpack externals
+
+`archiver` and `unzipper` are listed as webpack externals in `src/server/webpack.config.js` so the bundler leaves them as runtime `require()` calls.  This prevents their optional native/cloud dependencies (`@aws-sdk/client-s3`, `bufferutil`, `utf-8-validate`) from causing build errors.
+
 ### Role shape
 
 ```typescript
@@ -372,6 +468,7 @@ Both are wired into `<ServerSettingsPage>` via props:
   roles={serverRoles[server.id] ?? []}
   onCreateRole={createServerRole}
   onUpdateRole={updateServerRole}
+  adminToken={adminToken}   // optional; pre-fills the Backups tab token field
   ...
 />
 ```
@@ -550,6 +647,11 @@ npm install <package>
 - [ ] CLI commands work
 - [ ] Socket.IO connections accepted
 - [ ] Plugins load correctly
+- [ ] Manual backup creates a zip in `<data-root>/Backups/`
+- [ ] Automatic schedule triggers at the configured interval
+- [ ] Backup archive excludes the `Backups/` folder itself
+- [ ] Restore endpoint extracts correctly (restart server to apply)
+- [ ] Delete endpoint removes the zip file
 
 **Client:**
 - [ ] Electron window opens

@@ -7,8 +7,10 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import Database from 'better-sqlite3';
 import SecurePluginManager from './utils/PluginManager';
 import { ClientPluginMetadata } from './types/plugin';
+import { BackupManager, BackupSchedule } from './utils/BackupManager';
 
 export interface TypedMessage {
   id: string;
@@ -148,6 +150,9 @@ export class Server {
   private systemStats: SystemStats | null = null;
   private statsInterval: NodeJS.Timeout | null = null;
   private shuttingDown = false;
+  private db: Database.Database;
+  private e2eeEnabled = false;
+  private backupManager: BackupManager;
 
   constructor(port: number, mode: 'public' | 'private', serverId?: string, adminToken?: string, initialConfig?: InitialServerConfig) {
     this.port = port;
@@ -186,35 +191,31 @@ export class Server {
         // Send message via socket.io
         console.log('Plugin sending message:', message);
         this.io.to(message.channelId).emit('message', message);
-        // Also store in messages array
-        if (!this.messages.has(message.channelId)) {
-          this.messages.set(message.channelId, []);
-        }
-        this.messages.get(message.channelId)!.push(message);
+        // Store in DB
+        this.storeMessage(message);
       },
       modifyMessage: (messageId, modifiedMessage) => {
         // Find and modify message
         console.log('Plugin modifying message:', messageId);
-        for (const [channelId, messages] of this.messages) {
-          const messageIndex = messages.findIndex(msg => msg.id === messageId);
-          if (messageIndex !== -1) {
-            messages[messageIndex] = { ...messages[messageIndex], ...modifiedMessage };
-            // Emit update to clients
-            this.io.to(channelId).emit('message-update', { messageId, modifiedMessage });
-            break;
-          }
-        }
+        // Update in DB
+        this.updateMessage(messageId, modifiedMessage);
+        // Emit update to clients
+        this.io.emit('message-update', { messageId, modifiedMessage });
       }
     }, undefined, [path.join(__dirname, '../../server/plugins'), path.join(this.dataRoot, 'plugins')]);
 
     this.ensureDataLayout();
+    this.db = new Database(path.join(this.dataRoot, 'kiama.db'));
+    this.initializeDatabase();
     this.ensureEmotesDir();
+    this.backupManager = new BackupManager(this.dataRoot, this.serverName || 'KIAMA_Server');
     this.ensureAdminToken();
     this.initializeServerState(initialConfig);
     this.setupRoutes();
     this.setupSocket();
     this.pluginManager.loadPlugins();
     this.startSystemMonitoring();
+    this.backupManager.startScheduler();
 
     // Persist effective configuration and layout after initialization
     this.persistConfigFile(initialConfig);
@@ -234,7 +235,8 @@ export class Server {
       path.join(this.dataRoot, 'plugins'),
       path.join(this.dataRoot, 'uploads'),
       path.join(this.dataRoot, 'logs'),
-      path.join(this.dataRoot, 'secrets')
+      path.join(this.dataRoot, 'secrets'),
+      path.join(this.dataRoot, 'media')
     ];
 
     dirs.forEach(dir => {
@@ -242,6 +244,86 @@ export class Server {
         fs.mkdirSync(dir, { recursive: true });
       }
     });
+  }
+
+  private initializeDatabase() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        channelId TEXT,
+        user TEXT,
+        userRole TEXT,
+        content TEXT,
+        type TEXT,
+        timestamp TEXT,
+        data TEXT,
+        serverId TEXT,
+        mediaPath TEXT
+      );
+    `);
+  }
+
+  private storeMessage(message: TypedMessage) {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO messages (id, channelId, user, userRole, content, type, timestamp, data, serverId, mediaPath)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      message.id,
+      message.channelId,
+      message.user,
+      message.userRole || null,
+      message.content,
+      message.type,
+      message.timestamp.toISOString(),
+      message.data ? JSON.stringify(message.data) : null,
+      message.serverId,
+      (message.data && message.data.mediaPath) ? message.data.mediaPath : null
+    );
+  }
+
+  private updateMessage(messageId: string, modifiedMessage: Partial<TypedMessage>) {
+    const stmt = this.db.prepare(`
+      UPDATE messages SET
+        user = COALESCE(?, user),
+        userRole = COALESCE(?, userRole),
+        content = COALESCE(?, content),
+        type = COALESCE(?, type),
+        data = COALESCE(?, data),
+        mediaPath = COALESCE(?, mediaPath)
+      WHERE id = ?
+    `);
+    stmt.run(
+      modifiedMessage.user,
+      modifiedMessage.userRole,
+      modifiedMessage.content,
+      modifiedMessage.type,
+      modifiedMessage.data ? JSON.stringify(modifiedMessage.data) : null,
+      (modifiedMessage.data && modifiedMessage.data.mediaPath) ? modifiedMessage.data.mediaPath : null,
+      messageId
+    );
+  }
+
+  private loadMessagesFromDB() {
+    const stmt = this.db.prepare('SELECT * FROM messages ORDER BY timestamp ASC');
+    const rows = stmt.all() as any[];
+    for (const row of rows) {
+      const message: TypedMessage = {
+        id: row.id,
+        channelId: row.channelId,
+        user: row.user,
+        userRole: row.userRole,
+        content: row.content,
+        type: row.type,
+        timestamp: new Date(row.timestamp),
+        data: row.data ? JSON.parse(row.data) : undefined,
+        serverId: row.serverId
+      };
+      if (!this.messages.has(row.channelId)) {
+        this.messages.set(row.channelId, []);
+      }
+      this.messages.get(row.channelId)!.push(message);
+    }
   }
 
   private startSystemMonitoring() {
@@ -320,6 +402,7 @@ export class Server {
       this.initializeDefaultChannels();
       this.initializeDefaultRoles();
     }
+    this.loadMessagesFromDB();
   }
 
   private persistConfigFile(initialConfig?: InitialServerConfig) {
@@ -417,6 +500,48 @@ export class Server {
     this.roles.set(memberRole.id, memberRole);
   }
 
+  private initializeDefaultChannels() {
+    // Create default sections
+    const generalSection: ChannelSection = {
+      id: 'general',
+      name: 'General',
+      position: 0,
+      permissions: { view: true, manage: false },
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.sections.set(generalSection.id, generalSection);
+
+    // Create default channels
+    const generalChannel: Channel = {
+      id: 'general',
+      name: 'general',
+      type: 'text',
+      sectionId: 'general',
+      position: 0,
+      permissions: { read: true, write: true, manage: false },
+      settings: { nsfw: false, slowMode: 0, allowPinning: true },
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.channels.set(generalChannel.id, generalChannel);
+    this.messages.set(generalChannel.id, []);
+
+    const announcementsChannel: Channel = {
+      id: 'announcements',
+      name: 'announcements',
+      type: 'announcement',
+      sectionId: 'general',
+      position: 1,
+      permissions: { read: true, write: false, manage: false }, // Read-only for regular users
+      settings: { nsfw: false, slowMode: 0, allowPinning: true },
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.channels.set(announcementsChannel.id, announcementsChannel);
+    this.messages.set(announcementsChannel.id, []);
+  }
+
   private applyInitialConfig(config: InitialServerConfig) {
     // Roles
     if (config.roles && config.roles.length > 0) {
@@ -482,69 +607,11 @@ export class Server {
         this.channels.set(id, channelRecord);
         this.messages.set(id, []);
       });
-    } else {
-      // If no channels provided, create a general channel under the first section
-      const firstSectionId = this.sections.keys().next().value;
-      const generalChannel: Channel = {
-        id: 'general',
-        name: 'general',
-        type: 'text',
-        sectionId: firstSectionId,
-        position: 0,
-        permissions: { read: true, write: true, manage: false },
-        settings: { nsfw: false, slowMode: 0, allowPinning: true },
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      this.channels.set(generalChannel.id, generalChannel);
-      this.messages.set(generalChannel.id, []);
-    }
+    } // else removed
   }
 
   public getSystemStats(): SystemStats | null {
     return this.systemStats;
-  }
-
-  private initializeDefaultChannels() {
-    // Create default sections
-    const generalSection: ChannelSection = {
-      id: 'general',
-      name: 'General',
-      position: 0,
-      permissions: { view: true, manage: false },
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    this.sections.set(generalSection.id, generalSection);
-
-    // Create default channels
-    const generalChannel: Channel = {
-      id: 'general',
-      name: 'general',
-      type: 'text',
-      sectionId: 'general',
-      position: 0,
-      permissions: { read: true, write: true, manage: false },
-      settings: { nsfw: false, slowMode: 0, allowPinning: true },
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    this.channels.set(generalChannel.id, generalChannel);
-    this.messages.set(generalChannel.id, []);
-
-    const announcementsChannel: Channel = {
-      id: 'announcements',
-      name: 'announcements',
-      type: 'announcement',
-      sectionId: 'general',
-      position: 1,
-      permissions: { read: true, write: false, manage: false }, // Read-only for regular users
-      settings: { nsfw: false, slowMode: 0, allowPinning: true },
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    this.channels.set(announcementsChannel.id, announcementsChannel);
-    this.messages.set(announcementsChannel.id, []);
   }
 
   private setupRoutes() {
@@ -573,6 +640,19 @@ export class Server {
       }));
       res.send(list);
     });
+
+    const mediaUpload = multer({ dest: path.join(this.dataRoot, 'media') });
+    this.app.post('/upload-media', mediaUpload.single('media'), (req, res) => {
+      if (!req.file) {
+        return res.status(400).send('No file uploaded');
+      }
+      const filename = `${uuidv4()}-${req.file.originalname}`;
+      const filepath = path.join(this.dataRoot, 'media', filename);
+      fs.renameSync(req.file.path, filepath);
+      res.send({ filename, url: `/media/${filename}` });
+    });
+
+    this.app.use('/media', express.static(path.join(this.dataRoot, 'media')));
 
     // Client plugins endpoint
     this.app.get('/client-plugins', (req, res) => {
@@ -812,11 +892,23 @@ export class Server {
 
     this.app.post('/message', (req, res) => {
       // Handle message posting
-      const { user, content, media } = req.body;
-      // Parse emotes in content
-      const parsedContent = this.parseEmotes(content);
-      // Encrypt and store
-      res.send({ status: 'ok', parsedContent });
+      const { user, content, channelId, type = 'text', data } = req.body;
+      if (!user || !content || !channelId) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      const message: TypedMessage = {
+        id: uuidv4(),
+        user,
+        content: this.parseEmotes(content),
+        type,
+        timestamp: new Date(),
+        data,
+        serverId: this.serverId,
+        channelId
+      };
+      this.storeMessage(message);
+      this.io.to(channelId).emit('message', message);
+      res.json({ status: 'ok', message });
     });
 
     // Moderation endpoints
@@ -867,6 +959,11 @@ export class Server {
       }, delay);
     }));
 
+    this.app.post('/admin/enable-e2ee', this.requireAdmin((req, res) => {
+      this.e2eeEnabled = true;
+      res.json({ success: true, message: 'E2EE enabled' });
+    }));
+
     // Download and reload plugins from a remote URL into the server plugins folder
     this.app.post('/admin/plugins/install', this.requireAdmin(async (req, res) => {
       const { url } = req.body || {};
@@ -906,6 +1003,81 @@ export class Server {
 
     this.app.get('/admin/config', this.requireAdmin((_req, res) => {
       res.json(this.getConfigSnapshot());
+    }));
+
+    // ── Backup endpoints ─────────────────────────────────────────────────────
+
+    // List all backups
+    this.app.get('/admin/backups', this.requireAdmin((_req, res) => {
+      const backups = this.backupManager.listBackups();
+      const config  = this.backupManager.getConfig();
+      res.json({ backups, config });
+    }));
+
+    // Get backup schedule / config
+    this.app.get('/admin/backups/config', this.requireAdmin((_req, res) => {
+      res.json(this.backupManager.getConfig());
+    }));
+
+    // Set backup schedule / config
+    this.app.post('/admin/backups/config', this.requireAdmin((req, res) => {
+      const { schedule, maxBackups } = req.body || {};
+      const validSchedules: BackupSchedule[] = ['manual', 'daily', 'weekly', 'monthly'];
+      if (schedule !== undefined && !validSchedules.includes(schedule)) {
+        return res.status(400).json({ error: `Invalid schedule. Valid values: ${validSchedules.join(', ')}` });
+      }
+      this.backupManager.setConfig({
+        ...(schedule !== undefined ? { schedule } : {}),
+        ...(maxBackups !== undefined ? { maxBackups: Number(maxBackups) } : {})
+      });
+      res.json({ success: true, config: this.backupManager.getConfig() });
+    }));
+
+    // Trigger a manual backup
+    this.app.post('/admin/backups/create', this.requireAdmin(async (_req, res) => {
+      try {
+        const entry = await this.backupManager.createBackup();
+        res.json({ success: true, backup: entry });
+      } catch (error) {
+        console.error('Backup creation failed:', error);
+        res.status(500).json({ error: 'Backup creation failed', detail: String(error) });
+      }
+    }));
+
+    // Restore from a backup
+    this.app.post('/admin/backups/restore/:filename', this.requireAdmin(async (req, res) => {
+      const { filename } = req.params;
+      try {
+        await this.backupManager.restoreBackup(filename);
+        res.json({ success: true, message: `Restored from ${filename}. Restart the server to apply changes.` });
+      } catch (error) {
+        console.error('Backup restore failed:', error);
+        res.status(500).json({ error: 'Restore failed', detail: String(error) });
+      }
+    }));
+
+    // Delete a backup
+    this.app.delete('/admin/backups/:filename', this.requireAdmin((req, res) => {
+      const { filename } = req.params;
+      const deleted = this.backupManager.deleteBackup(filename);
+      if (!deleted) {
+        return res.status(404).json({ error: 'Backup not found or invalid filename' });
+      }
+      res.json({ success: true });
+    }));
+
+    // Download a backup zip
+    this.app.get('/admin/backups/download/:filename', this.requireAdmin((req, res) => {
+      const { filename } = req.params;
+      if (filename.includes('/') || filename.includes('..') || !filename.endsWith('.zip')) {
+        return res.status(400).json({ error: 'Invalid filename' });
+      }
+      const backupsDir = path.join(this.dataRoot, 'Backups');
+      const filePath = path.join(backupsDir, filename);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Backup not found' });
+      }
+      res.download(filePath, filename);
     }));
   }
 
@@ -1001,6 +1173,8 @@ export class Server {
       clearInterval(this.statsInterval);
       this.statsInterval = null;
     }
+
+    this.backupManager.stopScheduler();
 
     await new Promise<void>((resolve) => this.io.close(() => resolve()));
     await new Promise<void>((resolve, reject) => {

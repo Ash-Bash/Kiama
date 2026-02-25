@@ -52,7 +52,13 @@ module.exports = {
     },
   },
   externals: {
-    // Bundle everything for simplicity
+    // Leave these as runtime requires — they contain dynamic or optional deps
+    // that webpack cannot resolve cleanly when bundling for Node.
+    'unzipper': 'commonjs unzipper',
+    'archiver': 'commonjs archiver',
+    'bufferutil': 'commonjs bufferutil',
+    'utf-8-validate': 'commonjs utf-8-validate',
+    '@aws-sdk/client-s3': 'commonjs @aws-sdk/client-s3',
   },
   plugins: [
     new CopyWebpackPlugin({
