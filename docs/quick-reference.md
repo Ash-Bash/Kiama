@@ -39,8 +39,12 @@ npm run build:client  # Build client only
 ### Key Files
 - `src/client/main/main.ts` - Electron main process
 - `src/client/renderer/src/App.tsx` - React root
+- `src/client/renderer/src/components/Login.tsx` - Login screen (local accounts only)
+- `src/client/renderer/src/utils/AccountManager.ts` - Local account CRUD, AES-256 encryption, ZIP backup
+- `src/client/renderer/src/types/account.ts` - `LocalAccount`, `BotAccount`, `ServerList` types
 - `src/server/src/server.ts` - Main server class
 - `src/server/src/index.ts` - CLI entry point
+- `src/server/src/utils/BotAccountManager.ts` - Server-side bot account CRUD + encryption
 - `src/client/renderer/src/components/PopoverPanel.tsx` - Shared picker panel chrome
 - `src/client/renderer/src/utils/SurfaceContext.tsx` - Soft-3D state context
 
@@ -64,8 +68,9 @@ npm run build:client  # Build client only
 ### Admin Token & Data Paths
 - Set `KIAMA_ADMIN_TOKEN` to control admin endpoints; otherwise the server writes a generated token to `<data-root>/secrets/admin.token` (mode 600).
 - Override data root with `KIAMA_DATA_DIR`; override persisted config path with `KIAMA_CONFIG_PATH`.
-- Default data layout: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/`, `media/`, `Backups/` under the data root.
+- Default data layout: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/`, `media/`, `Backups/`, **`accounts/`** under the data root.
 - Backup schedule is saved to `<data-root>/backup-config.json`. The `Backups/` folder is always excluded from archive contents.
+- `KIAMA_ACCOUNT_SECRET` — secret used to derive the AES key for server-side bot account files (`BotAccountManager`).
 
 ## Common Components Quick Reference
 
@@ -130,9 +135,57 @@ const { soft3DEnabled } = useSurface();
 h3 { font-family: var(--app-font, inherit); }
 ```
 
+## Account System
+
+### Local accounts (client-side)
+
+Accounts are stored in `~/.kiama/accounts/` as AES-256-CBC encrypted files.
+
+```bash
+# Delete all local accounts (dev reset)
+rm -rf ~/.kiama/accounts/
+
+# Delete one account
+rm ~/.kiama/accounts/<username>.json.enc
+```
+
+```typescript
+import { AccountManager } from './utils/AccountManager';
+const mgr = new AccountManager(path.join(os.homedir(), '.kiama', 'accounts'));
+
+await mgr.createAccount({ username, password });  // create
+await mgr.login(username, password);               // → LoginResult
+mgr.listAccounts();                                // → string[]
+await mgr.exportToZip(username);                   // → Buffer (plain ZIP)
+await mgr.importFromZip(buffer, newPassword);      // re-encrypts on import
+await mgr.rotateKey(username, oldPw, newPw);       // key rotation
+mgr.deleteAccount(username);                       // remove file + keychain entry
+```
+
+**Encrypted file format**: `{saltHex}:{ivHex}:{cipherHex}` — salt is embedded so login never requires the OS keychain.
+
+### Bot accounts (server-side)
+
+Require the `x-admin-token` header. Set `KIAMA_ACCOUNT_SECRET` env var for encryption.
+
+```bash
+# List bots
+curl http://localhost:3000/admin/accounts/bots -H "x-admin-token: <token>"
+
+# Create a bot
+curl -X POST http://localhost:3000/admin/accounts/bots \
+  -H "Content-Type: application/json" \
+  -H "x-admin-token: <token>" \
+  -d '{"username": "poll-bot", "password": "secret", "botType": "custom", "linkedPlugin": "pollServer"}'
+
+# Delete a bot
+curl -X DELETE http://localhost:3000/admin/accounts/bots/poll-bot \
+  -H "x-admin-token: <token>"
+```
+
 ---
 
-
+## Common Tasks
 
 ### Add New Component
 1. Create `src/client/renderer/src/components/NewComponent.tsx`

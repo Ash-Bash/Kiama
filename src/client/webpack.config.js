@@ -28,6 +28,10 @@ module.exports = {
   entry: entries,
   target: 'electron-renderer',
   devtool: 'source-map',
+  // Native Node addons (.node binaries) must not be bundled – Electron loads them at runtime.
+  externals: {
+    keytar: 'commonjs keytar',
+  },
   module: {
     rules: [
       {
@@ -42,6 +46,11 @@ module.exports = {
       {
         test: /\.scss$/,
         use: ['style-loader', 'css-loader', 'sass-loader'],
+      },
+      {
+        // Prevent webpack from trying to parse native Node addon binaries.
+        test: /\.node$/,
+        use: 'node-loader',
       },
     ],
   },

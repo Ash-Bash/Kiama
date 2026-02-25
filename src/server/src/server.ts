@@ -11,6 +11,7 @@ import Database from 'better-sqlite3';
 import SecurePluginManager from './utils/PluginManager';
 import { ClientPluginMetadata } from './types/plugin';
 import { BackupManager, BackupSchedule } from './utils/BackupManager';
+import { BotAccountManager } from './utils/BotAccountManager';
 
 export interface TypedMessage {
   id: string;
@@ -153,6 +154,7 @@ export class Server {
   private db: Database.Database;
   private e2eeEnabled = false;
   private backupManager: BackupManager;
+  private botAccountManager: BotAccountManager;
 
   constructor(port: number, mode: 'public' | 'private', serverId?: string, adminToken?: string, initialConfig?: InitialServerConfig) {
     this.port = port;
@@ -209,6 +211,7 @@ export class Server {
     this.initializeDatabase();
     this.ensureEmotesDir();
     this.backupManager = new BackupManager(this.dataRoot, this.serverName || 'KIAMA_Server');
+    this.botAccountManager = new BotAccountManager(this.dataRoot);
     this.ensureAdminToken();
     this.initializeServerState(initialConfig);
     this.setupRoutes();
@@ -1078,6 +1081,65 @@ export class Server {
         return res.status(404).json({ error: 'Backup not found' });
       }
       res.download(filePath, filename);
+    }));
+
+    // ── Bot account endpoints (admin-only) ───────────────────────────────────
+
+    // List all bot accounts
+    this.app.get('/admin/accounts/bots', this.requireAdmin((_req, res) => {
+      const bots = this.botAccountManager.listAll().map(b => ({
+        id: b.id,
+        username: b.username,
+        botType: b.botType,
+        isBot: b.isBot,
+        isServerCreated: b.isServerCreated,
+        linkedPlugin: b.linkedPlugin,
+        preconfig: b.preconfig,
+        createdAt: b.createdAt,
+        updatedAt: b.updatedAt,
+      }));
+      res.json({ bots });
+    }));
+
+    // Create a bot account
+    this.app.post('/admin/accounts/bots', this.requireAdmin((req, res) => {
+      const { username, password, botType = 'chat', linkedPlugin, preconfig } = req.body || {};
+      if (!username || typeof username !== 'string' || username.trim().length === 0) {
+        return res.status(400).json({ error: 'username is required' });
+      }
+      if (!password || typeof password !== 'string' || password.length < 6) {
+        return res.status(400).json({ error: 'password must be at least 6 characters' });
+      }
+      const validTypes = ['chat', 'moderator', 'custom'];
+      if (!validTypes.includes(botType)) {
+        return res.status(400).json({ error: `botType must be one of: ${validTypes.join(', ')}` });
+      }
+      try {
+        // Hash the password using a simple PBKDF2 (no native bcrypt dependency required).
+        const passwordHash = crypto
+          .pbkdf2Sync(password, this.serverId, 100_000, 32, 'sha256')
+          .toString('hex');
+        const bot = this.botAccountManager.createBotAccount({
+          username: username.trim(),
+          passwordHash,
+          botType,
+          linkedPlugin,
+          preconfig,
+        });
+        res.status(201).json({ success: true, bot: { id: bot.id, username: bot.username, botType: bot.botType, linkedPlugin: bot.linkedPlugin } });
+      } catch (err) {
+        res.status(409).json({ error: String(err) });
+      }
+    }));
+
+    // Delete a bot account
+    this.app.delete('/admin/accounts/bots/:username', this.requireAdmin((req, res) => {
+      const { username } = req.params;
+      const deleted = this.botAccountManager.delete(username);
+      if (!deleted) {
+        return res.status(404).json({ error: `Bot account "${username}" not found` });
+      }
+      res.json({ success: true });
     }));
   }
 

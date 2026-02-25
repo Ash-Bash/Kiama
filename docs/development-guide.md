@@ -64,6 +64,128 @@ The client uses Electron's dual-process architecture:
 - Backup schedule config is persisted to `<data-root>/backup-config.json`.
 - See [Backup System](#backup-system) section for full API details.
 
+## Account System
+
+### Overview
+
+Kiama uses a **local-account-only** model in Phase 1. There are no centralised user accounts. Each account is an AES-256-CBC encrypted JSON file stored in `~/.kiama/accounts/` on the user's machine.
+
+Phase 2 (future) will add cloud accounts and opt-in local→cloud transfer.
+
+### File format
+
+Each account is written as:
+```
+{saltHex}:{ivHex}:{cipherHex}
+```
+
+The scrypt salt is embedded in the file header so the correct decryption key can always be re-derived from the user's password alone — no keychain dependency for login.
+
+### Client: `AccountManager` (`src/client/renderer/src/utils/AccountManager.ts`)
+
+Handles all local account operations in the renderer process.
+
+```typescript
+import { AccountManager } from './utils/AccountManager';
+import * as os from 'os';
+import * as path from 'path';
+
+const accountManager = new AccountManager(
+  path.join(os.homedir(), '.kiama', 'accounts')
+);
+
+// Create a new account
+const account = await accountManager.createAccount({ username: 'alice', password: 'secret' });
+
+// Log in
+const result = await accountManager.login('alice', 'secret');
+if (result.success) { /* result.account is LocalAccount */ }
+
+// List saved accounts (for the account-switcher chip list)
+const names = accountManager.listAccounts(); // string[]
+
+// Export to ZIP (plain JSON inside — user chose to export)
+const zip: Buffer = await accountManager.exportToZip('alice');
+
+// Import from ZIP with a new password
+const imported = await accountManager.importFromZip(zipBuffer, 'newSecret');
+
+// Rotate encryption key
+await accountManager.rotateKey('alice', 'oldSecret', 'newSecret');
+
+// Delete
+accountManager.deleteAccount('alice');
+```
+
+**Key derivation**: `crypto.scryptSync(password, salt, 32)` with `{ N: 16384, r: 8, p: 1 }`.  
+**Keychain**: `keytar` stores `{saltHex}:{keyHex}` as an optional session-resume cache. If unavailable, login still works because the salt is read from the file.
+
+### Account types (`src/client/renderer/src/types/account.ts`)
+
+```typescript
+interface LocalAccount {
+  id: string;
+  username: string;
+  passwordHash: string;      // PBKDF2-SHA256, 100k iterations
+  profilePic?: string;       // filename relative to ~/.kiama/accounts/media/
+  credentials: Record<string, unknown>;
+  serverList: ServerList;    // { servers: ServerEntry[], folders: ServerFolder[] }
+  isBot: false;
+  isServerCreated: false;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface BotAccount {
+  id: string;
+  username: string;
+  passwordHash: string;
+  botType: 'chat' | 'moderator' | 'custom';
+  isBot: true;
+  isServerCreated: true;     // Bot accounts can never be transferred to cloud
+  linkedPlugin?: string;
+  preconfig?: Record<string, unknown>;
+  serverList: ServerList;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+### Server: `BotAccountManager` (`src/server/src/utils/BotAccountManager.ts`)
+
+Stores **only** bot/owner accounts on the server — user local accounts are never sent to or stored by the server.
+
+```typescript
+// Instantiated inside Server constructor:
+this.botAccountManager = new BotAccountManager(this.dataRoot);
+// Accounts stored at: {dataRoot}/accounts/{username}.json.enc
+```
+
+Encryption key is derived from `process.env.KIAMA_ACCOUNT_SECRET` (required in production).
+
+### Admin REST endpoints for bot accounts (all require `x-admin-token`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/admin/accounts/bots` | List all bot accounts |
+| `POST` | `/admin/accounts/bots` | Create a bot (`username`, `password`, `botType`, optional `linkedPlugin`, `preconfig`) |
+| `DELETE` | `/admin/accounts/bots/:username` | Delete a bot account |
+
+### Login screen behaviour
+
+The `Login` component (`src/client/renderer/src/components/Login.tsx`) shows only two tabs — **Sign in** and **Create account** — both operating on local accounts. There is no server/cloud toggle on the login screen; that belongs in server settings (Phase 2).
+
+When a local login succeeds, `onLogin` is called with:
+- `token`: `local:{uuid}` — **never persisted to `localStorage`** (session-only)
+- `user`: the full `LocalAccount` object with a normalised `name` field (`= username`)
+
+### Clearing account files (development)
+
+```bash
+rm -rf ~/.kiama/accounts/   # delete all local accounts
+rm ~/.kiama/accounts/<name>.json.enc  # delete one account
+```
+
 ## Development Tasks
 
 ### Adding a New Feature
@@ -659,6 +781,10 @@ npm install <package>
 - [ ] Socket connection established
 - [ ] Messages send/receive
 - [ ] Plugins function properly
+- [ ] Local account create works (check `~/.kiama/accounts/` for `.json.enc` file)
+- [ ] Local account login works with correct password
+- [ ] Saved account chips appear on sign-in screen
+- [ ] Display name shows username (not "You") in settings and chat
 
 **Integration:**
 - [ ] Client connects to server
@@ -689,17 +815,17 @@ Consider adding:
 ## Security Considerations
 
 ### Current State
-- No authentication system
+- Local account authentication (Phase 1) — AES-256 encrypted, stored on-device
+- No centralised user accounts yet (Phase 2)
 - No input validation
 - No rate limiting
-- Plain text communication
+- Plain text communication (server channels)
 
 ### Future Enhancements
-- Implement user authentication
-- Add input sanitization
-- Enable HTTPS/WSS
-- Add rate limiting
-- Implement end-to-end encryption
+- Cloud accounts + local-to-cloud transfer (Phase 2; only accounts where `isServerCreated: false` are eligible)
+- Input sanitization
+- HTTPS/WSS
+- Rate limiting
 
 ## Deployment
 

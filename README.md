@@ -22,6 +22,8 @@ A decentralized Discord-like chat application built with modern web technologies
 - **Responsive UI**: Mobile drawers for server/channel/member lists with coordinated toggles
 - **CLI Server Management**: Command-line interface for server administration
 - **Backup System**: Scheduled or manual zip backups of all server data; manage, restore, and download backups from the Server Settings panel
+- **Local Account System**: Encrypted local accounts stored on-device — no server required. AES-256-CBC encryption, OS keychain integration, ZIP export/import, and support for multiple saved accounts with quick-switch
+- **Bot Accounts**: Server-side bot accounts (linked to plugins or created manually) managed via admin REST endpoints
 - **Friends System**: User relationship management
 - **Custom Emotes**: Server-specific emoji support
 
@@ -134,9 +136,11 @@ Kiama/
 │   │   │   │   │   ├── components/
 │   │   │   │   │   └── App.scss
 │   │   │   │   ├── types/        # TypeScript types
-│   │   │   │   │   └── plugin.ts
+│   │   │   │   │   ├── plugin.ts
+│   │   │   │   │   └── account.ts          # LocalAccount, BotAccount, ServerList types
 │   │   │   │   ├── utils/        # Utilities
 │   │   │   │   │   ├── PluginManager.ts
+│   │   │   │   │   ├── AccountManager.ts   # Client-side local account CRUD + encryption
 │   │   │   │   │   └── SurfaceContext.tsx  # React context exposing soft-3D state to portalled components
 │   │   │   │   ├── App.tsx       # Main React shell wiring pages/layout
 │   │   │   │   └── index.tsx     # React entry point
@@ -152,7 +156,9 @@ Kiama/
 │       │   ├── types/            # Server types
 │       │   │   └── plugin.ts
 │       │   ├── utils/            # Server utilities
-│       │   │   └── PluginManager.ts
+│       │   │   ├── PluginManager.ts
+│       │   │   ├── BackupManager.ts
+│       │   │   └── BotAccountManager.ts    # Server-side bot account CRUD + encryption
 │       │   └── plugins/          # Server plugins
 │       │       └── messageLogger.ts
 │       │       └── pollServer.js

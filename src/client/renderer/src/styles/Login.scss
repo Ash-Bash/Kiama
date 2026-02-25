@@ -337,3 +337,133 @@
     padding: 10px 8px;
   }
 }
+
+// ── Local account switcher ─────────────────────────────────────────────────────
+.account-switcher {
+  padding: 0 28px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+
+  .account-switcher-label {
+    width: 100%;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted, #888);
+    margin: 0 0 4px;
+  }
+
+  .account-chip {
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1.5px solid var(--border-color, rgba(255,255,255,0.12));
+    background: var(--secondary-bg, rgba(255,255,255,0.06));
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+
+    &:hover {
+      background: var(--accent-color, #5b8dee);
+      border-color: var(--accent-color, #5b8dee);
+      color: #fff;
+    }
+
+    &.selected {
+      background: var(--accent-color, #5b8dee);
+      border-color: var(--accent-color, #5b8dee);
+      color: #fff;
+    }
+  }
+
+  .account-chip-delete {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--text-muted, #888);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background 0.15s, color 0.15s;
+
+    &:hover { background: var(--error, #ed4245); color: #fff; }
+  }
+}
+
+// ── Account chip row (name + delete) ────────────────────────────────────────
+.account-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+// ── Delete confirmation overlay (Login screen, outside ModalProvider) ────────
+.login-delete-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+
+  .login-delete-container {
+    width: min(420px, 100%);
+
+    .modal-panel { border-radius: 16px; }
+
+    .field span {
+      color: var(--text-secondary);
+      font-size: 13px;
+      margin-bottom: 6px;
+      display: block;
+    }
+  }
+
+  .login-delete-footer {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+
+    .outline-btn {
+      padding: 9px 20px;
+      border-radius: 8px;
+      border: 1.5px solid var(--border-color, rgba(255,255,255,0.15));
+      background: transparent;
+      color: var(--text-primary);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+      &:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
+      &:disabled { opacity: 0.5; cursor: default; }
+    }
+
+    .danger-btn {
+      padding: 9px 20px;
+      border-radius: 8px;
+      border: none;
+      background: var(--error, #ed4245);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      &:hover:not(:disabled) { opacity: 0.85; }
+      &:disabled { opacity: 0.5; cursor: default; }
+    }
+  }
+}

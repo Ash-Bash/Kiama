@@ -39,6 +39,7 @@ interface Server {
   id: string;
   name: string;
   url: string;
+  icon?: string;
 }
 
 interface ServerSettingsPageProps {
@@ -54,6 +55,7 @@ interface ServerSettingsPageProps {
   loading?: boolean;
   passwordRequired?: boolean | null;
   adminToken?: string;
+  onUpdateServerIcon?: (serverId: string, dataUri: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 type ServerTab = 'overview' | 'roles' | 'permissions' | 'security' | 'backups';
@@ -72,12 +74,82 @@ const permissionKeys = Object.keys(permissionLabels) as Array<keyof RolePermissi
 
 // == Overview sub-page =========================================================
 
-const OverviewSubPage: React.FC<{ server: Server }> = ({ server }) => (
+interface OverviewSubPageProps {
+  server: Server;
+  onUpdateServerIcon?: (serverId: string, dataUri: string) => Promise<{ success: boolean; error?: string }>;
+}
+
+const OverviewSubPage: React.FC<OverviewSubPageProps> = ({ server, onUpdateServerIcon }) => {
+  const [localIcon, setLocalIcon] = useState<string | undefined>(server.icon);
+  const [iconStatus, setIconStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [iconError, setIconError] = useState<string | undefined>(undefined);
+
+  const handleIconChange = async (dataUri: string) => {
+    setLocalIcon(dataUri);
+    if (onUpdateServerIcon) {
+      setIconStatus('saving');
+      setIconError(undefined);
+      const result = await onUpdateServerIcon(server.id, dataUri);
+      if (result.success) {
+        setIconStatus('saved');
+        setTimeout(() => setIconStatus('idle'), 2000);
+      } else {
+        setIconStatus('error');
+        setIconError(result.error ?? 'Failed to save icon.');
+      }
+    }
+  };
+
+  return (
   <div className="settings-sub-page">
     <div className="settings-sub-page__header">
       <h2>Overview</h2>
       <p>General information about this server.</p>
     </div>
+    <div className="settings-sub-page__section">
+      <p className="settings-sub-page__section-title">Server Icon</p>
+      <div className="settings-sub-page__card">
+        <div className="settings-sub-page__row">
+          <div className="settings-sub-page__row-label">
+            <strong>Server icon</strong>
+            <span>Click the icon to upload a new image (PNG, JPG, GIF, WebP).</span>
+          </div>
+          <div className="settings-sub-page__row-control">
+            <label className="settings-avatar-upload" title="Change server icon">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    const dataUri = ev.target?.result as string;
+                    if (dataUri) handleIconChange(dataUri);
+                  };
+                  reader.readAsDataURL(file);
+                  e.target.value = '';
+                }}
+              />
+              <div className="settings-avatar-large" style={{ borderRadius: 8 }}>
+                {localIcon
+                  ? <img src={localIcon} alt="Server icon" />
+                  : <i className="fas fa-server" style={{ fontSize: 20 }} />}
+              </div>
+              <span className="settings-avatar-hint">
+                {iconStatus === 'saving' ? 'Saving…' : iconStatus === 'saved' ? 'Saved!' : 'Change'}
+              </span>
+            </label>
+          </div>
+        </div>
+        {iconStatus === 'error' && iconError && (
+          <div className="settings-sub-page__row">
+            <p className="settings-sub-page__hint" style={{ color: 'var(--danger)', margin: 0 }}>{iconError}</p>
+          </div>
+        )}
+      </div>
+    </div>
+
     <div className="settings-sub-page__section">
       <p className="settings-sub-page__section-title">Server Info</p>
       <div className="settings-sub-page__card">
@@ -102,7 +174,8 @@ const OverviewSubPage: React.FC<{ server: Server }> = ({ server }) => (
       </div>
     </div>
   </div>
-);
+  );
+};
 
 // == Roles sub-page ============================================================
 
@@ -705,7 +778,8 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
   onUpdateRole,
   loading = false,
   passwordRequired = null,
-  adminToken
+  adminToken,
+  onUpdateServerIcon,
 }) => {
   const [activeTab, setActiveTab] = useState<ServerTab>('overview');
 
@@ -724,8 +798,10 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
 
   const identity = (
     <div className="settings-identity">
-      <div className="settings-identity__avatar" style={{ borderRadius: 8 }}>
-        <i className="fas fa-server" style={{ fontSize: 14 }} />
+      <div className="settings-identity__avatar" style={{ borderRadius: 8, overflow: 'hidden', padding: server.icon ? 0 : undefined }}>
+        {server.icon
+          ? <img src={server.icon} alt={server.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          : <i className="fas fa-server" style={{ fontSize: 14 }} />}
       </div>
       <div className="settings-identity__meta">
         <span className="settings-identity__name">{server.name}</span>
@@ -744,7 +820,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
       closeLabel="Back"
       identity={identity}
     >
-      {activeTab === 'overview'    && <OverviewSubPage server={server} />}
+      {activeTab === 'overview'    && <OverviewSubPage server={server} onUpdateServerIcon={onUpdateServerIcon} />}
       {activeTab === 'roles'       && <RolesSubPage roles={roles} onCreateRole={onCreateRole} onUpdateRole={onUpdateRole} />}
       {activeTab === 'permissions' && (
         <PermissionsSubPage

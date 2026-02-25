@@ -5,6 +5,7 @@ import Button from '../components/Button';
 import Select from '../components/Select';
 import TextField from '../components/TextField';
 import SegmentedControl from '../components/SegmentedControl';
+import ModalPanel from '../components/ModalPanel';
 
 // Account settings sub-page IDs
 type AccountTab = 'my-account' | 'appearance';
@@ -37,13 +38,19 @@ const STATUS_LABELS: Record<string, string> = {
 interface MyAccountSubPageProps {
   displayName: string;
   status: string;
+  userAvatar?: string;
   onDisplayNameChange: (v: string) => void;
   onStatusChange: (v: 'online' | 'idle' | 'dnd' | 'offline') => void;
   onSave: () => void;
+  onAvatarChange: (dataUri: string) => void;
+  onChangePasswordClick: () => void;
+  onDeleteAccountClick: () => void;
 }
 
 const MyAccountSubPage: React.FC<MyAccountSubPageProps> = ({
-  displayName, status, onDisplayNameChange, onStatusChange, onSave,
+  displayName, status, userAvatar,
+  onDisplayNameChange, onStatusChange, onSave,
+  onAvatarChange, onChangePasswordClick, onDeleteAccountClick,
 }) => (
   <div className="settings-sub-page">
     <div className="settings-sub-page__header">
@@ -54,6 +61,40 @@ const MyAccountSubPage: React.FC<MyAccountSubPageProps> = ({
     <div className="settings-sub-page__section">
       <p className="settings-sub-page__section-title">Profile</p>
       <div className="settings-sub-page__card">
+        {/* ── Avatar row ──────────────────────────────────────────────── */}
+        <div className="settings-sub-page__row">
+          <div className="settings-sub-page__row-label">
+            <strong>Profile picture</strong>
+            <span>Click the avatar to upload a new image (PNG, JPG, GIF, WebP).</span>
+          </div>
+          <div className="settings-sub-page__row-control">
+            <label className="settings-avatar-upload" title="Change profile picture">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    const dataUri = ev.target?.result as string;
+                    if (dataUri) onAvatarChange(dataUri);
+                  };
+                  reader.readAsDataURL(file);
+                  e.target.value = '';
+                }}
+              />
+              <div className="settings-avatar-large">
+                {userAvatar
+                  ? <img src={userAvatar} alt="Avatar" />
+                  : displayName.charAt(0).toUpperCase() || '?'}
+              </div>
+              <span className="settings-avatar-hint">Change</span>
+            </label>
+          </div>
+        </div>
+
+        {/* ── Display name ───────────────────────────────────────────── */}
         <div className="settings-sub-page__field">
           <TextField
             label="Display name"
@@ -105,6 +146,42 @@ const MyAccountSubPage: React.FC<MyAccountSubPageProps> = ({
       <Button variant="primary" onClick={onSave} iconLeft={<i className="fas fa-save" />}>
         Save changes
       </Button>
+    </div>
+
+    {/* ── Security ──────────────────────────────────────────────────────── */}
+    <div className="settings-sub-page__section" style={{ marginTop: 32 }}>
+      <p className="settings-sub-page__section-title">Security</p>
+      <div className="settings-sub-page__card">
+        <div className="settings-sub-page__row">
+          <div className="settings-sub-page__row-label">
+            <strong>Password</strong>
+            <span>Change your account login password.</span>
+          </div>
+          <div className="settings-sub-page__row-control">
+            <Button variant="ghost" onClick={onChangePasswordClick} iconLeft={<i className="fas fa-lock" />}>
+              Change password
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* ── Danger Zone ───────────────────────────────────────────────────── */}
+    <div className="settings-sub-page__section" style={{ marginTop: 32 }}>
+      <p className="settings-sub-page__section-title" style={{ color: 'var(--error, #ed4245)' }}>Danger Zone</p>
+      <div className="settings-sub-page__card">
+        <div className="settings-sub-page__row">
+          <div className="settings-sub-page__row-label">
+            <strong>Delete account</strong>
+            <span>Permanently delete your local account and all its data. This cannot be undone.</span>
+          </div>
+          <div className="settings-sub-page__row-control">
+            <Button variant="danger" onClick={onDeleteAccountClick}>
+              Delete account
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 );
@@ -230,6 +307,7 @@ const AppearanceSubPage: React.FC<AppearanceSubPageProps> = ({
 interface SettingsPageProps {
   userName?: string;
   userStatus?: 'online' | 'idle' | 'dnd' | 'offline';
+  userAvatar?: string;
   themeId: string;
   mode: 'light' | 'dark';
   fontId: string;
@@ -242,6 +320,9 @@ interface SettingsPageProps {
   onToggleSoft3D: (enabled: boolean) => void;
   onSave: () => void;
   onLogout: () => void;
+  onDeleteAccount?: (password: string) => Promise<{ success: boolean; error?: string }>;
+  onChangePassword?: (currentPw: string, newPw: string) => Promise<{ success: boolean; error?: string }>;
+  onUpdateProfilePic?: (dataUri: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -249,6 +330,7 @@ interface SettingsPageProps {
 const SettingsPage: React.FC<SettingsPageProps> = ({
   userName,
   userStatus = 'online',
+  userAvatar,
   themeId,
   mode,
   fontId,
@@ -261,23 +343,110 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   onToggleSoft3D,
   onSave,
   onLogout,
+  onDeleteAccount,
+  onChangePassword,
+  onUpdateProfilePic,
 }) => {
   const [activeTab, setActiveTab] = useState<AccountTab>('my-account');
   const [displayName, setDisplayName] = useState(userName || 'You');
   const [status, setStatus]           = useState<'online' | 'idle' | 'dnd' | 'offline'>(userStatus);
+  const [localAvatar, setLocalAvatar] = useState<string | undefined>(userAvatar);
 
   useEffect(() => { setDisplayName(userName || 'You'); }, [userName]);
   useEffect(() => { setStatus(userStatus || 'online'); }, [userStatus]);
+  useEffect(() => { setLocalAvatar(userAvatar); }, [userAvatar]);
+
+  // ── Delete-account state ───────────────────────────────────────────────────
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePw, setDeletePw] = useState('');
+  const [showDeletePw, setShowDeletePw] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // ── Change-password state ───────────────────────────────────────────────
+  const [showChangePwModal, setShowChangePwModal] = useState(false);
+  const [changePwCurrent, setChangePwCurrent]     = useState('');
+  const [changePwNew,     setChangePwNew]         = useState('');
+  const [changePwConfirm, setChangePwConfirm]     = useState('');
+  const [showChangePwCurrent, setShowChangePwCurrent] = useState(false);
+  const [showChangePwNew,     setShowChangePwNew]     = useState(false);
+  const [changePwError,   setChangePwError]   = useState('');
+  const [changePwLoading, setChangePwLoading] = useState(false);
+  const [changePwSuccess, setChangePwSuccess] = useState(false);
 
   const handleSelect = (id: string) => {
     if (id === 'logout') { onLogout(); return; }
     setActiveTab(id as AccountTab);
   };
 
+  // ── Delete account handlers ─────────────────────────────────────────────
+  const openDeleteModal  = () => { setShowDeleteModal(true); setDeletePw(''); setDeleteError(''); setShowDeletePw(false); };
+  const closeDeleteModal = () => { setShowDeleteModal(false); setDeletePw(''); setDeleteError(''); };
+
+  const handleConfirmDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onDeleteAccount) return;
+    setDeleteError('');
+    setDeleteLoading(true);
+    try {
+      const result = await onDeleteAccount(deletePw);
+      if (!result.success) { setDeleteError(result.error ?? 'Wrong password.'); return; }
+      closeDeleteModal();
+    } catch (err: any) {
+      setDeleteError(err?.message ?? 'Failed to delete account.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  // ── Change password handlers ────────────────────────────────────────────
+  const openChangePwModal  = () => {
+    setShowChangePwModal(true);
+    setChangePwCurrent(''); setChangePwNew(''); setChangePwConfirm('');
+    setChangePwError(''); setChangePwSuccess(false);
+    setShowChangePwCurrent(false); setShowChangePwNew(false);
+  };
+  const closeChangePwModal = () => {
+    setShowChangePwModal(false);
+    setChangePwCurrent(''); setChangePwNew(''); setChangePwConfirm('');
+    setChangePwError(''); setChangePwSuccess(false);
+  };
+
+  const handleConfirmChangePw = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onChangePassword) return;
+    if (changePwNew !== changePwConfirm) { setChangePwError('New passwords do not match.'); return; }
+    if (changePwNew.length < 6) { setChangePwError('New password must be at least 6 characters.'); return; }
+    setChangePwError('');
+    setChangePwLoading(true);
+    try {
+      const result = await onChangePassword(changePwCurrent, changePwNew);
+      if (!result.success) { setChangePwError(result.error ?? 'Wrong current password.'); return; }
+      setChangePwSuccess(true);
+      setTimeout(() => closeChangePwModal(), 1500);
+    } catch (err: any) {
+      setChangePwError(err?.message ?? 'Failed to change password.');
+    } finally {
+      setChangePwLoading(false);
+    }
+  };
+
+  // ── Avatar handler ──────────────────────────────────────────────────────
+  const handleAvatarChange = async (dataUri: string) => {
+    setLocalAvatar(dataUri); // optimistic preview
+    if (onUpdateProfilePic) {
+      const result = await onUpdateProfilePic(dataUri);
+      // If the save failed, parent won't update userAvatar; local preview stays until next refresh.
+      if (!result.success) console.warn('[Settings] Failed to save avatar:', result.error);
+    }
+  };
+
   const identity = (
     <div className="settings-identity">
-      <div className="settings-identity__avatar">
-        {displayName.charAt(0)}
+      <div className="settings-identity__avatar" style={localAvatar ? { background: 'transparent', padding: 0, overflow: 'hidden' } : undefined}>
+        {localAvatar
+          ? <img src={localAvatar} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', display: 'block' }} />
+          : displayName.charAt(0)}
       </div>
       <div className="settings-identity__meta">
         <span className="settings-identity__name">{displayName}</span>
@@ -300,10 +469,145 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         <MyAccountSubPage
           displayName={displayName}
           status={status}
+          userAvatar={localAvatar}
           onDisplayNameChange={setDisplayName}
           onStatusChange={setStatus}
           onSave={onSave}
+          onAvatarChange={handleAvatarChange}
+          onChangePasswordClick={openChangePwModal}
+          onDeleteAccountClick={openDeleteModal}
         />
+      )}
+
+      {/* ── Change-password overlay ────────────────────────────────────────── */}
+      {showChangePwModal && (
+        <div className="login-delete-overlay" onClick={closeChangePwModal} style={{ zIndex: 9999 }}>
+          <div className="login-delete-container" onClick={(e) => e.stopPropagation()}>
+            <ModalPanel
+              title="Change Password"
+              description="Enter your current password, then choose a new one."
+              icon={<i className="fas fa-lock" />}
+              footer={
+                <div className="login-delete-footer">
+                  <button type="button" className="outline-btn" onClick={closeChangePwModal} disabled={changePwLoading}>
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    form="settings-change-pw-form"
+                    className="danger-btn"
+                    style={{ background: 'var(--accent)' }}
+                    disabled={changePwLoading || !changePwCurrent || !changePwNew || !changePwConfirm || changePwSuccess}
+                  >
+                    {changePwLoading ? 'Saving…' : 'Update password'}
+                  </button>
+                </div>
+              }
+            >
+              <form id="settings-change-pw-form" className="settings-change-pw-form" onSubmit={handleConfirmChangePw}>
+                <label className="field">
+                  <span>Current password</span>
+                  <div className="password-field">
+                    <input
+                      type={showChangePwCurrent ? 'text' : 'password'}
+                      value={changePwCurrent}
+                      onChange={(e) => setChangePwCurrent(e.target.value)}
+                      placeholder="••••••••"
+                      autoComplete="current-password"
+                      // eslint-disable-next-line jsx-a11y/no-autofocus
+                      autoFocus
+                      required
+                    />
+                    <button type="button" className="ghost-btn" onClick={() => setShowChangePwCurrent(p => !p)}>
+                      {showChangePwCurrent ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                </label>
+                <label className="field">
+                  <span>New password</span>
+                  <div className="password-field">
+                    <input
+                      type={showChangePwNew ? 'text' : 'password'}
+                      value={changePwNew}
+                      onChange={(e) => setChangePwNew(e.target.value)}
+                      placeholder="••••••••"
+                      autoComplete="new-password"
+                      required
+                    />
+                    <button type="button" className="ghost-btn" onClick={() => setShowChangePwNew(p => !p)}>
+                      {showChangePwNew ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                </label>
+                <label className="field">
+                  <span>Confirm new password</span>
+                  <div className="password-field">
+                    <input
+                      type="password"
+                      value={changePwConfirm}
+                      onChange={(e) => setChangePwConfirm(e.target.value)}
+                      placeholder="••••••••"
+                      autoComplete="new-password"
+                      required
+                    />
+                  </div>
+                </label>
+                {changePwError   && <div className="error"  role="alert">{changePwError}</div>}
+                {changePwSuccess && <div className="success-msg" role="status">✓ Password changed successfully!</div>}
+              </form>
+            </ModalPanel>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirmation overlay ─────────────────────────────────────── */}
+      {showDeleteModal && (
+        <div className="login-delete-overlay" onClick={closeDeleteModal} style={{ zIndex: 9999 }}>
+          <div className="login-delete-container" onClick={(e) => e.stopPropagation()}>
+            <ModalPanel
+              title="Delete Account"
+              description={`Permanently delete “${userName ?? 'your account'}”? You will be logged out immediately and this cannot be undone.`}
+              icon={<i className="fas fa-trash" />}
+              footer={
+                <div className="login-delete-footer">
+                  <button type="button" className="outline-btn" onClick={closeDeleteModal} disabled={deleteLoading}>
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    form="settings-delete-form"
+                    className="danger-btn"
+                    disabled={deleteLoading || !deletePw}
+                  >
+                    {deleteLoading ? 'Deleting…' : 'Delete account'}
+                  </button>
+                </div>
+              }
+            >
+              <form id="settings-delete-form" onSubmit={handleConfirmDelete}>
+                <label className="field">
+                  <span>Enter your password to confirm</span>
+                  <div className="password-field">
+                    <input
+                      type={showDeletePw ? 'text' : 'password'}
+                      value={deletePw}
+                      onChange={(e) => setDeletePw(e.target.value)}
+                      placeholder="••••••••"
+                      autoComplete="current-password"
+                      // eslint-disable-next-line jsx-a11y/no-autofocus
+                      autoFocus
+                      required
+                    />
+                    <button type="button" className="ghost-btn" onClick={() => setShowDeletePw(p => !p)}>
+                      {showDeletePw ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                </label>
+                {deleteError && <div className="error" role="alert">{deleteError}</div>}
+              </form>
+            </ModalPanel>
+          </div>
+        </div>
       )}
       {activeTab === 'appearance' && (
         <AppearanceSubPage

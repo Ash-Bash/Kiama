@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import * as os from 'os';
+import * as path from 'path';
 import io from 'socket.io-client';
 import CryptoJS from 'crypto-js';
 import PluginManager from './utils/PluginManager';
+import { AccountManager } from './utils/AccountManager';
 import { TypedMessage, Channel, ChannelSection } from './types/plugin';
 import { ModalProvider, useModal } from './components/Modal';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
@@ -19,6 +22,11 @@ import './styles/App.scss';
 
 const socket = io('http://localhost:3000');
 const SERVER_URL = 'http://localhost:3000';
+
+// Shared AccountManager instance — same path as Login.tsx.
+const appAccountManager = new AccountManager(
+  path.join(os.homedir(), '.kiama', 'accounts')
+);
 const SERVER_ID = 'default-server'; // In production, get from server handshake
 
 interface Message extends TypedMessage {}
@@ -73,10 +81,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   } = useTheme();
   const socketRef = React.useRef<any>(null);
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<Map<string, Message[]>>(new Map([
+  const [messages, setMessages] = useState<Map<string, Message[]>>(() => new Map([
     ['test-general', [
       { id: 't1', user: 'Test Bot', content: 'Welcome to the Test Server!', type: 'text', timestamp: new Date(), serverId: 'test-server', channelId: 'test-general' },
-      { id: 't2', user: 'You', content: 'This is where channel and user sidebars live.', type: 'text', timestamp: new Date(), serverId: 'test-server', channelId: 'test-general' }
+      { id: 't2', user: user?.name || 'You', content: 'This is where channel and user sidebars live.', type: 'text', timestamp: new Date(), serverId: 'test-server', channelId: 'test-general' }
     ]],
     ['test-random', [
       { id: 't3', user: 'Alice', content: 'Drop anything fun here.', type: 'text', timestamp: new Date(), serverId: 'test-server', channelId: 'test-random' }
@@ -158,6 +166,19 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [settingsThemeMode, setSettingsThemeMode] = useState<'light' | 'dark'>(currentMode);
   const [settingsSelectedTheme, setSettingsSelectedTheme] = useState<string>(currentThemeId);
   const [settingsFontId, setSettingsFontId] = useState<string>(currentFontId);
+  // Profile picture for the currently logged-in local account.
+  const [userAvatar, setUserAvatar] = useState<string | undefined>(() => {
+    if (user?.profilePic) return `file://${appAccountManager.getMediaFilePath(user.profilePic)}`;
+    return undefined;
+  });
+  useEffect(() => {
+    if (user?.profilePic) {
+      setUserAvatar(`file://${appAccountManager.getMediaFilePath(user.profilePic)}`);
+    } else {
+      setUserAvatar(undefined);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.profilePic]);
   const [viewportWidth, setViewportWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1920);
   const [showMobileServerList, setShowMobileServerList] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
@@ -703,7 +724,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }
     const messageData: Partial<Message> = {
       id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      user: 'You',
+      user: user?.name || 'You',
       userRole: senderRole,
       content,
       type,
@@ -862,6 +883,46 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setMode(settingsThemeMode);
     setThemeById(settingsSelectedTheme);
     setFontById(settingsFontId);
+  };
+
+  const handleChangePassword = async (
+    currentPw: string,
+    newPw: string,
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!user?.name) return { success: false, error: 'No active account.' };
+    try {
+      await appAccountManager.rotateKey(user.name, currentPw, newPw);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? 'Failed to change password.' };
+    }
+  };
+
+  const handleUpdateProfilePic = async (
+    dataUri: string,
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!user?.name) return { success: false, error: 'No active account.' };
+    try {
+      const filePath = await appAccountManager.saveProfilePic(user.name, dataUri);
+      setUserAvatar(`file://${filePath}`);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? 'Failed to update profile picture.' };
+    }
+  };
+
+  const handleUpdateServerIcon = async (
+    serverId: string,
+    dataUri: string,
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const filePath = await appAccountManager.saveServerIcon(serverId, dataUri);
+      const iconUrl = `file://${filePath}`;
+      setServers(prev => prev.map(s => s.id === serverId ? { ...s, icon: iconUrl } : s));
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? 'Failed to save server icon.' };
+    }
   };
 
   // Render a modal that creates a channel scoped to an optional section.
@@ -1652,6 +1713,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
               <SettingsPage
                 userName={user?.name}
                 userStatus={user?.status}
+                userAvatar={userAvatar}
                 themeId={settingsSelectedTheme}
                 mode={settingsThemeMode}
                 fontId={settingsFontId}
@@ -1664,6 +1726,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 onToggleSoft3D={(next) => setSoft3DEnabled(next)}
                 onSave={saveSettingsView}
                 onLogout={() => { onLogout(); setActiveView('home'); setCurrentServerId('home'); }}
+                onChangePassword={handleChangePassword}
+                onUpdateProfilePic={handleUpdateProfilePic}
+                onDeleteAccount={async (password: string) => {
+                  if (!user?.name) return { success: false, error: 'No active account.' };
+                  const result = await appAccountManager.login(user.name, password);
+                  if (!result.success) return { success: false, error: result.error };
+                  appAccountManager.deleteAccount(user.name);
+                  onLogout();
+                  setActiveView('home');
+                  return { success: true };
+                }}
               />
             ) : isHomeView ? (
               <HomePage
@@ -1689,6 +1762,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 passwordRequired={serverPasswordRequired}
                 onCreateRole={createServerRole}
                 onUpdateRole={updateServerRole}
+                onUpdateServerIcon={handleUpdateServerIcon}
               />
             ) : (
               <ServerPage
@@ -1977,8 +2051,17 @@ function App() {
     const storedToken = localStorage.getItem('authToken');
     const storedUser = localStorage.getItem('authUser');
     if (storedToken && storedUser) {
-      setToken(storedToken);
-      setUser(JSON.parse(storedUser));
+      // Local tokens are session-only – don't restore them from storage.
+      if (storedToken.startsWith('local:')) {
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('authUser');
+      } else {
+        const parsed = JSON.parse(storedUser);
+        // Normalise name field in case it was stored before the fix.
+        const normalised = { ...parsed, name: parsed.name || parsed.username || 'You' };
+        setToken(storedToken);
+        setUser(normalised);
+      }
     }
 
     // Simulate app initialization time
@@ -1990,10 +2073,15 @@ function App() {
   }, []);
 
   const handleLogin = (newToken: string, newUser: any) => {
+    // Normalise: local accounts carry `username`, server accounts carry `name`.
+    const normalised = { ...newUser, name: newUser.name || newUser.username || 'You' };
     setToken(newToken);
-    setUser(newUser);
-    localStorage.setItem('authToken', newToken);
-    localStorage.setItem('authUser', JSON.stringify(newUser));
+    setUser(normalised);
+    // Don't persist local tokens to storage — they're session-only.
+    if (!newToken.startsWith('local:')) {
+      localStorage.setItem('authToken', newToken);
+      localStorage.setItem('authUser', JSON.stringify(normalised));
+    }
   };
 
   const handleLogout = () => {
