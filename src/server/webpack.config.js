@@ -59,6 +59,8 @@ module.exports = {
     'bufferutil': 'commonjs bufferutil',
     'utf-8-validate': 'commonjs utf-8-validate',
     '@aws-sdk/client-s3': 'commonjs @aws-sdk/client-s3',
+    // Native addon — must be resolved at runtime from node_modules
+    'better-sqlite3': 'commonjs better-sqlite3',
   },
   plugins: [
     new CopyWebpackPlugin({

@@ -339,6 +339,27 @@ export class AccountManager {
     return filePath;
   }
 
+  /**
+   * Replace the full server list for an account and persist it.
+   * Pass all non-home servers — this overwrites the stored list completely.
+   */
+  async updateServerList(
+    username: string,
+    updatedServers: Array<{ id: string; name: string; url: string; icon?: string }>
+  ): Promise<void> {
+    const account = await this.loadAccount(username);
+    // Merge incoming entries with existing ones so icon filenames are preserved
+    const existingMap = new Map(account.serverList.servers.map(s => [s.id, s]));
+    account.serverList.servers = updatedServers.map(s => ({
+      ...existingMap.get(s.id),
+      ...s,
+      // Keep stored icon filename if no new one supplied
+      icon: s.icon ?? existingMap.get(s.id)?.icon
+    }));
+    account.updatedAt = new Date().toISOString();
+    await this.saveAccount(account);
+  }
+
   // ── Internal save/load ───────────────────────────────────────────────────────
 
   private async saveAccountWithKey(account: LocalAccount, key: Buffer, salt?: Buffer): Promise<void> {

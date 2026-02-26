@@ -120,7 +120,7 @@ program
   .action((options) => {
     const outputPath = path.isAbsolute(options.output)
       ? options.output
-      : path.join(process.cwd(), options.output);
+      : path.join(__dirname, options.output);
 
     const template: InitialServerConfig = {
       name: options.name,

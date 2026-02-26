@@ -1,17 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import * as os from 'os';
-import * as path from 'path';
-import { AccountManager } from '../utils/AccountManager';
 import ModalPanel from './ModalPanel';
+import { sharedAccountManager as accountManager } from '../utils/sharedAccountManager';
 import '../styles/Login.scss';
 
 interface LoginProps {
   onLogin: (token: string, user: any) => void;
 }
-
-// Resolve the accounts directory once – stored in ~/.kiama/accounts
-const accountsDir = path.join(os.homedir(), '.kiama', 'accounts');
-const accountManager = new AccountManager(accountsDir);
 
 type AuthMode = 'login' | 'create';
 

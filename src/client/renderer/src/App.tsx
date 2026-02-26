@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as os from 'os';
 import * as path from 'path';
 import io from 'socket.io-client';
 import CryptoJS from 'crypto-js';
 import PluginManager from './utils/PluginManager';
-import { AccountManager } from './utils/AccountManager';
+import { sharedAccountManager as appAccountManager } from './utils/sharedAccountManager';
 import { TypedMessage, Channel, ChannelSection } from './types/plugin';
 import { ModalProvider, useModal } from './components/Modal';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
@@ -23,10 +23,6 @@ import './styles/App.scss';
 const socket = io('http://localhost:3000');
 const SERVER_URL = 'http://localhost:3000';
 
-// Shared AccountManager instance — same path as Login.tsx.
-const appAccountManager = new AccountManager(
-  path.join(os.homedir(), '.kiama', 'accounts')
-);
 const SERVER_ID = 'default-server'; // In production, get from server handshake
 
 interface Message extends TypedMessage {}
@@ -179,6 +175,23 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.profilePic]);
+
+  // Hydrate server list from the saved account data on login.
+  useEffect(() => {
+    if (!user?.serverList?.servers?.length) return;
+    setServers(prev => {
+      const incoming: Server[] = user.serverList.servers.map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        url: s.url,
+        icon: s.icon ? `file://${appAccountManager.getMediaFilePath(s.icon)}` : undefined
+      }));
+      // Merge: always keep 'home', use account entries for non-home servers
+      const homeEntry = prev.find(s => s.id === 'home') || { id: 'home', name: 'Home', url: SERVER_URL };
+      return [homeEntry, ...incoming];
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
   const [viewportWidth, setViewportWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1920);
   const [showMobileServerList, setShowMobileServerList] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
@@ -200,6 +213,9 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [serverSettingsLoading, setServerSettingsLoading] = useState(false);
   const [serverPasswordRequired, setServerPasswordRequired] = useState<boolean | null>(null);
   const [e2eeEnabled, setE2eeEnabled] = useState(false);
+
+  // Tracks which client-side serverId to tag the next channels_list response with.
+  const pendingChannelServerIdRef = useRef<string>(currentServerId);
 
   // Sync settings with current values
   React.useEffect(() => {
@@ -334,12 +350,19 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       }
       processedMessage = pluginManager.processMessage(processedMessage);
 
-      // Add message to the appropriate channel
+      // Add message or replace optimistic duplicate (same id means sender already added it locally)
       setMessages(prev => {
         const newMessages = new Map(prev);
         const channelMessages = newMessages.get(processedMessage.channelId) || [];
-        channelMessages.push(processedMessage);
-        newMessages.set(processedMessage.channelId, channelMessages);
+        const existingIdx = channelMessages.findIndex(m => m.id === processedMessage.id);
+        if (existingIdx >= 0) {
+          // Replace the optimistic copy with the server-confirmed version
+          const updated = [...channelMessages];
+          updated[existingIdx] = processedMessage;
+          newMessages.set(processedMessage.channelId, updated);
+        } else {
+          newMessages.set(processedMessage.channelId, [...channelMessages, processedMessage]);
+        }
         return newMessages;
       });
     });
@@ -361,8 +384,31 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     });
 
     socketRef.current.on('channels_list', (data: { channels: Channel[], sections: ChannelSection[], serverId: string }) => {
-      setChannels(data.channels);
-      setSections(data.sections);
+      const targetServerId = pendingChannelServerIdRef.current;
+
+      // Determine the first channel to auto-select for the incoming server
+      const sortedIncoming = [...data.channels].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      const firstChannelId = sortedIncoming[0]?.id || '';
+
+      setChannels(prev => {
+        // Keep channels that belong to other servers, replace only those for this server
+        const others = prev.filter(c => c.serverId !== targetServerId);
+        const incoming = data.channels.map(c => ({ ...c, serverId: targetServerId }));
+        return [...others, ...incoming];
+      });
+      setSections(prev => {
+        const others = prev.filter(s => s.serverId !== targetServerId);
+        const incoming = data.sections.map(s => ({ ...s, serverId: targetServerId }));
+        return [...others, ...incoming];
+      });
+
+      // Auto-select the first channel when loading a server's channels
+      if (firstChannelId) {
+        setCurrentChannelId(firstChannelId);
+        if (socketRef.current) {
+          socketRef.current.emit('join_channel', { channelId: firstChannelId });
+        }
+      }
     });
 
     socketRef.current.on('channel_created', (channel: Channel) => {
@@ -400,8 +446,9 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   }, [pluginManager, token]);
 
   // Ask the server for the latest channel + section list for the active server.
-  const loadChannelsAndSections = () => {
+  const loadChannelsAndSections = (forServerId?: string) => {
     if (socketRef.current) {
+      pendingChannelServerIdRef.current = forServerId !== undefined ? forServerId : currentServerId;
       socketRef.current.emit('get_channels');
     }
   };
@@ -558,7 +605,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   const leaveServer = (serverId: string) => {
-    setServers(prev => prev.filter(s => s.id !== serverId));
+    setServers(prev => {
+      const updated = prev.filter(s => s.id !== serverId);
+      // Persist to account
+      if (user?.username) {
+        const nonHome = updated.filter(s => s.id !== 'home');
+        appAccountManager.updateServerList(user.username,
+          nonHome.map(s => ({ id: s.id, name: s.name, url: s.url }))
+        ).catch(() => {});
+      }
+      return updated;
+    });
 
     if (serverId === currentServerId) {
       setCurrentServerId('home');
@@ -631,19 +688,31 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       setShowMobileUserList(false);
     }
 
+    // Reload channels for the newly selected server
+    loadChannelsAndSections(serverId);
+
     // Simulate loading delay, then hide loading
     setTimeout(() => {
       setIsSwitchingServer(false);
-      // Reconnect socket (simplified - in real app you'd handle this better)
-      // For demo purposes, we'll just hide the loading
-    }, 1500); // Show loading for 1.5 seconds
+    }, 1500);
   };
 
   // Quick-add a server — delegates UI to AddServerPanel.
   const addServer = () => {
     openModal(
       <AddServerPanel
-        onAdd={(server) => setServers(prev => [...prev, server])}
+        onAdd={(server) => {
+          setServers(prev => {
+            const updated = [...prev, server];
+            if (user?.username) {
+              const nonHome = updated.filter(s => s.id !== 'home');
+              appAccountManager.updateServerList(user.username,
+                nonHome.map(s => ({ id: s.id, name: s.name, url: s.url }))
+              ).catch(() => {});
+            }
+            return updated;
+          });
+        }}
         onClose={closeModal}
       />,
       { size: 'small' }
@@ -662,7 +731,16 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       url: invite
     };
 
-    setServers(prev => [...prev, newServer]);
+    setServers(prev => {
+      const updated = [...prev, newServer];
+      if (user?.username) {
+        const nonHome = updated.filter(s => s.id !== 'home');
+        appAccountManager.updateServerList(user.username,
+          nonHome.map(s => ({ id: s.id, name: s.name, url: s.url }))
+        ).catch(() => {});
+      }
+      return updated;
+    });
   };
 
   // Begin dragging the channel sidebar resize handle.
@@ -919,6 +997,19 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       const filePath = await appAccountManager.saveServerIcon(serverId, dataUri);
       const iconUrl = `file://${filePath}`;
       setServers(prev => prev.map(s => s.id === serverId ? { ...s, icon: iconUrl } : s));
+
+      // Persist icon reference and server info to the account's server list
+      if (user?.username) {
+        const srvr = servers.find(s => s.id === serverId);
+        const iconFilename = filePath.split('/').pop() || '';
+        await appAccountManager.updateServerList(user.username, [{
+          id: serverId,
+          name: srvr?.name || serverId,
+          url: srvr?.url || '',
+          icon: iconFilename
+        }]);
+      }
+
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err?.message ?? 'Failed to save server icon.' };

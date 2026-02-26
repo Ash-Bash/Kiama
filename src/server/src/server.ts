@@ -162,7 +162,7 @@ export class Server {
     this.serverId = serverId || uuidv4();
     this.serverName = initialConfig?.name || 'KIAMA Server';
     this.adminToken = adminToken || process.env.KIAMA_ADMIN_TOKEN || '';
-    this.dataRoot = process.env.KIAMA_DATA_DIR || path.join(__dirname, '../data');
+    this.dataRoot = process.env.KIAMA_DATA_DIR || path.join(__dirname, 'data');
     this.configFilePath = process.env.KIAMA_CONFIG_PATH || path.join(this.dataRoot, 'configs', `${this.serverId}.json`);
     this.app = express();
     this.server = http.createServer(this.app);
@@ -1297,7 +1297,7 @@ export class Server {
         }
 
         const message: TypedMessage = {
-          id: uuidv4(),
+          id: data.id || uuidv4(),
           user: data.user || 'Anonymous',
           userRole: data.userRole,
           content: data.content || '',
@@ -1317,6 +1317,9 @@ export class Server {
         const channelMessages = this.messages.get(channelId) || [];
         channelMessages.push(message);
         this.messages.set(channelId, channelMessages);
+
+        // Persist to database
+        this.storeMessage(message);
 
         // Broadcast to channel room
         this.io.to(`channel_${channelId}`).emit('message', message);
