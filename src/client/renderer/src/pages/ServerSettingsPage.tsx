@@ -56,9 +56,15 @@ interface ServerSettingsPageProps {
   passwordRequired?: boolean | null;
   adminToken?: string;
   onUpdateServerIcon?: (serverId: string, dataUri: string) => Promise<{ success: boolean; error?: string }>;
+  /** The username of the current server owner (null = not set, undefined = unknown). */
+  ownerUsername?: string | null;
+  /** The username of the currently logged-in account. */
+  currentUsername?: string;
+  /** Claim or transfer server ownership. */
+  onClaimOwner?: (username: string, adminToken?: string) => Promise<{ success: boolean; requiresToken?: boolean; error?: string }>;
 }
 
-type ServerTab = 'overview' | 'roles' | 'permissions' | 'security' | 'backups';
+type ServerTab = 'overview' | 'roles' | 'permissions' | 'security' | 'backups' | 'ownership';
 
 const defaultRolePermissions: RolePermissions = {
   manageServer: false,
@@ -209,13 +215,22 @@ const RolesSubPage: React.FC<RolesSubPageProps> = ({ roles, onCreateRole, onUpda
 
   const clearSelection = () => setSelectedRoleId(null);
 
+  // The owner role must always retain all permissions to prevent self-lockout.
+  const isOwnerRole = roleName.trim().toLowerCase() === 'owner';
+  const allPermissionsOn: RolePermissions = {
+    manageServer: true, manageChannels: true, manageRoles: true,
+    kickMembers: true, banMembers: true, sendMessages: true, viewChannels: true
+  };
+
   const submit = async () => {
     if (!roleName.trim()) return;
     setIsSubmitting(true);
+    // Force all permissions on when saving the owner role.
+    const permsToSave = isOwnerRole ? allPermissionsOn : rolePermissions;
     if (selectedRoleId && onUpdateRole) {
-      await onUpdateRole(selectedRoleId, { name: roleName.trim(), color: roleColor, permissions: rolePermissions });
+      await onUpdateRole(selectedRoleId, { name: roleName.trim(), color: roleColor, permissions: permsToSave });
     } else {
-      await onCreateRole({ name: roleName.trim(), color: roleColor, permissions: rolePermissions });
+      await onCreateRole({ name: roleName.trim(), color: roleColor, permissions: permsToSave });
       clearSelection();
     }
     setIsSubmitting(false);
@@ -265,15 +280,24 @@ const RolesSubPage: React.FC<RolesSubPageProps> = ({ roles, onCreateRole, onUpda
           <ColorPicker label="Role colour" value={roleColor} onChange={setRoleColor} disabled={isSubmitting} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <p className="settings-sub-page__section-title" style={{ margin: 0 }}>Permissions</p>
+            {isOwnerRole && (
+              <p className="settings-sub-page__hint" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <i className="fas fa-lock" style={{ color: 'var(--accent)' }} />
+                Owner role always has full permissions and cannot be restricted.
+              </p>
+            )}
             <div className="role-editor__perm-grid">
               {permissionKeys.map(key => (
                 <Toggle
                   key={key}
                   inline
                   label={permissionLabels[key]}
-                  checked={rolePermissions[key]}
-                  onChange={(next) => setRolePermissions(prev => ({ ...prev, [key]: next }))}
-                  disabled={isSubmitting}
+                  checked={isOwnerRole ? true : rolePermissions[key]}
+                  onChange={(next) => {
+                    if (isOwnerRole) return;
+                    setRolePermissions(prev => ({ ...prev, [key]: next }));
+                  }}
+                  disabled={isSubmitting || isOwnerRole}
                   size="small"
                 />
               ))}
@@ -764,6 +788,149 @@ const SecuritySubPage: React.FC<{ passwordRequired: boolean | null }> = ({ passw
   </div>
 );
 
+// == Ownership sub-page ========================================================
+
+interface OwnershipSubPageProps {
+  server: Server;
+  ownerUsername?: string | null;
+  currentUsername?: string;
+  onClaimOwner?: (username: string, adminToken?: string) => Promise<{ success: boolean; requiresToken?: boolean; error?: string }>;
+}
+
+const OwnershipSubPage: React.FC<OwnershipSubPageProps> = ({ ownerUsername, currentUsername, onClaimOwner }) => {
+  const [ownerInput, setOwnerInput] = useState(currentUsername ?? '');
+  const [tokenInput, setTokenInput] = useState('');
+  const [showToken, setShowToken] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'busy' | 'success' | 'error'>('idle');
+  const [statusMsg, setStatusMsg] = useState('');
+  const [needsToken, setNeedsToken] = useState(false);
+
+  const isOwnerSet = !!ownerUsername;
+  const isCurrentOwner = !!(ownerUsername && currentUsername &&
+    ownerUsername.toLowerCase() === currentUsername.toLowerCase());
+
+  const handleSubmit = async () => {
+    if (!onClaimOwner || !ownerInput.trim()) return;
+    setStatus('busy');
+    setStatusMsg('');
+    const result = await onClaimOwner(ownerInput.trim(), tokenInput || undefined);
+    if (result.success) {
+      setStatus('success');
+      setStatusMsg(`Ownership set to "${ownerInput.trim()}".`);
+      setNeedsToken(false);
+    } else if (result.requiresToken) {
+      setStatus('error');
+      setStatusMsg(result.error ?? 'An admin token is required to change ownership.');
+      setNeedsToken(true);
+    } else {
+      setStatus('error');
+      setStatusMsg(result.error ?? 'Failed to update ownership.');
+    }
+  };
+
+  return (
+    <div className="settings-sub-page">
+      <div className="settings-sub-page__header">
+        <h2>Ownership</h2>
+        <p>Designate which account is the server owner. Owners bypass all permission checks.</p>
+      </div>
+
+      {/* Current owner status */}
+      <div className="settings-sub-page__section">
+        <p className="settings-sub-page__section-title">Current Owner</p>
+        <div className="settings-sub-page__card">
+          <div className="settings-sub-page__row">
+            <div className="settings-sub-page__row-label">
+              <strong>Server owner</strong>
+              {isOwnerSet
+                ? <span style={{ color: 'var(--text-muted)' }}>{ownerUsername}{isCurrentOwner ? ' (you)' : ''}</span>
+                : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No owner set</span>}
+            </div>
+            <div className="settings-sub-page__row-control">
+              {isCurrentOwner && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  background: 'var(--accent)', color: '#fff',
+                  padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600,
+                }}>
+                  <i className="fas fa-crown" />&nbsp;Owner
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Claim / transfer form */}
+      <div className="settings-sub-page__section">
+        <p className="settings-sub-page__section-title">
+          {isOwnerSet ? 'Transfer Ownership' : 'Claim Ownership'}
+        </p>
+        <div className="settings-sub-page__card">
+          <div className="settings-sub-page__row settings-sub-page__row--vertical">
+            <div className="settings-sub-page__row-label">
+              <strong>Account username</strong>
+              <span>The username to assign as server owner.</span>
+            </div>
+            <TextField
+              value={ownerInput}
+              onChange={(e) => setOwnerInput(e.target.value)}
+              placeholder="Enter username"
+              disabled={status === 'busy'}
+            />
+          </div>
+          {(isOwnerSet || needsToken) && (
+            <div className="settings-sub-page__row settings-sub-page__row--vertical" style={{ marginTop: 12 }}>
+              <div className="settings-sub-page__row-label">
+                <strong>Admin token</strong>
+                <span>
+                  {needsToken
+                    ? 'This server requires an admin token to transfer ownership.'
+                    : 'Required if an admin token is configured on the server.'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <TextField
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="Admin token (optional)"
+                  type={showToken ? 'text' : 'password'}
+                  disabled={status === 'busy'}
+                />
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowToken(v => !v)}
+                  iconLeft={<i className={showToken ? 'fas fa-eye-slash' : 'fas fa-eye'} />}
+                />
+              </div>
+            </div>
+          )}
+          {status === 'success' && (
+            <p style={{ color: 'var(--green, #4caf50)', marginTop: 10, fontSize: 13 }}>
+              <i className="fas fa-check" /> {statusMsg}
+            </p>
+          )}
+          {status === 'error' && (
+            <p style={{ color: 'var(--red, #f44336)', marginTop: 10, fontSize: 13 }}>
+              <i className="fas fa-exclamation-triangle" /> {statusMsg}
+            </p>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+            <Button
+              variant="primary"
+              onClick={handleSubmit}
+              disabled={status === 'busy' || !ownerInput.trim()}
+              iconLeft={<i className={status === 'busy' ? 'fas fa-spinner fa-spin' : 'fas fa-crown'} />}
+            >
+              {isOwnerSet ? 'Transfer Ownership' : 'Claim Ownership'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // == Main component ============================================================
 
 const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
@@ -780,6 +947,9 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
   passwordRequired = null,
   adminToken,
   onUpdateServerIcon,
+  ownerUsername,
+  currentUsername,
+  onClaimOwner,
 }) => {
   const [activeTab, setActiveTab] = useState<ServerTab>('overview');
 
@@ -792,6 +962,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
         { id: 'permissions', label: 'Permissions', icon: 'fas fa-lock'        },
         { id: 'security',    label: 'Security',    icon: 'fas fa-key'         },
         { id: 'backups',     label: 'Backups',     icon: 'fas fa-archive'     },
+        { id: 'ownership',   label: 'Ownership',   icon: 'fas fa-crown'       },
       ],
     },
   ];
@@ -835,6 +1006,14 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
       )}
       {activeTab === 'security'    && <SecuritySubPage passwordRequired={passwordRequired} />}
       {activeTab === 'backups'     && <BackupsSubPage serverUrl={server.url} adminToken={adminToken} />}
+      {activeTab === 'ownership'   && (
+        <OwnershipSubPage
+          server={server}
+          ownerUsername={ownerUsername}
+          currentUsername={currentUsername}
+          onClaimOwner={onClaimOwner}
+        />
+      )}
     </SettingsLayout>
   );
 };

@@ -73,6 +73,10 @@ module.exports = {
         {
           from: path.resolve(__dirname, 'renderer/src/themes'),
           to: 'themes'
+        },
+        {
+          from: path.resolve(__dirname, 'electron-package.json'),
+          to: 'package.json'
         }
       ]
     }),

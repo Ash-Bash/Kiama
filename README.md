@@ -13,11 +13,15 @@ A decentralized Discord-like chat application built with modern web technologies
 - **Voice & Video Chat**: WebRTC-based voice and video communication
 - **End-to-End Encryption**: Secure communication channels
 - **Role-Based Access Control**: Create/edit server roles with per-permission toggles (manage server, kick, ban, send, view); assign read/write roles per channel from the Server Settings panel
+- **Channel & Section Visibility**: Per-channel and per-section visibility rules driven by roles — new channels/sections default to managed-roles-only visibility so they are private until explicitly opened
+- **Section Settings Page**: Dedicated settings page per section with Overview (rename) and Permissions (viewRoles/manageRoles) tabs, mirroring the Channel Settings page
+- **Server Ownership**: Designate a specific account as server owner via the Ownership tab in Server Settings or the `--owner` CLI flag; owner identity is stored in the server config and verified at login so ownership is accurate across all clients
 - **Moderation System**: Advanced moderation with whitelists/blacklists
 - **Plugin Architecture**: Extensible client and server plugins
 - **Modern Surface (Soft-3D) Mode**: Optional per-surface highlight-and-shadow styling for panels, toolbars, and picker overlays
 - **Theming System**: JSON-based themes with light/dark mode support and per-theme font selection
 - **Common UI Component Library**: Shared `Button`, `TextField`, `ModalPanel`, `PopoverPanel`, `Select`, `Toggle`, `ColorPicker`, `SegmentedControl` — usable from plugins and core pages alike
+- **Server Icon Persistence**: Server icons are uploaded to the server (`POST /server/icon`) so all connected clients see the same icon, not just the uploader
 - **Cross-Platform Client**: Electron-based desktop application
 - **Responsive UI**: Mobile drawers for server/channel/member lists with coordinated toggles
 - **CLI Server Management**: Command-line interface for server administration
@@ -74,6 +78,20 @@ Server Name
     ├── # coding-help
     └── # project-showcase
 ```
+
+### Channel & Section Visibility
+
+New channels and sections default to **managed-roles-only** visibility — only roles with `manageChannels: true` (or the server owner) see them until you explicitly open access.
+
+Permissions are edited via:
+- **Channel Settings page** → Permissions tab ("Can view (visibility)" and "Can write" columns)
+- **Section Settings page** → Permissions tab ("Can view" and "Can manage" columns)
+
+The sidebar automatically hides channels/sections the current user's role cannot see.
+
+### Section Deletion Behaviour
+
+When a section is deleted, any channels it contained are automatically moved to the next remaining section (lowest position) rather than being orphaned or hidden.
 
 ### Channel Management
 - **Create Channels**: Via API or client UI
@@ -238,6 +256,9 @@ kiama-server --help
 Key options:
 - `--port <number>` - Server port (default: 3000)
 - `--mode <public|private>` - Server access mode
+- `--token <token>` - Admin token for protected endpoints (or set `KIAMA_ADMIN_TOKEN`)
+- `--owner <username>` - Designate a local account as server owner on startup
+- `--config <path>` - Path to an initial server configuration JSON file
 - `--help` - Show help information
 
 Server management CLI (requires admin token):
@@ -252,11 +273,12 @@ Environment variables:
 - `KIAMA_CONFIG_PATH` – override path to the persisted config JSON (defaults to `<data-root>/configs/<serverId>.json`).
 
 Data layout created on startup:
-- `<data-root>/configs/` – persisted server config (includes sections/channels/roles and hashed admin token)
+- `<data-root>/configs/` – persisted server config (includes sections/channels/roles, hashed admin token, and `ownerUsername`)
 - `<data-root>/plugins/` – server-side plugins
 - `<data-root>/uploads/` – user uploads (emotes, etc.)
 - `<data-root>/logs/` – server logs
 - `<data-root>/media/` – uploaded media files
+- `<data-root>/data/` – server icon file (`server-icon.{ext}`) stored here
 - `<data-root>/Backups/` – backup zip archives (`[ServerName]_Backup_[Datetime].zip`)
 - `<data-root>/secrets/admin.token` – generated admin token (mode 600) when no token is supplied
 - `<data-root>/backup-config.json` – persisted backup schedule and max-count settings

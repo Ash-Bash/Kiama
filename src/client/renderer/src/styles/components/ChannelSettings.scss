@@ -1,0 +1,112 @@
+// Channel Settings Page — specific overrides & new elements.
+// Generic settings-sub-page, channel-perms, and settings-layout styles come
+// from SettingsLayout.scss and ServerSettings.scss which are already loaded.
+
+.channel-settings-layout {
+  // Inherits all .settings-layout styles.
+}
+
+// Type badge shown in overview
+.channel-settings__type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--surface-chip-bg, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 13px;
+
+  i {
+    font-size: 12px;
+  }
+}
+
+// Monospace channel ID
+.channel-settings__id-code {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--tertiary-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  word-break: break-all;
+}
+
+// Identity avatar for a channel (uses an icon instead of a server image)
+.channel-settings__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  border-radius: 10px;
+}
+
+// Inline number input (slow mode)
+.channel-settings__number-input {
+  background: var(--primary-bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  color: var(--text-primary);
+  font-size: 14px;
+  width: 80px;
+  text-align: center;
+
+  &:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+}
+
+// "Add Section" banner at the bottom of the channel list
+.add-section-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+
+  &:hover {
+    background: var(--hover);
+    color: var(--text-primary);
+    border-color: var(--accent);
+
+    i {
+      color: var(--accent);
+    }
+  }
+
+  i {
+    font-size: 11px;
+  }
+}
+
+// ── Modal create / rename forms using ModalPanel ─────────────────────────────
+
+.channel-create-modal,
+.section-create-modal,
+.rename-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+  }
+}

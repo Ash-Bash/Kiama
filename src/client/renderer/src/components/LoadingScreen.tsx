@@ -17,11 +17,15 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ type = 'initial' }) => {
   const [currentMessage, setCurrentMessage] = useState(0);
 
   useEffect(() => {
+    console.debug('[Kiama] LoadingScreen mounted', { type });
     const interval = setInterval(() => {
       setCurrentMessage((prev) => (prev + 1) % loadingMessages.length);
     }, 1200);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      console.debug('[Kiama] LoadingScreen unmounted', { type });
+    };
   }, []);
 
   const title = type === 'initial' ? 'Starting Kiama' : 'Switching server';

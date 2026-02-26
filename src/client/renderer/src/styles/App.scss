@@ -2778,6 +2778,56 @@ html, body {
   }
 }
 
+// ── Drag-and-drop ─────────────────────────────────────────────────────────────
+
+// Grip icon — hidden by default, shown on hover when the user can manage channels.
+.drag-handle {
+  display: none;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, var(--text-secondary));
+  font-size: 11px;
+  cursor: grab;
+  padding: 0 5px 0 0;
+  opacity: 0.5;
+  transition: opacity 0.1s;
+  user-select: none;
+
+  &:active { cursor: grabbing; }
+}
+
+.section-header:hover .drag-handle,
+.channel:hover .drag-handle {
+  display: flex;
+  opacity: 0.7;
+}
+
+// Dragged item — fade it out in place.
+.channel-section.dnd-dragging > .section-header {
+  opacity: 0.3;
+}
+
+.channel.dnd-dragging {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+// Drop target — section header highlight when a section is being dragged over it.
+.channel-section.dnd-over-section > .section-header {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-radius: 6px;
+  .section-name { color: var(--accent); }
+}
+
+// Drop target — channel row insert indicator.
+.channel.dnd-over-channel {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 -2px 0 var(--accent);
+}
+
+// ── End drag-and-drop ─────────────────────────────────────────────────────────
+
 .channel-section {
   position: relative;
 

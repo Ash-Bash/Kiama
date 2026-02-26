@@ -17,10 +17,84 @@ import HomePage from './pages/HomePage';
 import ServerPage from './pages/ServerPage';
 import SettingsPage from './pages/SettingsPage';
 import ServerSettingsPage from './pages/ServerSettingsPage';
+import ChannelSettingsPage from './pages/ChannelSettingsPage';
+import SectionSettingsPage from './pages/SectionSettingsPage';
 import Select from './components/Select';
+import Button from './components/Button';
+import TextField from './components/TextField';
+import ModalPanel from './components/ModalPanel';
+import ContextMenu, { ContextMenuItemDef } from './components/ContextMenu';
 import './styles/App.scss';
+import './styles/components/ChannelSettings.scss';
+import UserProfilePopover from './components/UserProfilePopover';
+import { getPortalContainer } from './utils/portalRoot';
 
-const socket = io('http://localhost:3000');
+// ---------------------------------------------------------------------------
+// Global error boundary — catches React render errors and shows the message
+
+// instead of a blank white screen, making it much easier to debug.
+// ---------------------------------------------------------------------------
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null; componentStack: string }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null, componentStack: '' };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[Kiama ErrorBoundary]', error, info);
+    // Record the component stack for the UI and also snapshot some DOM containers
+    const componentStack = info.componentStack || '';
+    try {
+      const bodyCount = document.body ? document.body.childElementCount : -1;
+      const ctx = document.getElementById('kiama-context-menu-root');
+      const pop = document.getElementById('kiama-popover-root');
+      const prof = document.getElementById('kiama-profile-popover-root');
+      console.error('[Kiama ErrorBoundary] DOM snapshot:', {
+        bodyCount,
+        contextChildren: ctx ? ctx.childElementCount : null,
+        popoverChildren: pop ? pop.childElementCount : null,
+        profileChildren: prof ? prof.childElementCount : null,
+      });
+    } catch (e) {
+      console.error('[Kiama ErrorBoundary] Failed to snapshot DOM:', e);
+    }
+    this.setState({ componentStack: componentStack, error });
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 32, fontFamily: 'monospace', color: '#e53935', background: '#1e1e1e', minHeight: '100vh', overflow: 'auto' }}>
+          <h2 style={{ marginBottom: 16 }}>⚠ Render error</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 13 }}>
+            {this.state.error?.stack || String(this.state.error)}
+          </pre>
+          {this.state.componentStack && (
+            <>
+              <h3 style={{ marginTop: 20, marginBottom: 8, color: '#ff9800' }}>Component stack</h3>
+              <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 12, color: '#ff9800' }}>
+                {this.state.componentStack}
+              </pre>
+            </>
+          )}
+          <button
+            style={{ marginTop: 24, padding: '8px 16px', cursor: 'pointer' }}
+            onClick={() => this.setState({ hasError: false, error: null, componentStack: '' })}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+
+}
+
 const SERVER_URL = 'http://localhost:3000';
 
 const SERVER_ID = 'default-server'; // In production, get from server handshake
@@ -60,7 +134,13 @@ interface User {
   accessibleChannels?: string[];
 }
 
-type ActiveView = 'home' | 'server' | 'settings' | 'server-settings';
+interface MemberEntry {
+  username: string;
+  role?: string;
+  status: 'online' | 'offline';
+}
+
+type ActiveView = 'home' | 'server' | 'settings' | 'server-settings' | 'channel-settings' | 'section-settings';
 
 // Main renderer shell that wires sockets, plugins, and page layout together.
 function AppContent({ token, user, onLogout }: { token: string; user: any; onLogout: () => void }) {
@@ -152,7 +232,6 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [showEmotePicker, setShowEmotePicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [showServerMenu, setShowServerMenu] = useState(false);
-  const [isSwitchingServer, setIsSwitchingServer] = useState(false);
   const [soft3DEnabled, setSoft3DEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
     const stored = window.localStorage.getItem('soft3d-enabled');
@@ -162,6 +241,14 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [settingsThemeMode, setSettingsThemeMode] = useState<'light' | 'dark'>(currentMode);
   const [settingsSelectedTheme, setSettingsSelectedTheme] = useState<string>(currentThemeId);
   const [settingsFontId, setSettingsFontId] = useState<string>(currentFontId);
+  // Pre-initialize portal containers at mount time so they exist before any portal renders.
+  useEffect(() => {
+    ['kiama-context-menu-root', 'kiama-popover-root', 'kiama-profile-popover-root'].forEach(id => {
+      const el = getPortalContainer(id);
+      console.debug('[Kiama] Ensured portal container', id, 'childCount=', el.childElementCount);
+    });
+  }, []);
+
   // Profile picture for the currently logged-in local account.
   const [userAvatar, setUserAvatar] = useState<string | undefined>(() => {
     if (user?.profilePic) return `file://${appAccountManager.getMediaFilePath(user.profilePic)}`;
@@ -197,6 +284,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [showMobileUserList, setShowMobileUserList] = useState(false);
   const [activeAddMenu, setActiveAddMenu] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    type: 'section' | 'channel';
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  // ── Drag-and-drop state ─────────────────────────────────────────────────────
+  const dndDragRef = useRef<{ type: 'section' | 'channel'; id: string } | null>(null);
+  const [dndDraggingId, setDndDraggingId] = useState<string | null>(null);
+  const [dndOverSectionId, setDndOverSectionId] = useState<string | null>(null);
+  const [dndOverChannelId, setDndOverChannelId] = useState<string | null>(null);
   const [userSidebarTab, setUserSidebarTab] = useState<'members' | 'metrics'>('members');
   const [serverRoles, setServerRoles] = useState<Role[]>([
     { id: 'role-owner', name: 'owner', color: '#f59e0b', permissions: { manageServer: true, manageChannels: true, manageRoles: true, kickMembers: true, banMembers: true, sendMessages: true, viewChannels: true } },
@@ -205,6 +303,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     { id: 'role-members', name: 'Members', color: '#9ca3af', permissions: { manageServer: false, manageChannels: false, manageRoles: false, kickMembers: false, banMembers: false, sendMessages: true, viewChannels: true } },
   ]);
   const [serverSettingsChannelId, setServerSettingsChannelId] = useState<string>('');
+  const [channelSettingsChannelId, setChannelSettingsChannelId] = useState<string | null>(null);
+  const [sectionSettingsSectionId, setSectionSettingsSectionId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [reactToMessageId, setReactToMessageId] = useState<string | null>(null);
   const [pickerAnchor, setPickerAnchor] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
@@ -212,10 +312,19 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null);
   const [serverSettingsLoading, setServerSettingsLoading] = useState(false);
   const [serverPasswordRequired, setServerPasswordRequired] = useState<boolean | null>(null);
+  // Per-server info (owner username + icon URL) fetched via GET /info.
+  const [serverInfoCache, setServerInfoCache] = useState<Map<string, { ownerUsername: string | null; iconUrl: string | null }>>(new Map());
+  // Per-server member list (username → role + online status) fetched via GET /members.
+  const [serverMembers, setServerMembers] = useState<Map<string, MemberEntry[]>>(new Map());
+  // Controls the Discord-style user profile popover.
+  const [profilePopover, setProfilePopover] = useState<{ member: MemberEntry; rect: DOMRect } | null>(null);
   const [e2eeEnabled, setE2eeEnabled] = useState(false);
 
   // Tracks which client-side serverId to tag the next channels_list response with.
   const pendingChannelServerIdRef = useRef<string>(currentServerId);
+  // Always holds the latest currentServerId so socket handlers avoid stale closures.
+  const currentServerIdRef = useRef<string>(currentServerId);
+  useEffect(() => { currentServerIdRef.current = currentServerId; }, [currentServerId]);
 
   // Sync settings with current values
   React.useEffect(() => {
@@ -251,9 +360,16 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         setActiveAddMenu(null);
       }
     };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setActiveAddMenu(null);
+    };
 
     document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   useEffect(() => {
@@ -341,6 +457,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     socketRef.current.on('connect', () => {
       console.log('Connected to server');
       loadChannelsAndSections();
+      // Announce who we are so the server can track presence
+      if (user?.username) {
+        socketRef.current.emit('identify', { username: user.username });
+      }
     });
 
     socketRef.current.on('message', (msg: Message) => {
@@ -412,7 +532,16 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     });
 
     socketRef.current.on('channel_created', (channel: Channel) => {
-      setChannels(prev => [...prev, channel]);
+      // Guard against duplicates (e.g. reconnect races)
+      setChannels(prev =>
+        prev.some(c => c.id === channel.id)
+          ? prev
+          : [...prev, { ...channel, serverId: pendingChannelServerIdRef.current }]
+      );
+    });
+
+    socketRef.current.on('channel_updated', (channel: Channel) => {
+      setChannels(prev => prev.map(c => c.id === channel.id ? { ...channel, serverId: c.serverId } : c));
     });
 
     socketRef.current.on('channel_deleted', (data: { channelId: string }) => {
@@ -425,11 +554,59 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     });
 
     socketRef.current.on('section_created', (section: ChannelSection) => {
-      setSections(prev => [...prev, section]);
+      setSections(prev => [...prev, { ...section, serverId: pendingChannelServerIdRef.current }]);
+    });
+
+    socketRef.current.on('section_updated', (section: ChannelSection) => {
+      setSections(prev => prev.map(s => s.id === section.id ? { ...section, serverId: s.serverId } : s));
     });
 
     socketRef.current.on('section_deleted', (data: { sectionId: string }) => {
       setSections(prev => prev.filter(s => s.id !== data.sectionId));
+      // Clear sectionId from any channels that were in this section so they
+      // don't get orphaned invisibly in client state.
+      setChannels(prev => prev.map(c =>
+        c.sectionId === data.sectionId ? { ...c, sectionId: undefined } : c
+      ));
+    });
+
+    // Member presence / role events
+    socketRef.current.on('member_role_updated', (data: { username: string; role: string | null }) => {
+      const sid = currentServerIdRef.current;
+      setServerMembers(prev => {
+        const next = new Map(prev);
+        const list = (next.get(sid) || []).map(m =>
+          m.username === data.username ? { ...m, role: data.role ?? undefined } : m
+        );
+        next.set(sid, list);
+        return next;
+      });
+    });
+
+    socketRef.current.on('user_online', (data: { username: string }) => {
+      const sid = currentServerIdRef.current;
+      setServerMembers(prev => {
+        const next = new Map(prev);
+        const list = next.get(sid) || [];
+        const exists = list.some(m => m.username === data.username);
+        const updated = exists
+          ? list.map(m => m.username === data.username ? { ...m, status: 'online' as const } : m)
+          : [...list, { username: data.username, status: 'online' as const }];
+        next.set(sid, updated);
+        return next;
+      });
+    });
+
+    socketRef.current.on('user_offline', (data: { username: string }) => {
+      const sid = currentServerIdRef.current;
+      setServerMembers(prev => {
+        const next = new Map(prev);
+        const list = (next.get(sid) || []).map(m =>
+          m.username === data.username ? { ...m, status: 'offline' as const } : m
+        );
+        next.set(sid, list);
+        return next;
+      });
     });
 
     return () => {
@@ -438,9 +615,14 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         socketRef.current.off('channel_history');
         socketRef.current.off('channels_list');
         socketRef.current.off('channel_created');
+        socketRef.current.off('channel_updated');
         socketRef.current.off('channel_deleted');
         socketRef.current.off('section_created');
+        socketRef.current.off('section_updated');
         socketRef.current.off('section_deleted');
+        socketRef.current.off('member_role_updated');
+        socketRef.current.off('user_online');
+        socketRef.current.off('user_offline');
       }
     };
   }, [pluginManager, token]);
@@ -521,6 +703,103 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setServerSettingsLoading(false);
   };
 
+  // Fetch the server's /info endpoint to get ownerUsername and iconUrl.
+  // Called every time we switch to a real server (not 'home').
+  const fetchServerInfo = async (server: Server) => {
+    if (!server.url || server.id === 'home') return;
+    try {
+      const res = await fetch(`${server.url}/info`);
+      if (!res.ok) return;
+      const info = await res.json();
+      setServerInfoCache(prev => {
+        const next = new Map(prev);
+        next.set(server.url, {
+          ownerUsername: info.ownerUsername ?? null,
+          iconUrl: info.iconUrl ?? null,
+        });
+        return next;
+      });
+      // If the server advertises an icon, use the server-hosted URL directly so
+      // all clients (not just the uploader) see the same icon.
+      if (info.iconUrl) {
+        const serverIconUrl = `${server.url}/server/icon?t=${Date.now()}`;
+        setServers(prev => prev.map(s => s.id === server.id ? { ...s, icon: serverIconUrl } : s));
+      }
+    } catch (e) {
+      // Server may not have the /info endpoint yet — silently ignore.
+    }
+  };
+
+  // Claim (or transfer) ownership of the current real server.
+  const claimOwner = async (
+    ownerUsername: string,
+    adminToken?: string,
+  ): Promise<{ success: boolean; requiresToken?: boolean; error?: string }> => {
+    const targetServerId = serverSettingsServerId || currentServerId;
+    const server = servers.find(s => s.id === targetServerId);
+    if (!server || server.id === 'home' || !server.url) {
+      return { success: false, error: 'Ownership can only be set on real servers.' };
+    }
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (adminToken) headers['X-Admin-Token'] = adminToken;
+      const res = await fetch(`${server.url}/server/claim-owner`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ username: ownerUsername, token: adminToken }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, requiresToken: data.requiresToken === true, error: data.error };
+      }
+      // Update the cache so the UI reflects the new owner immediately.
+      setServerInfoCache(prev => {
+        const next = new Map(prev);
+        const existing = prev.get(server.url) || { iconUrl: null };
+        next.set(server.url, { ...existing, ownerUsername: data.ownerUsername });
+        return next;
+      });
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Network error' };
+    }
+  };
+
+  // Fetch the member list from the current real server's /members endpoint.
+  const fetchServerMembers = async (serverId: string) => {
+    const server = servers.find(s => s.id === serverId);
+    if (!server || server.id === 'home' || !server.url) return;
+    try {
+      const res = await fetch(`${server.url}/members`);
+      if (!res.ok) return;
+      const body = await res.json();
+      // Server returns { members: [...] }
+      const data: MemberEntry[] = Array.isArray(body) ? body : (body.members ?? []);
+      setServerMembers(prev => {
+        const next = new Map(prev);
+        next.set(serverId, data);
+        return next;
+      });
+    } catch (e) {
+      // Server may not support /members yet — silently ignore.
+    }
+  };
+
+  // Assign (or clear) a role for a member on the current real server.
+  const assignMemberRole = async (username: string, roleName: string): Promise<void> => {
+    const server = servers.find(s => s.id === currentServerId);
+    if (!server || server.id === 'home' || !server.url) return;
+    try {
+      await fetch(`${server.url}/members/${encodeURIComponent(username)}/role`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: roleName || null }),
+      });
+    } catch (e) {
+      console.warn('Failed to assign role', e);
+    }
+  };
+
   const closeServerSettings = () => {
     setActiveView('server');
   };
@@ -556,6 +835,35 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       }));
     } catch (error) {
       console.error('Error updating channel permissions', error);
+    }
+  };
+
+  // Persist section permission changes (viewRoles / manageRoles) to the server.
+  const saveSectionPermissions = async (sectionId: string, viewRoles: string[], manageRoles: string[]) => {
+    const server = servers.find(s => s.id === currentServerId);
+    if (!server) return;
+    try {
+      const res = await fetch(`${server.url}/sections/${sectionId}/permissions`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ viewRoles, manageRoles })
+      });
+      if (!res.ok) throw new Error('Failed to update section permissions');
+      setSections(prev => prev.map(s => {
+        if (s.id !== sectionId) return s;
+        return {
+          ...s,
+          permissions: {
+            ...s.permissions,
+            view: viewRoles.length === 0,
+            manage: s.permissions?.manage ?? false,
+            viewRoles,
+            manageRoles,
+          }
+        };
+      }));
+    } catch (error) {
+      console.error('Error saving section permissions:', error);
     }
   };
 
@@ -635,6 +943,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
   // Swap to a different server, showing a brief loading state while reconnecting.
   const switchServer = (serverId: string) => {
+    console.debug('[Kiama] switchServer START', { serverId, currentServerId });
     const server = servers.find(s => s.id === serverId);
     if (!server) return;
 
@@ -642,7 +951,6 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       setActiveView('home');
       setCurrentServerId('home');
       setCurrentServer(SERVER_ID);
-      setIsSwitchingServer(false);
 
       if (viewportWidth <= 768) {
         setShowMobileServerList(false);
@@ -668,16 +976,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
     const nextChannelId = getDefaultChannelIdForServer(serverId);
 
-    // Set loading state
-    setIsSwitchingServer(true);
-
-    // Disconnect from current server
-    socket.disconnect();
-
-    // Connect to new server
-    io(server.url);
-    // In a real implementation, you'd need to update the socket variable
-    // For now, we'll just update the state
+    console.debug('[Kiama] switchServer about to set currentServerId ->', serverId);
     setCurrentServerId(serverId);
     setCurrentServer(server.id === 'home' ? SERVER_ID : server.id);
     setCurrentChannelId(nextChannelId || currentChannelId); // Reset to first channel for that server
@@ -691,10 +990,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     // Reload channels for the newly selected server
     loadChannelsAndSections(serverId);
 
-    // Simulate loading delay, then hide loading
-    setTimeout(() => {
-      setIsSwitchingServer(false);
-    }, 1500);
+    // Fetch owner / icon info from the real server
+    fetchServerInfo(server);
+
+    // Fetch member list (roles + presence) from the real server
+    fetchServerMembers(serverId);
+
+    // Announce this client's identity so presence tracking works immediately
+    if (socketRef.current && user?.username) {
+      socketRef.current.emit('identify', { username: user.username });
+    }
+
   };
 
   // Quick-add a server — delegates UI to AddServerPanel.
@@ -795,7 +1101,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   // Send a message over the socket, defaulting to plain text.
   const sendMessage = (type: string = 'text', data?: any) => {
     if (!message.trim() && type === 'text' && !data) return;
-    const senderRole = users.find(u => u.name === 'You')?.role;
+    // For real servers, look up the authenticated user's role from the live member list.
+    // Fall back to the mock 'users' array only for the home/test server.
+    const senderRole = (() => {
+      if (currentServerId !== 'home') {
+        const memberList = serverMembers.get(currentServerId) || [];
+        const myUsername = user?.username ?? user?.name;
+        const member = memberList.find(m => m.username === myUsername);
+        return member?.role;
+      }
+      return users.find(u => u.name === 'You')?.role;
+    })();
     let content = message;
     if (e2eeEnabled) {
       content = CryptoJS.AES.encrypt(message, 'secret-key').toString();
@@ -998,9 +1314,34 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       const iconUrl = `file://${filePath}`;
       setServers(prev => prev.map(s => s.id === serverId ? { ...s, icon: iconUrl } : s));
 
+      // Also upload to the server so all clients share the same icon.
+      const srvr = servers.find(s => s.id === serverId);
+      if (srvr && srvr.url && srvr.id !== 'home') {
+        try {
+          const uploadRes = await fetch(`${srvr.url}/server/icon`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dataUri }),
+          });
+          if (uploadRes.ok) {
+            // Update the server icon to use the server-hosted URL so it is visible to all clients.
+            const serverIconUrl = `${srvr.url}/server/icon?t=${Date.now()}`;
+            setServers(prev => prev.map(s => s.id === serverId ? { ...s, icon: serverIconUrl } : s));
+            // Refresh server info cache iconUrl
+            setServerInfoCache(prev => {
+              const next = new Map(prev);
+              const existing = prev.get(srvr.url) || { ownerUsername: null };
+              next.set(srvr.url, { ...existing, iconUrl: serverIconUrl });
+              return next;
+            });
+          }
+        } catch (_e) {
+          // Server upload failed — local icon is still saved; silently ignore.
+        }
+      }
+
       // Persist icon reference and server info to the account's server list
       if (user?.username) {
-        const srvr = servers.find(s => s.id === serverId);
         const iconFilename = filePath.split('/').pop() || '';
         await appAccountManager.updateServerList(user.username, [{
           id: serverId,
@@ -1016,94 +1357,140 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }
   };
 
-  // Render a modal that creates a channel scoped to an optional section.
+  // Render a ModalPanel-based prompt to create a channel in an optional section.
   const openCreateChannelModal = (sectionId?: string) => {
-    const modalContent = (
-      <div className="create-channel-modal">
-        <form onSubmit={async (e) => {
-          e.preventDefault();
-          const formData = new FormData(e.target as HTMLFormElement);
-          const name = formData.get('name') as string;
-          const type = formData.get('type') as 'text' | 'voice' | 'announcement';
-          
-          if (name.trim()) {
-            await createChannel(name, type, sectionId);
-            closeModal();
-            loadChannelsAndSections(); // Refresh the list
+    const CreateChannelModal = () => {
+      const [name, setName] = React.useState('');
+      const [type, setType] = React.useState<'text' | 'voice' | 'announcement'>('text');
+      const [busy, setBusy] = React.useState(false);
+
+      const submit = async () => {
+        if (!name.trim()) return;
+        setBusy(true);
+        await createChannel(name.trim(), type, sectionId);
+        closeModal();
+        loadChannelsAndSections();
+      };
+
+      return (
+        <ModalPanel
+          title="Create Channel"
+          description="Add a new channel to this server."
+          icon={<i className="fas fa-hashtag" />}
+          tone="accent"
+          footer={
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <Button variant="secondary" onClick={closeModal} disabled={busy}>Cancel</Button>
+              <Button
+                variant="primary"
+                onClick={submit}
+                disabled={busy || !name.trim()}
+                iconLeft={<i className={busy ? 'fas fa-spinner fa-spin' : 'fas fa-plus'} />}
+              >
+                {busy ? 'Creating…' : 'Create Channel'}
+              </Button>
+            </div>
           }
-        }}>
-          <div className="form-group">
-            <label htmlFor="channel-name">Channel Name</label>
-            <input
-              type="text"
-              id="channel-name"
-              name="name"
+        >
+          <div className="channel-create-modal">
+            <TextField
+              label="Channel name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               placeholder="new-channel"
-              required
+              autoFocus
+              disabled={busy}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
             />
+            <label className="field">
+              <span>Channel type</span>
+              <Select
+                value={type}
+                onChange={(e) => setType(e.target.value as 'text' | 'voice' | 'announcement')}
+                disabled={busy}
+              >
+                <option value="text">Text Channel</option>
+                <option value="voice">Voice Channel</option>
+                <option value="announcement">Announcement Channel</option>
+              </Select>
+            </label>
           </div>
-          <div className="form-group">
-            <label htmlFor="channel-type">Channel Type</label>
-            <Select id="channel-type" name="type" defaultValue="text">
-              <option value="text">Text Channel</option>
-              <option value="voice">Voice Channel</option>
-              <option value="announcement">Announcement Channel</option>
-            </Select>
-          </div>
-          <div className="modal-actions">
-            <button type="button" onClick={closeModal}>Cancel</button>
-            <button type="submit">Create Channel</button>
-          </div>
-        </form>
-      </div>
-    );
-    
-    openModal(modalContent, { title: 'Create Channel', size: 'small' });
+        </ModalPanel>
+      );
+    };
+    openModal(<CreateChannelModal />, { size: 'small', closable: true });
   };
 
-  // Render a modal that creates a new section for organizing channels.
+  // Render a ModalPanel-based prompt to create a new section.
   const openCreateSectionModal = () => {
-    const modalContent = (
-      <div className="create-section-modal">
-        <form onSubmit={async (e) => {
-          e.preventDefault();
-          const formData = new FormData(e.target as HTMLFormElement);
-          const name = formData.get('name') as string;
-          
-          if (name.trim()) {
-            await createSection(name);
-            closeModal();
-            loadChannelsAndSections(); // Refresh the list
+    const CreateSectionModal = () => {
+      const [name, setName] = React.useState('');
+      const [busy, setBusy] = React.useState(false);
+
+      const submit = async () => {
+        if (!name.trim()) return;
+        setBusy(true);
+        await createSection(name.trim());
+        closeModal();
+        loadChannelsAndSections();
+      };
+
+      return (
+        <ModalPanel
+          title="Create Section"
+          description="Sections group related channels together."
+          icon={<i className="fas fa-folder-plus" />}
+          tone="accent"
+          footer={
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <Button variant="secondary" onClick={closeModal} disabled={busy}>Cancel</Button>
+              <Button
+                variant="primary"
+                onClick={submit}
+                disabled={busy || !name.trim()}
+                iconLeft={<i className={busy ? 'fas fa-spinner fa-spin' : 'fas fa-plus'} />}
+              >
+                {busy ? 'Creating…' : 'Create Section'}
+              </Button>
+            </div>
           }
-        }}>
-          <div className="form-group">
-            <label htmlFor="section-name">Section Name</label>
-            <input
-              type="text"
-              id="section-name"
-              name="name"
+        >
+          <div className="section-create-modal">
+            <TextField
+              label="Section name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               placeholder="New Section"
-              required
+              autoFocus
+              disabled={busy}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
             />
           </div>
-          <div className="modal-actions">
-            <button type="button" onClick={closeModal}>Cancel</button>
-            <button type="submit">Create Section</button>
-          </div>
-        </form>
-      </div>
-    );
-    
-    openModal(modalContent, { title: 'Create Section', size: 'small' });
+        </ModalPanel>
+      );
+    };
+    openModal(<CreateSectionModal />, { size: 'small', closable: true });
   };
 
   // Persist a new channel on the server and rely on socket events to refresh state.
+  // New channels default to visible only for roles with manageChannels permission,
+  // so they don't appear for regular users until explicitly made public.
   const createChannel = async (name: string, type: 'text' | 'voice' | 'announcement' = 'text', sectionId?: string) => {
+    const managedRoleIds = serverRoles
+      .filter(r => r.permissions?.manageChannels === true || r.name?.toLowerCase() === 'owner')
+      .map(r => r.id);
     try {
       const response = await fetch(`${SERVER_URL}/channels`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, type, sectionId })
+        body: JSON.stringify({
+          name, type, sectionId,
+          permissions: {
+            read: true, write: true, manage: false,
+            readRoles: managedRoleIds,
+            writeRoles: managedRoleIds,
+          }
+        })
       });
       if (!response.ok) throw new Error('Failed to create channel');
     } catch (error) {
@@ -1112,17 +1499,308 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   // Persist a new section and refresh the sidebar listings.
+  // New sections default to visible only for roles with manageChannels permission.
   const createSection = async (name: string) => {
+    const managedRoleIds = serverRoles
+      .filter(r => r.permissions?.manageChannels === true || r.name?.toLowerCase() === 'owner')
+      .map(r => r.id);
     try {
       const response = await fetch(`${SERVER_URL}/sections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({
+          name,
+          permissions: { view: false, manage: false, viewRoles: managedRoleIds }
+        })
       });
       if (!response.ok) throw new Error('Failed to create section');
     } catch (error) {
       console.error('Error creating section:', error);
     }
+  };
+
+  // Delete a channel from the server; the socket event handles local state.
+  const deleteChannel = async (channelId: string) => {
+    const serverChannels = channels.filter(c => c.serverId === currentServerId);
+    if (serverChannels.length <= 1) return; // must keep at least one channel
+    try {
+      const response = await fetch(`${SERVER_URL}/channels/${channelId}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Failed to delete channel');
+      // Optimistic removal while waiting for socket confirmation
+      setChannels(prev => prev.filter(c => c.id !== channelId));
+      setMessages(prev => { const m = new Map(prev); m.delete(channelId); return m; });
+    } catch (error) {
+      console.error('Error deleting channel:', error);
+    }
+  };
+
+  // Delete a section; channels inside will become unsectioned via the server.
+  const deleteSection = async (sectionId: string) => {
+    const serverSections = sections.filter(s => s.serverId === currentServerId);
+    if (serverSections.length <= 1) return; // must keep at least one section
+    // Block if this is the only section that contains channels — deleting it would
+    // strand all channels unsectioned while leaving the other section(s) empty.
+    const serverChannels = channels.filter(c => c.serverId === currentServerId);
+    const channelsInOtherSections = serverChannels.filter(c => c.sectionId && c.sectionId !== sectionId).length;
+    const channelsInThisSection   = serverChannels.filter(c => c.sectionId === sectionId).length;
+    if (channelsInThisSection > 0 && channelsInOtherSections === 0) return;
+    try {
+      const response = await fetch(`${SERVER_URL}/sections/${sectionId}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Failed to delete section');
+      setSections(prev => prev.filter(s => s.id !== sectionId));
+    } catch (error) {
+      console.error('Error deleting section:', error);
+    }
+  };
+
+  // Rename an existing channel.
+  const renameChannel = async (channelId: string, name: string) => {
+    try {
+      const response = await fetch(`${SERVER_URL}/channels/${channelId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (!response.ok) throw new Error('Failed to rename channel');
+      setChannels(prev => prev.map(c => c.id === channelId ? { ...c, name } : c));
+    } catch (error) {
+      console.error('Error renaming channel:', error);
+    }
+  };
+
+  // Rename an existing section.
+  const renameSection = async (sectionId: string, name: string) => {
+    try {
+      const response = await fetch(`${SERVER_URL}/sections/${sectionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (!response.ok) throw new Error('Failed to rename section');
+      setSections(prev => prev.map(s => s.id === sectionId ? { ...s, name } : s));
+    } catch (error) {
+      console.error('Error renaming section:', error);
+    }
+  };
+
+  // Move a channel to a different section (or remove it from any section).
+  const moveChannelToSection = async (channelId: string, sectionId: string | undefined) => {
+    try {
+      const response = await fetch(`${SERVER_URL}/channels/${channelId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sectionId: sectionId ?? null })
+      });
+      if (!response.ok) throw new Error('Failed to move channel');
+      setChannels(prev => prev.map(c => c.id === channelId ? { ...c, sectionId } : c));
+    } catch (error) {
+      console.error('Error moving channel:', error);
+    }
+  };
+
+  // ── Drag-and-drop reorder helpers ──────────────────────────────────────────
+
+  const reorderSections = async (orderedIds: string[]) => {
+    setSections(prev => prev.map(s => {
+      const idx = orderedIds.indexOf(s.id);
+      return idx >= 0 ? { ...s, position: idx } : s;
+    }));
+    for (let i = 0; i < orderedIds.length; i++) {
+      const id = orderedIds[i];
+      try {
+        await fetch(`${SERVER_URL}/sections/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ position: i }),
+        });
+      } catch (e) { console.error('Error reordering section:', e); }
+    }
+  };
+
+  const reorderChannels = async (updates: Array<{ id: string; position: number; sectionId?: string }>) => {
+    setChannels(prev => prev.map(c => {
+      const u = updates.find(x => x.id === c.id);
+      if (!u) return c;
+      return { ...c, position: u.position, ...(u.sectionId !== undefined ? { sectionId: u.sectionId } : {}) };
+    }));
+    for (const { id, position, sectionId } of updates) {
+      try {
+        const body: Record<string, unknown> = { position };
+        if (sectionId !== undefined) body.sectionId = sectionId ?? null;
+        await fetch(`${SERVER_URL}/channels/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      } catch (e) { console.error('Error reordering channel:', e); }
+    }
+  };
+
+  const dndClearState = () => {
+    dndDragRef.current = null;
+    setDndDraggingId(null);
+    setDndOverSectionId(null);
+    setDndOverChannelId(null);
+  };
+
+  const handleSectionDrop = (targetSectionId: string) => {
+    const drag = dndDragRef.current;
+    if (!drag || drag.type !== 'section' || drag.id === targetSectionId) return;
+    const ordered = sections
+      .filter(s => s.serverId === currentServerId)
+      .sort((a, b) => a.position - b.position);
+    const fromIdx = ordered.findIndex(s => s.id === drag.id);
+    const toIdx   = ordered.findIndex(s => s.id === targetSectionId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const reordered = [...ordered];
+    const [item] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, item);
+    reorderSections(reordered.map(s => s.id));
+  };
+
+  const handleChannelDrop = (targetChannelId: string) => {
+    const drag = dndDragRef.current;
+    if (!drag || drag.type !== 'channel' || drag.id === targetChannelId) return;
+    const dragChannel   = channels.find(c => c.id === drag.id);
+    const targetChannel = channels.find(c => c.id === targetChannelId);
+    if (!dragChannel || !targetChannel) return;
+
+    if (dragChannel.sectionId === targetChannel.sectionId) {
+      // Same section — reorder.
+      const inSection = channels
+        .filter(c => c.sectionId === dragChannel.sectionId && c.serverId === currentServerId)
+        .sort((a, b) => a.position - b.position);
+      const from = inSection.findIndex(c => c.id === drag.id);
+      const to   = inSection.findIndex(c => c.id === targetChannelId);
+      if (from < 0 || to < 0) return;
+      const reordered = [...inSection];
+      const [moved] = reordered.splice(from, 1);
+      reordered.splice(to, 0, moved);
+      reorderChannels(reordered.map((c, i) => ({ id: c.id, position: i })));
+    } else {
+      // Cross-section — move and insert before target.
+      const destList = channels
+        .filter(c => c.sectionId === targetChannel.sectionId && c.serverId === currentServerId && c.id !== drag.id)
+        .sort((a, b) => a.position - b.position);
+      const insertAt = destList.findIndex(c => c.id === targetChannelId);
+      const destOrdered = [...destList];
+      destOrdered.splice(insertAt >= 0 ? insertAt : destOrdered.length, 0, dragChannel);
+      const destUpdates = destOrdered.map((c, i) => ({
+        id: c.id, position: i, sectionId: targetChannel.sectionId,
+      }));
+      // Reposition source section after removal.
+      const srcUpdates = channels
+        .filter(c => c.sectionId === dragChannel.sectionId && c.serverId === currentServerId && c.id !== drag.id)
+        .sort((a, b) => a.position - b.position)
+        .map((c, i) => ({ id: c.id, position: i }));
+      reorderChannels([...destUpdates, ...srcUpdates]);
+    }
+  };
+
+  const handleChannelDropToSection = (targetSectionId: string) => {
+    const drag = dndDragRef.current;
+    if (!drag || drag.type !== 'channel') return;
+    const dragChannel = channels.find(c => c.id === drag.id);
+    if (!dragChannel || dragChannel.sectionId === targetSectionId) return;
+    const inDest = channels
+      .filter(c => c.sectionId === targetSectionId && c.serverId === currentServerId)
+      .sort((a, b) => a.position - b.position);
+    reorderChannels([{ id: drag.id, position: inDest.length, sectionId: targetSectionId }]);
+  };
+
+  // Persist channel settings (NSFW, slow mode, topic, pinning).
+  const updateChannelSettings = async (
+    channelId: string,
+    settings: { nsfw: boolean; slowMode: number; topic: string; allowPinning: boolean }
+  ) => {
+    try {
+      const response = await fetch(`${SERVER_URL}/channels/${channelId}/settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+      if (!response.ok) throw new Error('Failed to update channel settings');
+      setChannels(prev => prev.map(c =>
+        c.id === channelId ? { ...c, settings: { ...c.settings, ...settings } } : c
+      ));
+    } catch (error) {
+      console.error('Error updating channel settings:', error);
+    }
+  };
+
+  // Open the channel settings view for the given channel.
+  const openChannelSettings = (channelId: string) => {
+    setChannelSettingsChannelId(channelId);
+    setActiveView('channel-settings');
+  };
+
+  // Close channel settings and return to the server view.
+  const closeChannelSettings = () => {
+    setChannelSettingsChannelId(null);
+    setActiveView('server');
+  };
+
+  // Open the section settings view for the given section.
+  const openSectionSettings = (sectionId: string) => {
+    setSectionSettingsSectionId(sectionId);
+    setActiveView('section-settings');
+  };
+
+  // Close section settings and return to the server view.
+  const closeSectionSettings = () => {
+    setSectionSettingsSectionId(null);
+    setActiveView('server');
+  };
+
+  // Open a ModalPanel-based prompt to rename a section.
+  const openRenameSectionModal = (section: ChannelSection) => {
+    let nameValue = section.name;
+    const handleConfirm = async () => {
+      if (nameValue.trim()) {
+        await renameSection(section.id, nameValue.trim());
+        closeModal();
+      }
+    };
+    const ModalContent = () => {
+      const [val, setVal] = React.useState(section.name);
+      nameValue = val; // keep outer ref for confirm handler
+      return (
+        <ModalPanel
+          title="Rename Section"
+          description="Enter a new name for this section."
+          icon={<i className="fas fa-folder-open" />}
+          footer={
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <Button variant="secondary" onClick={closeModal}>Cancel</Button>
+              <Button
+                variant="primary"
+                disabled={!val.trim()}
+                onClick={async () => {
+                  if (val.trim()) {
+                    await renameSection(section.id, val.trim());
+                    closeModal();
+                  }
+                }}
+              >
+                Rename
+              </Button>
+            </div>
+          }
+        >
+          <div className="rename-modal">
+            <TextField
+              label="Section name"
+              value={val}
+              onChange={(e) => setVal(e.target.value)}
+              placeholder={section.name}
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (val.trim()) { renameSection(section.id, val.trim()); closeModal(); } } }}
+            />
+          </div>
+        </ModalPanel>
+      );
+    };
+    openModal(<ModalContent />, { size: 'small', closable: true });
   };
 
   // Toggle a reaction emoji for the current user on a specific message.
@@ -1448,6 +2126,46 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const isSettingsView = activeView === 'settings';
   const isServerView = activeView === 'server';
   const isServerSettingsView = activeView === 'server-settings';
+  const isChannelSettingsView = activeView === 'channel-settings';
+  const isSectionSettingsView = activeView === 'section-settings';
+
+  // Determine whether the current user has permission to manage channels/sections.
+  const currentUserData = users.find(u => u.name === (user?.name ?? '')) || users.find(u => u.name === 'You');
+  const currentUserRoleObj = serverRoles.find(r =>
+    r.name?.toLowerCase() === currentUserData?.role?.toLowerCase()
+  );
+  // For real servers, compare against ownerUsername from /info.  Fall back to
+  // the legacy in-memory role for local/test servers.
+  const currentServerForOwner = servers.find(s => s.id === currentServerId);
+  const cachedServerInfo = currentServerForOwner ? serverInfoCache.get(currentServerForOwner.url) : null;
+  const isCurrentUserServerOwner = cachedServerInfo?.ownerUsername
+    ? user?.username?.toLowerCase() === cachedServerInfo.ownerUsername.toLowerCase()
+    : currentUserData?.role?.toLowerCase() === 'owner';
+  const canManageChannels =
+    isCurrentUserServerOwner ||
+    currentUserRoleObj?.permissions?.manageChannels === true;
+
+  // Visibility helpers — determine whether the current user's role can see a section/channel.
+  // Managers always bypass restrictions; empty role-list means public (everyone can see).
+  const canUserViewSection = React.useCallback((section: ChannelSection): boolean => {
+    if (canManageChannels) return true;
+    const viewRoles = section.permissions?.viewRoles ?? section.permissions?.roles ?? [];
+    if (viewRoles.length === 0) return true;
+    return viewRoles.some((rid: string) => {
+      const role = serverRoles.find(r => r.id === rid);
+      return role?.name?.toLowerCase() === currentUserData?.role?.toLowerCase();
+    });
+  }, [canManageChannels, serverRoles, currentUserData]);
+
+  const canUserReadChannel = React.useCallback((channel: Channel): boolean => {
+    if (canManageChannels) return true;
+    const readRoles = channel.permissions?.readRoles ?? channel.permissions?.roles ?? [];
+    if (readRoles.length === 0) return true;
+    return readRoles.some((rid: string) => {
+      const role = serverRoles.find(r => r.id === rid);
+      return role?.name?.toLowerCase() === currentUserData?.role?.toLowerCase();
+    });
+  }, [canManageChannels, serverRoles, currentUserData]);
   const roleColorByName = React.useMemo(() => {
     const map = new Map<string, string>();
     serverRoles.forEach(role => {
@@ -1504,6 +2222,15 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const settingsServer = servers.find(s => s.id === (serverSettingsServerId || currentServerId)) || currentServerObj || null;
   const settingsChannels = channels.filter(c => c.serverId === (settingsServer?.id || currentServerId));
   const selectedSettingsChannelId = serverSettingsChannelId || settingsChannels[0]?.id || '';
+  const channelSettingsChannel = channelSettingsChannelId
+    ? channels.find(c => c.id === channelSettingsChannelId) ?? null
+    : null;
+  const channelSettingsSections = channelSettingsChannel
+    ? sections.filter(s => s.serverId === channelSettingsChannel.serverId)
+    : [];
+  const sectionSettingsSection = sectionSettingsSectionId
+    ? sections.find(s => s.id === sectionSettingsSectionId) ?? null
+    : null;
   const currentChannel = channels.find(c => c.id === currentChannelId && c.serverId === currentServerId);
   const currentMessages = messages.get(currentChannelId) || [];
   const currentChannelMedia = currentChannelId ? collectMediaItemsForChannel(currentChannelId).slice(0, 10) : [];
@@ -1514,11 +2241,23 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     return acc;
   }, {} as Record<string, Channel[]>);
 
-  const unsectionedChannels = channels.filter(c => !c.sectionId);
-  const channelMembers = users.filter(user => {
+  const unsectionedChannels = channels.filter(c => !c.sectionId && c.serverId === currentServerId);
+
+  // For real servers, use live member data from the /members endpoint.
+  // For home/test server, fall back to the mock `users` array.
+  const effectiveMembers: User[] = currentServerId === 'home'
+    ? users
+    : (Array.isArray(serverMembers.get(currentServerId)) ? serverMembers.get(currentServerId)! : []).map(m => ({
+        id: m.username,
+        name: m.username,
+        status: m.status,
+        role: m.role,
+      }));
+
+  const channelMembers = effectiveMembers.filter(u => {
     if (!currentChannelId) return true;
-    if (!user.accessibleChannels || user.accessibleChannels.length === 0) return true;
-    return user.accessibleChannels.includes(currentChannelId);
+    if (!u.accessibleChannels || u.accessibleChannels.length === 0) return true;
+    return u.accessibleChannels.includes(currentChannelId);
   });
   const channelMemberOnlineCount = channelMembers.filter(u => u.status !== 'offline').length;
 
@@ -1683,45 +2422,89 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
               <div className="channels-list">
                 {sections
-                  .filter(section => section.serverId === currentServerId)
+                  .filter(section => section.serverId === currentServerId && canUserViewSection(section))
                   .sort((a, b) => a.position - b.position)
                   .map(section => {
-                    const sectionChannels = channelsBySection[section.id] || [];
+                    // Show all channels to managers; restrict to readable ones for regular users.
+                    const sectionChannels = (channelsBySection[section.id] || []).filter(ch => canUserReadChannel(ch));
                     return (
-                      <div key={section.id} className="channel-section">
-                        <div className="section-header">
+                      <div
+                        key={section.id}
+                        className={`channel-section${dndDraggingId === section.id ? ' dnd-dragging' : ''}${dndOverSectionId === section.id ? ' dnd-over-section' : ''}`}
+                        onDragOver={canManageChannels ? (e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dndDragRef.current && dndDragRef.current.id !== section.id)
+                            setDndOverSectionId(section.id);
+                        } : undefined}
+                        onDragLeave={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node))
+                            setDndOverSectionId(null);
+                        }}
+                        onDrop={canManageChannels ? (e) => {
+                          e.preventDefault();
+                          const drag = dndDragRef.current;
+                          if (drag?.type === 'section') handleSectionDrop(section.id);
+                          else if (drag?.type === 'channel') handleChannelDropToSection(section.id);
+                          dndClearState();
+                        } : undefined}
+                        onContextMenu={canManageChannels ? (e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setContextMenu({ type: 'section', id: section.id, x: e.clientX, y: e.clientY });
+                        } : undefined}
+                      >
+                        <div
+                          className="section-header"
+                          draggable={canManageChannels ? true : undefined}
+                          onDragStart={canManageChannels ? (e) => {
+                            e.stopPropagation();
+                            dndDragRef.current = { type: 'section', id: section.id };
+                            setDndDraggingId(section.id);
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', section.id);
+                          } : undefined}
+                          onDragEnd={dndClearState}
+                        >
+                          {canManageChannels && (
+                            <span className="drag-handle" title="Drag to reorder">
+                              <i className="fas fa-grip-vertical" />
+                            </span>
+                          )}
                           <span className="section-name">{section.name}</span>
-                          <button 
-                            className="section-plus-btn" 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveAddMenu(prev => prev === section.id ? null : section.id);
-                            }}
-                            title="Add Channel"
-                          >
-                            +
-                          </button>
-                          {activeAddMenu === section.id && (
-                            <div className="section-menu">
+                          {canManageChannels && (
+                            <>
                               <button
-                                onClick={() => {
-                                  const name = prompt('Channel name:');
-                                  if (name) createChannel(name, 'text', section.id).then(() => loadChannelsAndSections());
-                                  setActiveAddMenu(null);
+                                className="section-plus-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveAddMenu(prev => prev === section.id ? null : section.id);
                                 }}
+                                title="Add Channel"
                               >
-                                Add Channel
+                                +
                               </button>
-                              <button
-                                onClick={() => {
-                                  const name = prompt('Section name:');
-                                  if (name) createSection(name).then(() => loadChannelsAndSections());
-                                  setActiveAddMenu(null);
-                                }}
-                              >
-                                Add Section
-                              </button>
-                            </div>
+                              {activeAddMenu === section.id && (
+                                <div className="section-menu">
+                                  <button
+                                    onClick={() => {
+                                      setActiveAddMenu(null);
+                                      openCreateChannelModal(section.id);
+                                    }}
+                                  >
+                                    Add Channel
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setActiveAddMenu(null);
+                                      openCreateSectionModal();
+                                    }}
+                                  >
+                                    Add Section
+                                  </button>
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                         <div className="section-channels">
@@ -1730,9 +2513,42 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                             .map(channel => (
                               <div
                                 key={channel.id}
-                                className={`channel ${channel.id === currentChannelId ? 'active' : ''} ${channel.settings?.nsfw ? 'nsfw' : ''}`}
+                                className={`channel${channel.id === currentChannelId ? ' active' : ''}${channel.settings?.nsfw ? ' nsfw' : ''}${dndDraggingId === channel.id ? ' dnd-dragging' : ''}${dndOverChannelId === channel.id ? ' dnd-over-channel' : ''}`}
+                                draggable={canManageChannels ? true : undefined}
+                                onDragStart={canManageChannels ? (e) => {
+                                  e.stopPropagation();
+                                  dndDragRef.current = { type: 'channel', id: channel.id };
+                                  setDndDraggingId(channel.id);
+                                  e.dataTransfer.effectAllowed = 'move';
+                                  e.dataTransfer.setData('text/plain', channel.id);
+                                } : undefined}
+                                onDragOver={canManageChannels ? (e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  e.dataTransfer.dropEffect = 'move';
+                                  if (dndDragRef.current?.type === 'channel' && dndDragRef.current.id !== channel.id)
+                                    setDndOverChannelId(channel.id);
+                                } : undefined}
+                                onDragLeave={() => setDndOverChannelId(null)}
+                                onDrop={canManageChannels ? (e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  if (dndDragRef.current?.type === 'channel') handleChannelDrop(channel.id);
+                                  dndClearState();
+                                } : undefined}
+                                onDragEnd={dndClearState}
                                 onClick={() => joinChannel(channel.id)}
+                                onContextMenu={canManageChannels ? (e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setContextMenu({ type: 'channel', id: channel.id, x: e.clientX, y: e.clientY });
+                                } : undefined}
                               >
+                                {canManageChannels && (
+                                  <span className="drag-handle" title="Drag to reorder">
+                                    <i className="fas fa-grip-vertical" />
+                                  </span>
+                                )}
                                 <span className="channel-icon">
                                   {channel.type === 'text' && '#'}
                                   {channel.type === 'voice' && '🔊'}
@@ -1759,9 +2575,42 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                         .map(channel => (
                           <div
                             key={channel.id}
-                            className={`channel ${channel.id === currentChannelId ? 'active' : ''} ${channel.settings?.nsfw ? 'nsfw' : ''}`}
+                            className={`channel${channel.id === currentChannelId ? ' active' : ''}${channel.settings?.nsfw ? ' nsfw' : ''}${dndDraggingId === channel.id ? ' dnd-dragging' : ''}${dndOverChannelId === channel.id ? ' dnd-over-channel' : ''}`}
+                            draggable={canManageChannels ? true : undefined}
+                            onDragStart={canManageChannels ? (e) => {
+                              e.stopPropagation();
+                              dndDragRef.current = { type: 'channel', id: channel.id };
+                              setDndDraggingId(channel.id);
+                              e.dataTransfer.effectAllowed = 'move';
+                              e.dataTransfer.setData('text/plain', channel.id);
+                            } : undefined}
+                            onDragOver={canManageChannels ? (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              e.dataTransfer.dropEffect = 'move';
+                              if (dndDragRef.current?.type === 'channel' && dndDragRef.current.id !== channel.id)
+                                setDndOverChannelId(channel.id);
+                            } : undefined}
+                            onDragLeave={() => setDndOverChannelId(null)}
+                            onDrop={canManageChannels ? (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (dndDragRef.current?.type === 'channel') handleChannelDrop(channel.id);
+                              dndClearState();
+                            } : undefined}
+                            onDragEnd={dndClearState}
                             onClick={() => joinChannel(channel.id)}
+                            onContextMenu={canManageChannels ? (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setContextMenu({ type: 'channel', id: channel.id, x: e.clientX, y: e.clientY });
+                            } : undefined}
                           >
+                            {canManageChannels && (
+                              <span className="drag-handle" title="Drag to reorder">
+                                <i className="fas fa-grip-vertical" />
+                              </span>
+                            )}
                             <span className="channel-icon">
                               {channel.type === 'text' && '#'}
                               {channel.type === 'voice' && '🔊'}
@@ -1779,7 +2628,82 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                     </div>
                   </div>
                 )}
+                {canManageChannels && (
+                  <button
+                    className="add-section-btn"
+                    onClick={() => openCreateSectionModal()}
+                    title="Add a new section"
+                  >
+                    <i className="fas fa-plus" /> Add Section
+                  </button>
+                )}
               </div>
+
+              {/* Right-click context menu — rendered via ContextMenu portal */}
+              {contextMenu && canManageChannels && (() => {
+                const section = contextMenu.type === 'section'
+                  ? sections.find(s => s.id === contextMenu.id) ?? null
+                  : null;
+                const channel = contextMenu.type === 'channel'
+                  ? channels.find(c => c.id === contextMenu.id) ?? null
+                  : null;
+
+                const serverSectionCount = sections.filter(s => s.serverId === currentServerId).length;
+                const serverChannelCount = channels.filter(c => c.serverId === currentServerId).length;
+                const isLastSection = serverSectionCount <= 1;
+                const isLastChannel = serverChannelCount <= 1;
+
+                // Block deleting a section when it holds channels but no other section does
+                // (would strand all channels unsectioned while leaving other sections empty).
+                const sectionChannelCount = section
+                  ? channels.filter(c => c.serverId === currentServerId && c.sectionId === section.id).length
+                  : 0;
+                const channelsInOtherSections = section
+                  ? channels.filter(c => c.serverId === currentServerId && c.sectionId && c.sectionId !== section.id).length
+                  : 0;
+                const isOnlySectionWithChannels =
+                  !isLastSection && sectionChannelCount > 0 && channelsInOtherSections === 0;
+
+                const canDeleteSection = !isLastSection && !isOnlySectionWithChannels;
+                const deleteSectionLabel = isLastSection
+                  ? 'Delete Section (last)'
+                  : isOnlySectionWithChannels
+                    ? 'Delete Section (move channels first)'
+                    : 'Delete Section';
+
+                const sectionItems: ContextMenuItemDef[] = section ? [
+                  { key: 'hdr',      type: 'header',   label: section.name },
+                  { key: 'add-ch',   label: 'Add Channel',      icon: <i className="fas fa-plus" />,        onClick: () => openCreateChannelModal(section.id) },
+                  { key: 'settings', label: 'Section Settings', icon: <i className="fas fa-sliders-h" />,   onClick: () => openSectionSettings(section.id) },
+                  { key: 'rename',   label: 'Rename Section',   icon: <i className="fas fa-pencil-alt" />,  onClick: () => openRenameSectionModal(section) },
+                  { key: 'sep',    type: 'separator' },
+                  { key: 'delete', label: deleteSectionLabel,
+                    icon: <i className="fas fa-trash-alt" />, variant: 'danger', disabled: !canDeleteSection,
+                    onClick: () => { if (confirm(`Delete section "${section.name}"? Channels inside will become unsectioned.`)) deleteSection(section.id); } },
+                ] : [];
+
+                const typeGlyph = channel?.type === 'voice' ? '🔊' : channel?.type === 'announcement' ? '📢' : '#';
+                const channelItems: ContextMenuItemDef[] = channel ? [
+                  { key: 'hdr',    type: 'header',    label: `${typeGlyph} ${channel.name}` },
+                  { key: 'edit',   label: 'Edit Channel',   icon: <i className="fas fa-cog" />,         onClick: () => openChannelSettings(channel.id) },
+                  { key: 'sep',    type: 'separator' },
+                  { key: 'delete', label: isLastChannel ? 'Delete Channel (last)' : 'Delete Channel',
+                    icon: <i className="fas fa-trash-alt" />, variant: 'danger', disabled: isLastChannel,
+                    onClick: () => { if (confirm(`Delete channel "#${channel.name}"? This cannot be undone.`)) deleteChannel(channel.id); } },
+                ] : [];
+
+                const items = contextMenu.type === 'section' ? sectionItems : channelItems;
+
+                return (
+                  <ContextMenu
+                    x={contextMenu.x}
+                    y={contextMenu.y}
+                    onClose={() => setContextMenu(null)}
+                    items={items}
+                    minWidth={200}
+                  />
+                );
+              })()}
             </div>
             {!isMobile && (
               <div
@@ -1854,6 +2778,28 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 onCreateRole={createServerRole}
                 onUpdateRole={updateServerRole}
                 onUpdateServerIcon={handleUpdateServerIcon}
+                ownerUsername={settingsServer ? (serverInfoCache.get(settingsServer.url)?.ownerUsername ?? null) : null}
+                currentUsername={user?.username ?? user?.name}
+                onClaimOwner={claimOwner}
+              />
+            ) : isChannelSettingsView && channelSettingsChannel ? (
+              <ChannelSettingsPage
+                channel={channelSettingsChannel}
+                sections={channelSettingsSections}
+                roles={serverRoles}
+                onBack={closeChannelSettings}
+                onRename={renameChannel}
+                onMoveTo={moveChannelToSection}
+                onSaveSettings={updateChannelSettings}
+                onSavePermissions={saveChannelPermissions}
+              />
+            ) : isSectionSettingsView && sectionSettingsSection ? (
+              <SectionSettingsPage
+                section={sectionSettingsSection}
+                roles={serverRoles}
+                onBack={closeSectionSettings}
+                onRename={renameSection}
+                onSavePermissions={saveSectionPermissions}
               />
             ) : (
               <ServerPage
@@ -1962,7 +2908,19 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                               return statusOrder[a.status] - statusOrder[b.status] || a.name.localeCompare(b.name);
                             })
                             .map(user => (
-                              <div key={user.id} className={`user-item ${user.status}`}>
+                              <div
+                                key={user.id}
+                                className={`user-item ${user.status}`}
+                                style={{ cursor: 'pointer' }}
+                                onClick={(e) => {
+                                  const member: MemberEntry = {
+                                    username: user.name,
+                                    role: user.role,
+                                    status: (user.status === 'online' ? 'online' : 'offline') as 'online' | 'offline',
+                                  };
+                                  setProfilePopover({ member, rect: e.currentTarget.getBoundingClientRect() });
+                                }}
+                              >
                                 <div className="user-avatar">
                                   {user.avatar ? (
                                     <img src={user.avatar} alt={user.name} />
@@ -2113,8 +3071,20 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
           </>
         )}
 
-        {isSwitchingServer && (
-          <LoadingScreen type="server-switch" />
+
+        {profilePopover && (
+          <UserProfilePopover
+            username={profilePopover.member.username}
+            currentRole={profilePopover.member.role}
+            status={profilePopover.member.status}
+            roles={serverRoles}
+            canAssignRoles={canManageChannels}
+            isYou={(user?.username ?? user?.name) === profilePopover.member.username}
+            isOwner={profilePopover.member.username === cachedServerInfo?.ownerUsername}
+            anchorRect={profilePopover.rect}
+            onAssignRole={(roleName) => assignMemberRole(profilePopover.member.username, roleName)}
+            onClose={() => setProfilePopover(null)}
+          />
         )}
 
         {!isMobile && userListCollapsed && isServerView && (
@@ -2137,6 +3107,25 @@ function App() {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
 
+  // Ensure portal containers exist before any child renders (fixes portal
+  // race conditions during initial render that can trigger React removeChild
+  // errors when portals mount/unmount). Previously this was done inside
+  // `AppContent` which runs later; move it here so Loading/Login can rely
+  // on stable portal roots too.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    ['kiama-context-menu-root', 'kiama-popover-root', 'kiama-profile-popover-root'].forEach(id => {
+      try {
+        const el = getPortalContainer(id);
+        // lightweight debug
+        // eslint-disable-next-line no-console
+        console.debug('[Kiama] Ensured portal container', id, 'childCount=', el.childElementCount);
+      } catch (e) {
+        // Swallow — defensive in case document not ready
+      }
+    });
+  }, []);
+
   useEffect(() => {
     // Check for stored token and user
     const storedToken = localStorage.getItem('authToken');
@@ -2157,6 +3146,7 @@ function App() {
 
     // Simulate app initialization time
     const timer = setTimeout(() => {
+      console.debug('[Kiama] App initial loading complete — hiding LoadingScreen');
       setIsLoading(false);
     }, 2500); // Show loading screen for 2.5 seconds
 
@@ -2183,17 +3173,19 @@ function App() {
   };
 
   return (
-    <ThemeProvider>
-      <ModalProvider>
-        {isLoading ? (
-          <LoadingScreen />
-        ) : !token ? (
-          <Login onLogin={handleLogin} />
-        ) : (
-          <AppContent token={token} user={user} onLogout={handleLogout} />
-        )}
-      </ModalProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <ModalProvider>
+          {isLoading ? (
+            <LoadingScreen />
+          ) : !token ? (
+            <Login onLogin={handleLogin} />
+          ) : (
+            <AppContent token={token} user={user} onLogout={handleLogout} />
+          )}
+        </ModalProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

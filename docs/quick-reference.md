@@ -22,6 +22,9 @@ npm run start:client  # Start production client
 
 ### Server Management CLI
 ```bash
+kiama-server start                          # start server (auto-generates admin token if none set)
+kiama-server start --token mytoken         # start with a fixed admin token
+kiama-server start --owner Oblivifrek      # designate server owner on startup
 kiama-server notify --message "Maintenance in 5m" --type maintenance
 kiama-server stop --message "Shutting down"
 kiama-server restart --message "Rebooting" --delay 1000
@@ -50,7 +53,9 @@ npm run build:client  # Build client only
 
 ### Key Pages
 - `src/client/renderer/src/pages/SettingsPage.tsx` - Account / app settings (full-width, dark gradient bg)
-- `src/client/renderer/src/pages/ServerSettingsPage.tsx` - Per-server settings: access control, roles, security (full-width, same dark gradient bg as SettingsPage, **no** channel/member sidebar)
+- `src/client/renderer/src/pages/ServerSettingsPage.tsx` - Per-server settings: overview, roles, permissions, security, backups, **ownership** (full-width, same dark gradient bg as SettingsPage, **no** channel/member sidebar)
+- `src/client/renderer/src/pages/ChannelSettingsPage.tsx` - Per-channel settings: overview (rename, move), permissions ("Can view (visibility)" and "Can write" per role)
+- `src/client/renderer/src/pages/SectionSettingsPage.tsx` - Per-section settings: overview (rename) and permissions (viewRoles/manageRoles per role)
 - `src/client/renderer/src/pages/HomePage.tsx` - Dashboard / home view
 - `src/client/renderer/src/pages/ServerPage.tsx` - Active server chat view (sidebar visible)
 
@@ -67,8 +72,10 @@ npm run build:client  # Build client only
 
 ### Admin Token & Data Paths
 - Set `KIAMA_ADMIN_TOKEN` to control admin endpoints; otherwise the server writes a generated token to `<data-root>/secrets/admin.token` (mode 600).
+- Read auto-generated token: `cat dist/server/data/secrets/admin.token`
 - Override data root with `KIAMA_DATA_DIR`; override persisted config path with `KIAMA_CONFIG_PATH`.
 - Default data layout: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/`, `media/`, `Backups/`, **`accounts/`** under the data root.
+- Server icon file saved at `<data-root>/server-icon.{ext}` and served at `GET /server/icon`.
 - Backup schedule is saved to `<data-root>/backup-config.json`. The `Backups/` folder is always excluded from archive contents.
 - `KIAMA_ACCOUNT_SECRET` — secret used to derive the AES key for server-side bot account files (`BotAccountManager`).
 
@@ -485,9 +492,39 @@ curl -X PATCH http://localhost:3000/roles/<roleId> \
 ### Channel Permissions (read/write by role)
 ```bash
 # Update which roles can read/write a channel
-curl -X POST http://localhost:3000/channels/<channelId>/permissions \
+curl -X PATCH http://localhost:3000/channels/<channelId>/permissions \
   -H "Content-Type: application/json" \
   -d '{"readRoles": ["owner", "mod"], "writeRoles": ["owner"]}'
+
+# Update which roles can view/manage a section
+curl -X PATCH http://localhost:3000/sections/<sectionId>/permissions \
+  -H "Content-Type: application/json" \
+  -d '{"viewRoles": [], "manageRoles": ["owner", "mod"]}'
+# viewRoles: [] = visible to everyone; non-empty = only those roles can see it
+# manageRoles: [] = no one can manage via role alone (only server owner)
+```
+
+### Server Info & Ownership Endpoints
+```bash
+# Get server identity (public — no token required)
+curl http://localhost:3000/info
+# Response: { id, name, ownerUsername, iconUrl }
+
+# Upload / update server icon (base64 dataUri)
+curl -X POST http://localhost:3000/server/icon \
+  -H "Content-Type: application/json" \
+  -d '{"dataUri": "data:image/png;base64,..."}'
+
+# Serve current icon (browser-friendly)
+curl http://localhost:3000/server/icon
+
+# Claim or transfer server ownership
+# If no admin token is configured the endpoint is open (first-run "claim").
+# Once a token exists OR an owner is already set, X-Admin-Token is required.
+curl -X POST http://localhost:3000/server/claim-owner \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Token: <token>" \
+  -d '{"username": "Oblivifrek"}'
 ```
 
 ### ServerSettingsPage Props
@@ -505,6 +542,9 @@ curl -X POST http://localhost:3000/channels/<channelId>/permissions \
   loading={false}
   passwordRequired={null}           // null | boolean
   adminToken="..."                  // optional; pre-fills Backups tab token field
+  ownerUsername={ownerUsername}     // string | null | undefined — from /info cache
+  currentUsername={user?.username}  // logged-in account username
+  onClaimOwner={claimOwner}         // (username, token?) => Promise<{success, ...}>
 />
 ```
 

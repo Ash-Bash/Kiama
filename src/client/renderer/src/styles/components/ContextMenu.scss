@@ -1,0 +1,208 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// ContextMenu — generic right-click / context menu with submenu support
+// ─────────────────────────────────────────────────────────────────────────────
+
+.ctx-menu__panel {
+  position: fixed;
+  z-index: 9999;
+  background: var(--ctx-menu-bg, var(--secondary-bg));
+  border: 1px solid var(--ctx-menu-border, var(--border));
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.2);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  user-select: none;
+  backdrop-filter: blur(4px);
+  // --app-font is set by ThemeProvider; can't rely on cascade inheritance through portal.
+  font-family: var(--app-font, inherit);
+
+  // ── Soft-3D surface ──────────────────────────────────────────────────────
+  &.soft-3d {
+    background:
+      linear-gradient(160deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.10)),
+      var(--ctx-menu-bg, var(--secondary-bg));
+    border-color: var(--surface-border, var(--border));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      inset 0 -1px 3px rgba(0, 0, 0, 0.12),
+      0 12px 28px rgba(0, 0, 0, 0.32),
+      0 4px 10px rgba(0, 0, 0, 0.22);
+    backdrop-filter: blur(12px);
+  }
+
+  // Root panel fades/scales in
+  &.ctx-menu__root-panel {
+    animation: ctx-panel-in 0.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  // Subpanels slide in from the side
+  &.ctx-menu__sub-panel {
+    position: fixed;
+    animation: ctx-sub-in 0.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+
+@keyframes ctx-panel-in {
+  from { opacity: 0; transform: scale(0.95) translateY(-6px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+@keyframes ctx-sub-in {
+  from { opacity: 0; transform: scale(0.96) translateX(-6px); }
+  to   { opacity: 1; transform: scale(1)    translateX(0); }
+}
+
+// ── Custom header slot ────────────────────────────────────────────────────────
+
+.ctx-menu__custom-header {
+  padding: 6px 4px 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 3px;
+}
+
+// ── Section / group header (non-clickable label) ──────────────────────────────
+
+.ctx-menu__header {
+  padding: 6px 10px 3px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, var(--text-secondary));
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// ── Separator ─────────────────────────────────────────────────────────────────
+
+.ctx-menu__separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 8px;
+}
+
+// ── Item wrapper (needed so the sub-panel stays open while hovering it) ────────
+
+.ctx-menu__item-wrapper {
+  position: relative;
+}
+
+// ── Item button ───────────────────────────────────────────────────────────────
+
+.ctx-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: var(--app-font, inherit);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    background: var(--tertiary-bg);
+    color: var(--text-primary);
+
+    .ctx-menu__item-icon i {
+      color: var(--accent);
+    }
+  }
+
+  &:disabled,
+  &.ctx-menu__item--disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  // ── Variants ────────────────────────────────────────────────────────────────
+
+  &--danger {
+    color: var(--danger, #ef4444);
+
+    .ctx-menu__item-icon i {
+      color: var(--danger, #ef4444);
+    }
+
+    &:hover:not(:disabled) {
+      background: rgba(239, 68, 68, 0.18);
+
+      .ctx-menu__item-icon i {
+        color: var(--danger, #ef4444);
+      }
+    }
+  }
+
+  &--success {
+    color: var(--success, #22c55e);
+
+    .ctx-menu__item-icon i {
+      color: var(--success, #22c55e);
+    }
+
+    &:hover:not(:disabled) {
+      background: rgba(34, 197, 94, 0.18);
+    }
+  }
+
+  &--warning {
+    color: var(--warning, #f59e0b);
+
+    .ctx-menu__item-icon i {
+      color: var(--warning, #f59e0b);
+    }
+
+    &:hover:not(:disabled) {
+      background: rgba(245, 158, 11, 0.18);
+    }
+  }
+}
+
+// ── Item icon (left) ──────────────────────────────────────────────────────────
+
+.ctx-menu__item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+
+  i {
+    font-size: 13px;
+    color: var(--text-secondary);
+    transition: color 0.1s;
+  }
+}
+
+// ── Item label ────────────────────────────────────────────────────────────────
+
+.ctx-menu__item-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// ── Item end decoration (chevron for submenu, or custom icon) ─────────────────
+
+.ctx-menu__item-end {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--text-secondary);
+
+  i {
+    font-size: 11px;
+  }
+}

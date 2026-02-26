@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import { useSurface } from '../utils/SurfaceContext';
+import { getPortalContainer } from '../utils/portalRoot';
 import Button from './Button';
 import '../styles/components/PopoverPanel.scss';
 
@@ -159,9 +160,10 @@ const PopoverPanel: React.FC<PopoverPanelProps> = ({
     </>
   );
 
-  // Portal to document.body so position:fixed isn't clipped by transformed parents.
+  // Portal to a dedicated container so position:fixed isn't clipped by transformed parents
+  // and React's reconciler doesn't get confused by multiple portals sharing document.body.
   return isPopover
-    ? ReactDOM.createPortal(content, document.body)
+    ? ReactDOM.createPortal(content, getPortalContainer('kiama-popover-root'))
     : content;
 };
 

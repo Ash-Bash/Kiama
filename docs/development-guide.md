@@ -55,8 +55,10 @@ The client uses Electron's dual-process architecture:
 **Data & Admin Token Handling**
 - Data root defaults to `dist/server/data` (or `src/server/data` when running from source); override with `KIAMA_DATA_DIR`.
 - Layout created on startup: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/`, `media/` under the data root.
-- Persisted config lives at `<data-root>/configs/<serverId>.json` (override with `KIAMA_CONFIG_PATH`) and stores sections/channels/roles plus a hashed admin token.
+- Persisted config lives at `<data-root>/configs/<serverId>.json` (override with `KIAMA_CONFIG_PATH`) and stores sections/channels/roles, a hashed admin token, and `ownerUsername`.
 - Admin token: set `KIAMA_ADMIN_TOKEN` to supply your own; otherwise the server generates one, writes it to `<data-root>/secrets/admin.token` with mode 600, and uses it for admin endpoints and CLI commands.
+- Server icon: uploaded to `<data-root>/server-icon.{ext}` via `POST /server/icon`; served publicly at `GET /server/icon`.
+- `ownerUsername`: stored as a plain string in the config; set via `--owner <username>` CLI flag or `POST /server/claim-owner`.
 
 **Backup System** (`src/server/src/utils/BackupManager.ts`)
 - Manages automated and manual backups of all server data.
@@ -470,6 +472,132 @@ Roles are stored server-side and exposed over three REST endpoints:
 
 ---
 
+## Channel & Section Visibility System
+
+Channels and sections each carry a `permissions` object that gates which roles can see or manage them.  The sidebar in `App.tsx` filters out items the current user's role cannot see.
+
+### Permission shapes (`src/client/renderer/src/types/plugin.ts`)
+
+```typescript
+interface ChannelPermissions {
+  roles?: string[];        // legacy — "can manage" role names
+  readRoles?: string[];    // roles allowed to see & read this channel ([] = everyone)
+  writeRoles?: string[];   // roles allowed to post in this channel ([] = everyone)
+}
+
+interface SectionPermissions {
+  roles?: string[];        // legacy manage list
+  viewRoles?: string[];    // roles that can see this section ([] = everyone)
+  manageRoles?: string[];  // roles that can manage channels within this section
+  view?: boolean;          // legacy fallback
+  manage?: boolean;        // legacy fallback
+}
+```
+
+**Default visibility** — when a channel or section is newly created, it is **private by default**: only roles with `manageChannels: true` (or the server owner) can see it until permissions are explicitly opened.
+
+### Visibility helpers in `App.tsx`
+
+```tsx
+// Returns true when the current user may see this section in the sidebar
+const canUserViewSection = (section: ChannelSection): boolean => { ... };
+
+// Returns true when the current user may see this channel in the sidebar
+const canUserReadChannel = (channel: Channel): boolean => { ... };
+```
+
+Both helpers treat managers (roles with `manageChannels` flag or the server owner) as always-visible.
+
+### REST endpoints for permissions
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| `PATCH` | `/channels/:id/permissions` | `{ readRoles, writeRoles }` | Update channel visibility / write access |
+| `PATCH` | `/sections/:id/permissions` | `{ viewRoles, manageRoles }` | Update section visibility / manage access |
+
+### Section Settings Page (`src/client/renderer/src/pages/SectionSettingsPage.tsx`)
+
+Mirrors the pattern of `ChannelSettingsPage`.  Opened from the section context menu ("Section Settings").
+
+**Tabs:**
+- **Overview** — rename section, display section ID and position (read-only)
+- **Permissions** — per-role toggles for "Can view" and "Can manage"
+
+**Props:**
+```tsx
+<SectionSettingsPage
+  section={section}            // ChannelSection object
+  roles={roles}                // Role[]
+  onBack={closeSectionSettings}
+  onRename={renameSection}     // (id, name) => Promise<void>
+  onSavePermissions={fn}       // (id, viewRoles, manageRoles) => Promise<void>
+/>
+```
+
+### Section deletion behaviour
+
+When a section is deleted the server automatically moves any orphaned channels to the **lowest-position remaining section**.  No channels are ever left without a section.
+
+---
+
+## Server Ownership System
+
+Each server can designate a single account as its owner.  The owner bypasses all permission checks (equivalent to every permission being enabled) and is the only one who can transfer ownership.
+
+### Storage
+
+`ownerUsername` is stored as a plain string in both `InitialServerConfig` (the in-memory config) and the persisted `server.config.json`.
+
+### Setting ownership
+
+**Option 1 — CLI flag at startup:**
+```bash
+npm run start:server start --owner Oblivifrek
+```
+This always overwrites any value already in `server.config.json`.
+
+**Option 2 — claim-owner endpoint:**
+```bash
+# First claim (no admin token needed if none is configured)
+curl -X POST http://localhost:3000/server/claim-owner \
+  -H "Content-Type: application/json" \
+  -d '{"username": "Oblivifrek"}'
+
+# Transfer ownership (requires X-Admin-Token when a token is configured OR owner is already set)
+curl -X POST http://localhost:3000/server/claim-owner \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Token: <token>" \
+  -d '{"username": "NewOwner"}'
+```
+
+**Option 3 — Server Settings → Ownership tab** in the client UI (wraps the endpoint above).
+
+### Server info endpoint
+
+`GET /info` is public (no auth required) and returns:
+```json
+{ "id": "...", "name": "KIAMA Server", "ownerUsername": "Oblivifrek", "iconUrl": "/server/icon" }
+```
+
+The client fetches this every time it switches to a server and stores the result in `serverInfoCache` (a `Map<url, { ownerUsername, iconUrl }>` React state).  `canManageChannels` compares `user.username` against the cached `ownerUsername` to detect the owner client-side.
+
+### Server icon persistence
+
+Icons are uploaded to the server via `POST /server/icon` (base64 `dataUri` in the JSON body).  The server saves the file as `<data-root>/server-icon.{ext}` (removing old extension variants) and serves it at `GET /server/icon`.  All clients then load the same URL, so the icon is consistent across connections — not just on the uploader's machine.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/info` | none | Server identity: id, name, ownerUsername, iconUrl |
+| `POST` | `/server/icon` | none\* | Upload base64 icon (`{ dataUri }`) |
+| `GET` | `/server/icon` | none | Serve the current icon file |
+| `POST` | `/server/claim-owner` | open or `X-Admin-Token` | Claim / transfer ownership (`{ username }`) |
+
+\* In production you should restrict icon upload to authenticated users.
+
+---
+
+---
+
 ## Backup System
 
 `BackupManager` (`src/server/src/utils/BackupManager.ts`) handles all server-side backup logic. It is instantiated inside `Server` and started automatically with `backupManager.startScheduler()` after the server initialises.
@@ -608,6 +736,12 @@ userRole?: string;  // role id stamped at send time; drives username colour badg
 - Recent UI intent: keep mobile drawers non-overlapping and simplify controls (no server close button, channel close also hides server on mobile, add-section only in section menu).
 - Style intent: server drawer has no shadow on mobile; channel/member drawers keep shadows for separation.
 - If changing responsive behavior, preserve current breakpoints (768px, 1100px) unless explicitly requested.
+- Channel/section visibility defaults to **private** (managed-roles-only) on creation; `canUserViewSection` / `canUserReadChannel` helpers gate the sidebar.
+- `SectionPermissions.viewRoles` and `SectionPermissions.manageRoles` are the current API; legacy `roles`/`view`/`manage` fields may exist in old config files and should be treated as read/manage respectively.
+- Server ownership is `ownerUsername` (string) in the config; compared case-insensitively against `user.username` from the auth JWT.  The client caches this in `serverInfoCache` (a `Map<serverUrl, { ownerUsername, iconUrl }>`), populated by `fetchServerInfo()` on every server switch.
+- `canManageChannels` in `App.tsx` uses `serverInfoCache` for real servers and falls back to the legacy `role === 'owner'` check for home/test servers.
+- Server icon is stored server-side at `<data-root>/server-icon.{ext}` and served at `GET /server/icon`; the client switches the displayed icon to this URL after a successful upload so all clients share the same icon.
+- `SectionSettingsPage` mirrors `ChannelSettingsPage` — overview (rename) + permissions (viewRoles/manageRoles) tabs. Opened from the section context menu.
 
 ## Theming System
 
@@ -785,6 +919,14 @@ npm install <package>
 - [ ] Local account login works with correct password
 - [ ] Saved account chips appear on sign-in screen
 - [ ] Display name shows username (not "You") in settings and chat
+- [ ] New channel/section defaults to managed-roles-only visibility
+- [ ] Sidebar hides channels/sections the current user's role cannot see
+- [ ] Section Settings page opens from section context menu and saves permissions
+- [ ] Channel Settings page "Can view" toggle updates sidebar visibility
+- [ ] Deleting a section moves its channels to the next remaining section (no orphans)
+- [ ] Server Settings → Ownership tab shows current owner badge
+- [ ] Claiming ownership via the Ownership tab works (no token required on first claim if no token configured)
+- [ ] Server icon uploaded from one client is visible to another client after reconnect
 
 **Integration:**
 - [ ] Client connects to server

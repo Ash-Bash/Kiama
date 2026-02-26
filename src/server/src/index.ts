@@ -19,16 +19,29 @@ program
   .option('--private', 'Make server private')
   .option('--token <token>', 'Admin token used to protect management endpoints (falls back to KIAMA_ADMIN_TOKEN env)')
   .option('--config <path>', 'Path to an initial server configuration JSON file')
+  .option('--owner <username>', 'Username of the account that owns this server (grants full admin role to that user)')
   .action((options) => {
     const port = Number.parseInt(options.port, 10) || 3000;
     const adminToken = options.token || process.env.KIAMA_ADMIN_TOKEN || '';
-    const config = options.config ? loadConfig(options.config) : undefined;
+    const resolvedConfigPath = options.config
+      ? (path.isAbsolute(options.config) ? options.config : path.join(process.cwd(), options.config))
+      : undefined;
+    let config = resolvedConfigPath ? loadConfig(resolvedConfigPath) : undefined;
 
-    const server = new Server(port, options.public ? 'public' : 'private', undefined, adminToken, config);
+    // Merge --owner flag into the config so it takes precedence over any value
+    // that may already be stored in the config file.
+    if (options.owner) {
+      config = { ...(config || { name: 'KIAMA Server' }), ownerUsername: options.owner };
+    }
+
+    const server = new Server(port, options.public ? 'public' : 'private', undefined, adminToken, config, resolvedConfigPath);
     server.start();
 
     if (!adminToken) {
       console.warn('Admin token not provided; management CLI commands will be rejected.');
+    }
+    if (options.owner) {
+      console.log(`Server owner set to: ${options.owner}`);
     }
   });
 

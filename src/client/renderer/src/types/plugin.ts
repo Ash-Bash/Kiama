@@ -110,5 +110,7 @@ export interface ChannelPermissions {
 export interface SectionPermissions {
   view: boolean;
   manage: boolean;
-  roles?: string[];
+  roles?: string[]; // legacy combined gate
+  viewRoles?: string[]; // roles allowed to see this section (empty = everyone)
+  manageRoles?: string[]; // roles allowed to manage this section
 }

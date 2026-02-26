@@ -57,13 +57,17 @@ export interface ChannelPermissions {
   read: boolean;
   write: boolean;
   manage: boolean;
-  roles?: string[]; // Role IDs that have access
+  roles?: string[];      // legacy combined gate
+  readRoles?: string[];  // roles that can view/read the channel (empty = everyone)
+  writeRoles?: string[]; // roles that can write in the channel (empty = everyone)
 }
 
 export interface SectionPermissions {
   view: boolean;
   manage: boolean;
-  roles?: string[]; // Role IDs that have access
+  roles?: string[];        // legacy combined gate
+  viewRoles?: string[];    // roles that can see this section (empty = everyone)
+  manageRoles?: string[];  // roles that can manage this section
 }
 
 export interface SystemStats {
@@ -108,6 +112,8 @@ export interface Role {
 
 export interface InitialServerConfig {
   name: string;
+  ownerUsername?: string; // Username of the server owner account
+  userRoles?: Record<string, string>; // username → role name
   sections?: Array<Pick<ChannelSection, 'id' | 'name' | 'position' | 'permissions'>>;
   channels?: Array<Pick<Channel, 'id' | 'name' | 'type' | 'sectionId' | 'position' | 'settings' | 'permissions'>>;
   roles?: Array<Pick<Role, 'id' | 'name' | 'color' | 'permissions'>>;
@@ -148,6 +154,8 @@ export class Server {
   private roles: Map<string, Role> = new Map();
   private messages: Map<string, TypedMessage[]> = new Map(); // channelId -> messages[]
   private messageHandlers: ((message: any) => any)[] = []; // Plugin message handlers
+  private userRoles: Map<string, string> = new Map();        // username → role name
+  private connectedUsers: Map<string, string> = new Map(); // socketId → username
   private systemStats: SystemStats | null = null;
   private statsInterval: NodeJS.Timeout | null = null;
   private shuttingDown = false;
@@ -155,15 +163,29 @@ export class Server {
   private e2eeEnabled = false;
   private backupManager: BackupManager;
   private botAccountManager: BotAccountManager;
+  private initialConfigPath: string | undefined;
+  private ownerUsername: string = '';
 
-  constructor(port: number, mode: 'public' | 'private', serverId?: string, adminToken?: string, initialConfig?: InitialServerConfig) {
+  constructor(port: number, mode: 'public' | 'private', serverId?: string, adminToken?: string, initialConfig?: InitialServerConfig, initialConfigPath?: string) {
     this.port = port;
     this.mode = mode;
     this.serverId = serverId || uuidv4();
     this.serverName = initialConfig?.name || 'KIAMA Server';
+    this.ownerUsername = initialConfig?.ownerUsername ?? '';
     this.adminToken = adminToken || process.env.KIAMA_ADMIN_TOKEN || '';
     this.dataRoot = process.env.KIAMA_DATA_DIR || path.join(__dirname, 'data');
     this.configFilePath = process.env.KIAMA_CONFIG_PATH || path.join(this.dataRoot, 'configs', `${this.serverId}.json`);
+    this.initialConfigPath = initialConfigPath;
+
+    // Auto-detect server.config.json sitting next to the bundle (dist/server/)
+    // when no --config flag was passed. This is the primary persistence target.
+    if (!this.initialConfigPath) {
+      const autoPath = path.join(__dirname, 'server.config.json');
+      if (fs.existsSync(autoPath)) {
+        this.initialConfigPath = autoPath;
+        console.log(`Auto-detected config: ${autoPath}`);
+      }
+    }
     this.app = express();
     this.server = http.createServer(this.app);
     this.io = new SocketServer(this.server);
@@ -399,8 +421,20 @@ export class Server {
   }
 
   private initializeServerState(initialConfig?: InitialServerConfig) {
-    if (initialConfig) {
-      this.applyInitialConfig(initialConfig);
+    // If no initialConfig was passed in, try to load from the config file on disk.
+    // This covers server restarts where --config is not re-specified.
+    let config = initialConfig;
+    if (!config && this.initialConfigPath && fs.existsSync(this.initialConfigPath)) {
+      try {
+        const raw = fs.readFileSync(this.initialConfigPath, 'utf-8');
+        config = JSON.parse(raw) as InitialServerConfig;
+        console.log(`Restored server state from ${this.initialConfigPath}`);
+      } catch (e) {
+        console.error('Failed to read config file, falling back to defaults:', e);
+      }
+    }
+    if (config) {
+      this.applyInitialConfig(config);
     } else {
       this.initializeDefaultChannels();
       this.initializeDefaultRoles();
@@ -435,6 +469,54 @@ export class Server {
       fs.chmodSync(this.configFilePath, 0o600);
     } catch (error) {
       console.error('Failed to persist server config:', error);
+    }
+  }
+
+  /**
+   * Write current state to the internal config file AND sync back to the
+   * original --config file (server.config.json or equivalent) so changes
+   * survive a server restart.
+   */
+  private saveToDisk(): void {
+    try {
+      this.persistConfigFile();
+
+      // If the server was started with a --config file, write the current
+      // sections/channels/roles back to it in InitialServerConfig format.
+      if (this.initialConfigPath) {
+        const snap = this.getConfigSnapshot();
+        const initialCfg: InitialServerConfig = {
+          name: this.serverName,
+          sections: snap.sections.map(s => ({
+            id: s.id,
+            name: s.name,
+            position: s.position,
+            permissions: s.permissions,
+          })),
+          channels: snap.channels.map(c => ({
+            id: c.id,
+            name: c.name,
+            type: c.type,
+            sectionId: c.sectionId,
+            position: c.position,
+            settings: c.settings,
+            permissions: c.permissions,
+          })),
+          roles: snap.roles.map(r => ({
+            id: r.id,
+            name: r.name,
+            color: r.color,
+            permissions: r.permissions,
+          })),
+          ownerUsername: this.ownerUsername || undefined,
+          userRoles: this.userRoles.size > 0 ? Object.fromEntries(this.userRoles.entries()) : undefined,
+        };
+        const cfgDir = path.dirname(this.initialConfigPath);
+        if (!fs.existsSync(cfgDir)) fs.mkdirSync(cfgDir, { recursive: true });
+        fs.writeFileSync(this.initialConfigPath, JSON.stringify(initialCfg, null, 2), 'utf-8');
+      }
+    } catch (error) {
+      console.error('Failed to save config to disk:', error);
     }
   }
 
@@ -545,9 +627,25 @@ export class Server {
     this.messages.set(announcementsChannel.id, []);
   }
 
+  private getServerIconPath(): string | null {
+    for (const ext of ['png', 'jpg', 'jpeg', 'gif', 'webp']) {
+      const p = path.join(this.dataRoot, `server-icon.${ext}`);
+      if (fs.existsSync(p)) return p;
+    }
+    return null;
+  }
+
   private applyInitialConfig(config: InitialServerConfig) {
+    if (config.ownerUsername) this.ownerUsername = config.ownerUsername;
+    // User roles
+    if (config.userRoles) {
+      for (const [username, role] of Object.entries(config.userRoles)) {
+        this.userRoles.set(username, role);
+      }
+    }
     // Roles
     if (config.roles && config.roles.length > 0) {
+
       config.roles.forEach((role, index) => {
         const id = role.id || `role-${index + 1}`;
         const roleRecord: Role = {
@@ -715,6 +813,101 @@ export class Server {
       res.json({ success: true, message: 'All plugins have been disabled for security' });
     });
 
+    // ── Server info & icon ────────────────────────────────────────────────────
+
+    // Public endpoint: basic info about this server (name, owner, icon).
+    this.app.get('/info', (_req, res) => {
+      const iconPath = this.getServerIconPath();
+      res.json({
+        id: this.serverId,
+        name: this.serverName,
+        ownerUsername: this.ownerUsername || null,
+        iconUrl: iconPath ? '/server/icon' : null,
+      });
+    });
+
+    // Server icon: anyone can upload (gated by UI; only owner sees the option).
+    this.app.post('/server/icon', (req, res) => {
+      const { dataUri } = req.body;
+      if (typeof dataUri !== 'string') {
+        return res.status(400).json({ error: 'dataUri is required' });
+      }
+      const match = dataUri.match(/^data:image\/(\w+);base64,(.+)$/);
+      if (!match) return res.status(400).json({ error: 'Invalid data URI format' });
+      const ext  = match[1] === 'jpeg' ? 'jpg' : match[1];
+      const data = Buffer.from(match[2], 'base64');
+      // Remove any previously stored icon with a different extension.
+      for (const e of ['png', 'jpg', 'jpeg', 'gif', 'webp']) {
+        const old = path.join(this.dataRoot, `server-icon.${e}`);
+        if (fs.existsSync(old)) { try { fs.unlinkSync(old); } catch {} }
+      }
+      const iconPath = path.join(this.dataRoot, `server-icon.${ext}`);
+      fs.writeFileSync(iconPath, data);
+      res.json({ success: true, iconUrl: '/server/icon' });
+    });
+
+    // Serve the server icon file.
+    this.app.get('/server/icon', (_req, res) => {
+      const iconPath = this.getServerIconPath();
+      if (!iconPath) return res.status(404).json({ error: 'No server icon set' });
+      res.sendFile(path.resolve(iconPath));
+    });
+
+    // Claim owner: sets ownerUsername when no owner is assigned yet.
+    // If an admin token is configured on the server, it must be provided in
+    // X-Admin-Token header or body.token.  Without an admin token configured
+    // (e.g. first-time setup), any connecting client may claim ownership.
+    this.app.post('/server/claim-owner', (req, res) => {
+      const { username, token } = req.body;
+      if (!username || typeof username !== 'string' || !username.trim()) {
+        return res.status(400).json({ error: 'username is required' });
+      }
+      // If a token is configured, validate it.
+      if (this.adminToken && this.adminToken.trim()) {
+        const supplied = (req.headers['x-admin-token'] as string) || token as string;
+        if (!supplied || supplied !== this.adminToken) {
+          return res.status(401).json({
+            error: 'Admin token required to claim ownership',
+            requiresToken: true,
+          });
+        }
+      }
+      // Overwrite only if no owner set (or admin token was verified = transfer).
+      this.ownerUsername = username.trim();
+      this.saveToDisk();
+      res.json({ success: true, ownerUsername: this.ownerUsername });
+    });
+
+    // GET /members — list all known members with their roles and online status
+    this.app.get('/members', (req, res) => {
+      const onlineUsernames = new Set(this.connectedUsers.values());
+      const seen = new Set<string>();
+      const members: Array<{ username: string; role?: string; status: string }> = [];
+      for (const [username, role] of this.userRoles.entries()) {
+        seen.add(username);
+        members.push({ username, role, status: onlineUsernames.has(username) ? 'online' : 'offline' });
+      }
+      for (const username of onlineUsernames) {
+        if (!seen.has(username)) members.push({ username, status: 'online' });
+      }
+      res.json({ members });
+    });
+
+    // PATCH /members/:username/role — assign a role to a user
+    this.app.patch('/members/:username/role', (req, res) => {
+      const { username } = req.params;
+      const { role } = req.body as { role?: string };
+      if (typeof role !== 'string') return res.status(400).json({ error: 'role must be a string' });
+      if (role.trim()) {
+        this.userRoles.set(username, role.trim());
+      } else {
+        this.userRoles.delete(username);
+      }
+      this.saveToDisk();
+      this.io.emit('member_role_updated', { username, role: role.trim() || null });
+      res.json({ username, role: role.trim() || null });
+    });
+
     // System stats endpoint
     this.app.get('/system/stats', (req, res) => {
       const stats = this.getSystemStats();
@@ -785,13 +978,16 @@ export class Server {
         return res.status(400).json({ error: 'Channel name is required' });
       }
 
+      const { permissions: permissionsBody } = req.body;
       const channel: Channel = {
         id: uuidv4(),
         name: name.trim(),
         type,
         sectionId,
         position: this.getNextChannelPosition(sectionId),
-        permissions: { read: true, write: true, manage: false },
+        permissions: permissionsBody
+          ? { read: true, write: true, manage: false, ...permissionsBody }
+          : { read: true, write: true, manage: false },
         settings: {
           nsfw: false,
           slowMode: 0,
@@ -806,6 +1002,7 @@ export class Server {
       this.messages.set(channel.id, []);
 
       this.io.emit('channel_created', channel);
+      this.saveToDisk();
       res.json(channel);
     });
 
@@ -816,11 +1013,14 @@ export class Server {
         return res.status(400).json({ error: 'Section name is required' });
       }
 
+      const { permissions: sectionPermsBody } = req.body;
       const section: ChannelSection = {
         id: uuidv4(),
         name: name.trim(),
         position: this.getNextSectionPosition(),
-        permissions: { view: true, manage: false },
+        permissions: sectionPermsBody
+          ? { view: true, manage: false, ...sectionPermsBody }
+          : { view: true, manage: false },
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -828,6 +1028,7 @@ export class Server {
       this.sections.set(section.id, section);
 
       this.io.emit('section_created', section);
+      this.saveToDisk();
       res.json(section);
     });
 
@@ -847,6 +1048,7 @@ export class Server {
       this.messages.delete(channelId);
 
       this.io.emit('channel_deleted', { channelId });
+      this.saveToDisk();
       res.json({ success: true });
     });
 
@@ -862,18 +1064,127 @@ export class Server {
         return res.status(403).json({ error: 'Cannot delete default section' });
       }
 
-      // Move channels in this section to no section
+      // Find the best destination section: pick the section with the lowest position
+      // that isn't the one being deleted (so channels always stay sectioned).
+      const fallbackSection = [...this.sections.values()]
+        .filter(s => s.id !== sectionId)
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
+
+      // Move channels in this section to the fallback section and notify clients
       for (const channel of this.channels.values()) {
         if (channel.sectionId === sectionId) {
-          channel.sectionId = undefined;
+          channel.sectionId = fallbackSection?.id ?? undefined;
           channel.updatedAt = new Date();
+          // Emit channel_updated so every client immediately reflects the move
+          this.io.emit('channel_updated', channel);
         }
       }
 
       this.sections.delete(sectionId);
 
       this.io.emit('section_deleted', { sectionId });
+      this.saveToDisk();
       res.json({ success: true });
+    });
+
+    // ── Channel & section PATCH (rename / reorder / move) ────────────────────
+
+    this.app.patch('/channels/:channelId', (req, res) => {
+      const { channelId } = req.params;
+      const existing = this.channels.get(channelId);
+      if (!existing) {
+        return res.status(404).json({ error: 'Channel not found' });
+      }
+      const { name, type, sectionId, position, settings, permissions } = req.body;
+      const updated: Channel = {
+        ...existing,
+        name:        (name && typeof name === 'string') ? name.trim() : existing.name,
+        type:        type || existing.type,
+        sectionId:   sectionId !== undefined ? (sectionId ?? undefined) : existing.sectionId,
+        position:    position  !== undefined ? Number(position)          : existing.position,
+        settings:    settings  !== undefined ? { ...existing.settings, ...settings }       : existing.settings,
+        permissions: permissions !== undefined ? { ...existing.permissions, ...permissions } : existing.permissions,
+        updatedAt:   new Date(),
+      };
+      this.channels.set(channelId, updated);
+      this.io.emit('channel_updated', updated);
+      this.saveToDisk();
+      res.json(updated);
+    });
+
+    this.app.patch('/sections/:sectionId', (req, res) => {
+      const { sectionId } = req.params;
+      const existing = this.sections.get(sectionId);
+      if (!existing) {
+        return res.status(404).json({ error: 'Section not found' });
+      }
+      const { name, position, permissions } = req.body;
+      const updated: ChannelSection = {
+        ...existing,
+        name:        (name && typeof name === 'string') ? name.trim() : existing.name,
+        position:    position    !== undefined ? Number(position)     : existing.position,
+        permissions: permissions !== undefined ? { ...existing.permissions, ...permissions } : existing.permissions,
+        updatedAt:   new Date(),
+      };
+      this.sections.set(sectionId, updated);
+      this.io.emit('section_updated', updated);
+      this.saveToDisk();
+      res.json(updated);
+    });
+
+    // ── Dedicated permissions PATCH endpoints ─────────────────────────────────
+    // These are thin wrappers that forward to the main PATCH handlers above,
+    // exposed as separate routes for clarity and backward compatibility.
+
+    this.app.patch('/channels/:channelId/permissions', (req, res) => {
+      const { channelId } = req.params;
+      const existing = this.channels.get(channelId);
+      if (!existing) {
+        return res.status(404).json({ error: 'Channel not found' });
+      }
+      const { readRoles, writeRoles, roles } = req.body;
+      const updated: Channel = {
+        ...existing,
+        permissions: {
+          ...existing.permissions,
+          read: existing.permissions?.read ?? true,
+          write: existing.permissions?.write ?? true,
+          manage: existing.permissions?.manage ?? false,
+          ...(roles !== undefined && { roles }),
+          ...(readRoles !== undefined && { readRoles }),
+          ...(writeRoles !== undefined && { writeRoles }),
+        },
+        updatedAt: new Date(),
+      };
+      this.channels.set(channelId, updated);
+      this.io.emit('channel_updated', updated);
+      this.saveToDisk();
+      res.json(updated);
+    });
+
+    this.app.patch('/sections/:sectionId/permissions', (req, res) => {
+      const { sectionId } = req.params;
+      const existing = this.sections.get(sectionId);
+      if (!existing) {
+        return res.status(404).json({ error: 'Section not found' });
+      }
+      const { viewRoles, manageRoles, roles } = req.body;
+      const updated: ChannelSection = {
+        ...existing,
+        permissions: {
+          ...existing.permissions,
+          view: viewRoles ? viewRoles.length === 0 : (existing.permissions?.view ?? true),
+          manage: existing.permissions?.manage ?? false,
+          ...(roles !== undefined && { roles }),
+          ...(viewRoles !== undefined && { viewRoles }),
+          ...(manageRoles !== undefined && { manageRoles }),
+        },
+        updatedAt: new Date(),
+      };
+      this.sections.set(sectionId, updated);
+      this.io.emit('section_updated', updated);
+      this.saveToDisk();
+      res.json(updated);
     });
 
     // Serve client plugin files
@@ -1260,6 +1571,16 @@ export class Server {
     this.io.on('connection', (socket) => {
       console.log('User connected');
 
+      socket.on('identify', (data: { username: string }) => {
+        if (!data?.username) return;
+        this.connectedUsers.set(socket.id, data.username);
+        // Also register in userRoles if not present yet (keeps them in the member list)
+        if (!this.userRoles.has(data.username)) {
+          // Don't save to disk on identify alone — role will be set via PATCH
+        }
+        this.io.emit('user_online', { username: data.username });
+      });
+
       socket.on('join_channel', (data: { channelId: string }) => {
         const channel = this.channels.get(data.channelId);
         if (channel) {
@@ -1333,6 +1654,12 @@ export class Server {
 
       socket.on('disconnect', () => {
         console.log('User disconnected');
+        const username = this.connectedUsers.get(socket.id);
+        this.connectedUsers.delete(socket.id);
+        if (username) {
+          const stillOnline = Array.from(this.connectedUsers.values()).some(u => u === username);
+          if (!stillOnline) this.io.emit('user_offline', { username });
+        }
       });
     });
   }
