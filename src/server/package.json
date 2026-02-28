@@ -2,15 +2,15 @@
   "name": "kiama-server",
   "version": "0.1.0",
   "description": "KIAMA server component",
-  "main": "../../dist/server/kiama-server-0.1.0.js",
+  "main": "./kiama-server",
   "bin": {
-    "kiama-server": "../../dist/server/kiama-server-0.1.0.js"
+    "kiama-server": "./kiama-server"
   },
   "scripts": {
     "build": "webpack",
-    "start": "NODE_PATH=./node_modules node ../../dist/server/kiama-server-0.1.0.js",
+    "start": "NODE_PATH=./node_modules node ./kiama-server",
     "dev": "ts-node src/index.ts",
-    "cli": "NODE_PATH=./node_modules node ../../dist/server/kiama-server-0.1.0.js"
+    "cli": "NODE_PATH=./node_modules node ./kiama-server"
   },
   "dependencies": {
     "@types/archiver": "^7.0.0",

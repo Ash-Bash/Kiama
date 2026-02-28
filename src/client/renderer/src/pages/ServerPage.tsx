@@ -62,6 +62,8 @@ interface ServerPageProps {
   onCloseReactionPicker: () => void;
   handleReactionEmoteSelect: (emote: PickerEmote) => void;
   pickerAnchor: { top: number; left: number; width: number; height: number } | null;
+  channelsLoading?: boolean;
+  canSend?: boolean;
 }
 
 // Server view that shows channel header, message list, and composer controls.
@@ -95,6 +97,8 @@ const ServerPage: React.FC<ServerPageProps> = ({
   onCloseReactionPicker,
   handleReactionEmoteSelect,
   pickerAnchor,
+  canSend,
+  channelsLoading,
 }) => {
   return (
     <Page
@@ -121,6 +125,7 @@ const ServerPage: React.FC<ServerPageProps> = ({
                   {currentChannel.type === 'announcement' && '📢'}
                 </span>
                 {currentChannel.name}
+                {/* roles diagnostics removed */}
               </>
             ) : (
               'Select a channel'
@@ -140,55 +145,70 @@ const ServerPage: React.FC<ServerPageProps> = ({
         </div>
       }
     >
-      <div className="message-list">
-        {currentMessages.map((msg, i, arr) => renderMessage(msg, i, arr))}
-      </div>
+      {channelsLoading ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', flexDirection: 'column' }}>
+          <div className="spinner" style={{ width: 56, height: 56, marginBottom: 12 }} aria-hidden="true" />
+          <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading channels…</div>
+        </div>
+      ) : (
+        <div className="message-list">
+          {currentMessages.map((msg, i, arr) => renderMessage(msg, i, arr))}
+        </div>
+      )}
 
       <div className="message-input">
-        {/* Reply bar shown above the composer when replying */}
-        {replyingTo && (
-          <div className="reply-bar">
-            <span className="reply-bar-label">
-              <i className="fas fa-reply reply-bar-icon" />
-              Replying to <strong>{replyingTo.user}</strong>
-            </span>
-            <span className="reply-bar-preview">
-              {replyingTo.content.length > 60
-                ? replyingTo.content.slice(0, 60) + '…'
-                : replyingTo.content}
-            </span>
-            <button className="reply-bar-close" onClick={onClearReply} title="Cancel reply">
-              <i className="fas fa-times" />
-            </button>
+        {canSend === false ? (
+          <div className="message-input-disabled" style={{ padding: 12, textAlign: 'center', color: 'var(--text-secondary)', width: '100%' }}>
+            You don't have permission to send messages in this channel.
           </div>
-        )}
+        ) : (
+          <>
+            {/* Reply bar shown above the composer when replying */}
+            {replyingTo && (
+              <div className="reply-bar">
+                <span className="reply-bar-label">
+                  <i className="fas fa-reply reply-bar-icon" />
+                  Replying to <strong>{replyingTo.user}</strong>
+                </span>
+                <span className="reply-bar-preview">
+                  {replyingTo.content.length > 60
+                    ? replyingTo.content.slice(0, 60) + '…'
+                    : replyingTo.content}
+                </span>
+                <button className="reply-bar-close" onClick={onClearReply} title="Cancel reply">
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+            )}
 
-        <div className="message-input-container">
-          <button
-            className="message-options-btn"
-            onClick={onToggleMessageOptions}
-            title="Message Options"
-          >
-            <i className="fas fa-plus"></i>
-          </button>
-          <input
-            value={message}
-            onChange={(e) => onMessageChange(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && onSendMessage()}
-            placeholder={`Message #${currentChannel?.name || 'general'}`}
-          />
-          <div className="message-function-tray">
-            <button className="tray-btn emote-btn" onClick={(e) => openEmojiPicker(e.currentTarget.getBoundingClientRect())} title="Add Emoji">
-              <i className="far fa-smile"></i>
-            </button>
-            <button className="tray-btn gif-btn" onClick={() => openGifPicker()} title="Add GIF">
-              <i className="fas fa-film"></i>
-            </button>
-          </div>
-          <button className="send-btn" onClick={onSendMessage} title="Send Message">
-            <i className="fas fa-paper-plane"></i>
-          </button>
-        </div>
+            <div className="message-input-container">
+              <button
+                className="message-options-btn"
+                onClick={onToggleMessageOptions}
+                title="Message Options"
+              >
+                <i className="fas fa-plus"></i>
+              </button>
+              <input
+                value={message}
+                onChange={(e) => onMessageChange(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && onSendMessage()}
+                placeholder={`Message #${currentChannel?.name || 'general'}`}
+              />
+              <div className="message-function-tray">
+                <button className="tray-btn emote-btn" onClick={(e) => openEmojiPicker(e.currentTarget.getBoundingClientRect())} title="Add Emoji">
+                  <i className="far fa-smile"></i>
+                </button>
+                <button className="tray-btn gif-btn" onClick={() => openGifPicker()} title="Add GIF">
+                  <i className="fas fa-film"></i>
+                </button>
+              </div>
+              <button className="send-btn" onClick={onSendMessage} title="Send Message">
+                <i className="fas fa-paper-plane"></i>
+              </button>
+            </div>
+          </>
+        )}
 
         {showEmotePicker && (
           <EmotePicker

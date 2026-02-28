@@ -19,6 +19,7 @@ program
   .option('--private', 'Make server private')
   .option('--token <token>', 'Admin token used to protect management endpoints (falls back to KIAMA_ADMIN_TOKEN env)')
   .option('--config <path>', 'Path to an initial server configuration JSON file')
+  .option('--force', 'Start server without an initial config (not recommended)')
   .option('--owner <username>', 'Username of the account that owns this server (grants full admin role to that user)')
   .action((options) => {
     const port = Number.parseInt(options.port, 10) || 3000;
@@ -26,7 +27,36 @@ program
     const resolvedConfigPath = options.config
       ? (path.isAbsolute(options.config) ? options.config : path.join(process.cwd(), options.config))
       : undefined;
-    let config = resolvedConfigPath ? loadConfig(resolvedConfigPath) : undefined;
+
+    // If no explicit config provided, look for common config files in CWD
+    let discoveredConfigPath: string | undefined = undefined;
+    if (!resolvedConfigPath) {
+      try {
+        const cwdFiles = fs.readdirSync(process.cwd());
+        const candidate = cwdFiles.find(f => f.endsWith('.config.json'));
+        if (candidate) discoveredConfigPath = path.join(process.cwd(), candidate);
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    const finalConfigPath = resolvedConfigPath || discoveredConfigPath;
+    let config = finalConfigPath ? loadConfig(finalConfigPath) : undefined;
+
+    // If still no config and not forced, instruct user to run init-config first
+    if (!config && !options.force) {
+      console.error('\nNo initial server configuration found.');
+      console.error('It is recommended to create one before starting the server to avoid accidental default setups.');
+      console.error('\nOptions:');
+      console.error('  1) Create a config interactively or from the template:');
+      console.error('       kiama-server init-config --name "My Server" --output server.config.json');
+      console.error('     Then start:');
+      console.error('       kiama-server start --config server.config.json --token <admin-token> --owner <owner-username>');
+      console.error('\n  2) Start quickly (not recommended):');
+      console.error('       kiama-server start --force --token <admin-token> --owner <owner-username>');
+      console.error('\nYou can also place an existing *.config.json file in the current directory and it will be used automatically.');
+      process.exit(1);
+    }
 
     // Merge --owner flag into the config so it takes precedence over any value
     // that may already be stored in the config file.
@@ -139,15 +169,15 @@ program
       name: options.name,
       sections: [
         { id: 'general', name: 'General', position: 0, permissions: { view: true, manage: false } },
-        { id: 'staff', name: 'Staff', position: 1, permissions: { view: true, manage: true, roles: ['admin'] } }
+        { id: 'staff', name: 'Staff', position: 1, permissions: { view: true, manage: true, roles: ['owner'] } }
       ],
       channels: [
         { id: 'general', name: 'general', type: 'text', sectionId: 'general', position: 0, permissions: { read: true, write: true, manage: false } },
         { id: 'announcements', name: 'announcements', type: 'announcement', sectionId: 'general', position: 1, permissions: { read: true, write: false, manage: true } },
-        { id: 'staff-chat', name: 'staff-chat', type: 'text', sectionId: 'staff', position: 0, permissions: { read: true, write: true, manage: true, roles: ['admin'] } }
+        { id: 'staff-chat', name: 'staff-chat', type: 'text', sectionId: 'staff', position: 0, permissions: { read: true, write: true, manage: true, roles: ['owner'] } }
       ],
       roles: [
-        { id: 'admin', name: 'Admin', color: '#e5533d', permissions: { manageServer: true, manageChannels: true, manageRoles: true, viewChannels: true, sendMessages: true, manageMessages: true } },
+        { id: 'owner', name: 'Server Owner', color: '#e5533d', permissions: { manageServer: true, manageChannels: true, manageRoles: true, viewChannels: true, sendMessages: true, manageMessages: true } },
         { id: 'member', name: 'Member', color: '#4a90e2', permissions: { manageServer: false, manageChannels: false, manageRoles: false, viewChannels: true, sendMessages: true, manageMessages: false } }
       ]
     };

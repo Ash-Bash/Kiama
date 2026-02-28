@@ -52,6 +52,7 @@ interface ServerSettingsPageProps {
   onBack: () => void;
   onCreateRole: (input: { name: string; color?: string; permissions: RolePermissions }) => Promise<void> | void;
   onUpdateRole?: (id: string, input: { name: string; color?: string; permissions: RolePermissions }) => Promise<void> | void;
+  onDeleteRole?: (id: string) => Promise<void> | void;
   loading?: boolean;
   passwordRequired?: boolean | null;
   adminToken?: string;
@@ -189,9 +190,10 @@ interface RolesSubPageProps {
   roles: Role[];
   onCreateRole: (input: { name: string; color?: string; permissions: RolePermissions }) => Promise<void> | void;
   onUpdateRole?: (id: string, input: { name: string; color?: string; permissions: RolePermissions }) => Promise<void> | void;
+  onDeleteRole?: (id: string) => Promise<void> | void;
 }
 
-const RolesSubPage: React.FC<RolesSubPageProps> = ({ roles, onCreateRole, onUpdateRole }) => {
+const RolesSubPage: React.FC<RolesSubPageProps> = ({ roles, onCreateRole, onUpdateRole, onDeleteRole }) => {
   const [selectedRoleId, setSelectedRoleId]   = useState<string | null>(null);
   const [roleName, setRoleName]               = useState('');
   const [roleColor, setRoleColor]             = useState('#5865f2');
@@ -216,7 +218,7 @@ const RolesSubPage: React.FC<RolesSubPageProps> = ({ roles, onCreateRole, onUpda
   const clearSelection = () => setSelectedRoleId(null);
 
   // The owner role must always retain all permissions to prevent self-lockout.
-  const isOwnerRole = roleName.trim().toLowerCase() === 'owner';
+  const isOwnerRole = selectedRoleId === 'owner' || ['owner', 'server owner'].includes(roleName.trim().toLowerCase());
   const allPermissionsOn: RolePermissions = {
     manageServer: true, manageChannels: true, manageRoles: true,
     kickMembers: true, banMembers: true, sendMessages: true, viewChannels: true
@@ -232,6 +234,19 @@ const RolesSubPage: React.FC<RolesSubPageProps> = ({ roles, onCreateRole, onUpda
     } else {
       await onCreateRole({ name: roleName.trim(), color: roleColor, permissions: permsToSave });
       clearSelection();
+    }
+    setIsSubmitting(false);
+  };
+
+  const handleDelete = async () => {
+    if (!selectedRoleId || !onDeleteRole) return;
+    if (!confirm(`Delete role "${roleName}"? This cannot be undone.`)) return;
+    setIsSubmitting(true);
+    try {
+      await onDeleteRole(selectedRoleId);
+      clearSelection();
+    } catch (err) {
+      // swallow — parent will log/handle
     }
     setIsSubmitting(false);
   };
@@ -314,6 +329,15 @@ const RolesSubPage: React.FC<RolesSubPageProps> = ({ roles, onCreateRole, onUpda
                 ? (selectedRoleId ? 'Saving...' : 'Creating...')
                 : (selectedRoleId ? 'Save changes' : 'Add role')}
             </Button>
+            {selectedRoleId && (
+              <Button
+                variant="danger"
+                onClick={handleDelete}
+                disabled={isSubmitting || selectedRoleId === 'owner' || selectedRoleId === 'member'}
+              >
+                Delete role
+              </Button>
+            )}
             <span className="settings-sub-page__hint">Roles apply server-wide.</span>
           </div>
         </div>
@@ -943,6 +967,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
   onBack,
   onCreateRole,
   onUpdateRole,
+  onDeleteRole,
   loading = false,
   passwordRequired = null,
   adminToken,
@@ -992,7 +1017,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
       identity={identity}
     >
       {activeTab === 'overview'    && <OverviewSubPage server={server} onUpdateServerIcon={onUpdateServerIcon} />}
-      {activeTab === 'roles'       && <RolesSubPage roles={roles} onCreateRole={onCreateRole} onUpdateRole={onUpdateRole} />}
+      {activeTab === 'roles'       && <RolesSubPage roles={roles} onCreateRole={onCreateRole} onUpdateRole={onUpdateRole} onDeleteRole={onDeleteRole} />}
       {activeTab === 'permissions' && (
         <PermissionsSubPage
           server={server}

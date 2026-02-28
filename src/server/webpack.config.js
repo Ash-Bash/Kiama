@@ -81,6 +81,27 @@ module.exports = {
             return content;
           }
         }
+        ,
+        // Copy the top-level install script into the built server folder so it's available
+        // alongside the bundled server CLI when distributing the package.
+        {
+          from: path.resolve(__dirname, '../../install'),
+          to: path.resolve(__dirname, '../../dist/server'),
+          noErrorOnMissing: true
+        }
+        ,
+        // Copy the server package.json (and lockfile if present) into dist so
+        // the distribution contains dependency metadata for `npm install`.
+        {
+          from: path.resolve(__dirname, 'package.json'),
+          to: path.resolve(__dirname, '../../dist/server'),
+          noErrorOnMissing: true
+        },
+        {
+          from: path.resolve(__dirname, 'package-lock.json'),
+          to: path.resolve(__dirname, '../../dist/server'),
+          noErrorOnMissing: true
+        }
       ]
     })
   ]

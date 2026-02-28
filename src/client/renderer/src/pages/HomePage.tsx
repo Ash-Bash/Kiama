@@ -15,7 +15,7 @@ interface HomePageProps {
   currentServerId: string;
   addServer: () => void;
   joinServer: () => void;
-  switchServer: (serverId: string) => void;
+  switchServer: (serverId: string) => void | Promise<void>;
   openAccountSettings: () => void;
   generateServerInitials: (name: string) => string;
 }
@@ -44,9 +44,7 @@ const HomePage: React.FC<HomePageProps> = ({
               <Button variant="primary" onClick={addServer} iconLeft={<i className="fas fa-plus-circle"></i>}>
                 Create a server
               </Button>
-              <Button variant="secondary" onClick={() => switchServer('test-server')} iconLeft={<i className="fas fa-comments"></i>}>
-                Enter Test Server
-              </Button>
+              
               <Button variant="secondary" onClick={joinServer} iconLeft={<i className="fas fa-sign-in-alt"></i>}>
                 Join with invite
               </Button>

@@ -5,6 +5,7 @@
   "main": "dist/server/kiama-server-0.1.0.js",
   "scripts": {
     "build": "npm run build:server && npm run build:client",
+    "start": "npm run start:server",
     "build:server": "cd src/server && npm run build",
     "build:client": "cd src/client && npm run build",
     "build:auth": "cd src/auth && npm run build",
@@ -14,7 +15,8 @@
     "dev:server": "cd src/server && npm run dev",
     "dev:client": "cd src/client && npm run dev",
     "dev:auth": "cd src/auth && npm run dev",
-    "install:all": "npm install && cd src/server && npm install && cd ../client && npm install && cd ../auth && npm install"
+    "install:all": "npm install && cd src/server && npm install && cd ../client && npm install && cd ../auth && npm install",
+    "install-cli": "bash ./install"
   },
   "keywords": [
     "chat",

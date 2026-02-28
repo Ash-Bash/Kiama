@@ -113,6 +113,7 @@ export interface Role {
 export interface InitialServerConfig {
   name: string;
   ownerUsername?: string; // Username of the server owner account
+  allowClaimOwnership?: boolean; // whether clients should prompt to claim ownership when no owner exists
   userRoles?: Record<string, string>; // username → role name
   sections?: Array<Pick<ChannelSection, 'id' | 'name' | 'position' | 'permissions'>>;
   channels?: Array<Pick<Channel, 'id' | 'name' | 'type' | 'sectionId' | 'position' | 'settings' | 'permissions'>>;
@@ -165,6 +166,7 @@ export class Server {
   private botAccountManager: BotAccountManager;
   private initialConfigPath: string | undefined;
   private ownerUsername: string = '';
+  private allowClaimOwnership: boolean = true;
 
   constructor(port: number, mode: 'public' | 'private', serverId?: string, adminToken?: string, initialConfig?: InitialServerConfig, initialConfigPath?: string) {
     this.port = port;
@@ -172,7 +174,8 @@ export class Server {
     this.serverId = serverId || uuidv4();
     this.serverName = initialConfig?.name || 'KIAMA Server';
     this.ownerUsername = initialConfig?.ownerUsername ?? '';
-    this.adminToken = adminToken || process.env.KIAMA_ADMIN_TOKEN || '';
+    this.allowClaimOwnership = initialConfig?.allowClaimOwnership ?? true;
+    this.adminToken = (adminToken || process.env.KIAMA_ADMIN_TOKEN || '').toString().trim();
     this.dataRoot = process.env.KIAMA_DATA_DIR || path.join(__dirname, 'data');
     this.configFilePath = process.env.KIAMA_CONFIG_PATH || path.join(this.dataRoot, 'configs', `${this.serverId}.json`);
     this.initialConfigPath = initialConfigPath;
@@ -436,9 +439,14 @@ export class Server {
     if (config) {
       this.applyInitialConfig(config);
     } else {
-      this.initializeDefaultChannels();
+      // Ensure roles exist before creating channels so default channel
+      // permission gates can reference the member role id.
       this.initializeDefaultRoles();
+      this.initializeDefaultChannels();
     }
+    // Normalize channel permissions to populate readRoles/writeRoles for
+    // existing persisted configs so the client UI shows toggles as expected.
+    this.normalizeChannelPermissions();
     this.loadMessagesFromDB();
   }
 
@@ -549,9 +557,9 @@ export class Server {
   }
 
   private initializeDefaultRoles() {
-    const adminRole: Role = {
-      id: 'admin',
-      name: 'Admin',
+    const ownerRole: Role = {
+      id: 'owner',
+      name: 'Server Owner',
       color: '#e5533d',
       permissions: {
         manageServer: true,
@@ -581,8 +589,52 @@ export class Server {
       updatedAt: new Date()
     };
 
-    this.roles.set(adminRole.id, adminRole);
+    this.roles.clear();
+    this.roles.set(ownerRole.id, ownerRole);
     this.roles.set(memberRole.id, memberRole);
+  }
+
+  // Helper: find the role id that represents a regular member (lowest permissions)
+  private findMemberRoleId(): string | null {
+    // Prefer explicit ids/names
+    if (this.roles.has('member')) return 'member';
+    for (const r of this.roles.values()) {
+      if (r.name && r.name.toLowerCase() === 'member') return r.id;
+    }
+    // Fallback: pick role with fewest granted permissions
+    let best: Role | null = null;
+    let bestScore = Infinity;
+    for (const r of this.roles.values()) {
+      const perms = r.permissions || {} as any;
+      const score = Object.values(perms).filter(v => !!v).length;
+      if (score < bestScore) {
+        bestScore = score;
+        best = r;
+      }
+    }
+    return best ? best.id : null;
+  }
+
+  // Helper: find the role id that represents an owner/admin (highest permissions)
+  private findAdminRoleId(): string | null {
+    if (this.roles.has('owner')) return 'owner';
+    if (this.roles.has('admin')) return 'admin';
+    for (const r of this.roles.values()) {
+      if (r.name && r.name.toLowerCase() === 'owner') return r.id;
+      if (r.name && r.name.toLowerCase() === 'admin') return r.id;
+    }
+    // Fallback: pick role with most granted permissions
+    let best: Role | null = null;
+    let bestScore = -1;
+    for (const r of this.roles.values()) {
+      const perms = r.permissions || {} as any;
+      const score = Object.values(perms).filter(v => !!v).length;
+      if (score > bestScore) {
+        bestScore = score;
+        best = r;
+      }
+    }
+    return best ? best.id : null;
   }
 
   private initializeDefaultChannels() {
@@ -597,6 +649,8 @@ export class Server {
     };
     this.sections.set(generalSection.id, generalSection);
 
+    const memberRoleId = this.findMemberRoleId();
+
     // Create default channels
     const generalChannel: Channel = {
       id: 'general',
@@ -604,7 +658,13 @@ export class Server {
       type: 'text',
       sectionId: 'general',
       position: 0,
-      permissions: { read: true, write: true, manage: false },
+      permissions: {
+        read: true,
+        write: true,
+        manage: false,
+        readRoles: memberRoleId ? [memberRoleId] : [],
+        writeRoles: memberRoleId ? [memberRoleId] : [],
+      },
       settings: { nsfw: false, slowMode: 0, allowPinning: true },
       createdAt: new Date(),
       updatedAt: new Date()
@@ -618,7 +678,13 @@ export class Server {
       type: 'announcement',
       sectionId: 'general',
       position: 1,
-      permissions: { read: true, write: false, manage: false }, // Read-only for regular users
+      permissions: {
+        read: true,
+        write: false,
+        manage: false,
+        readRoles: memberRoleId ? [memberRoleId] : [],
+        writeRoles: [],
+      }, // Read-only for regular users
       settings: { nsfw: false, slowMode: 0, allowPinning: true },
       createdAt: new Date(),
       updatedAt: new Date()
@@ -627,9 +693,50 @@ export class Server {
     this.messages.set(announcementsChannel.id, []);
   }
 
+  // Ensure existing channels have explicit readRoles/writeRoles so the
+  // client UI shows expected toggles. Prefer the member role when present.
+  private normalizeChannelPermissions() {
+    // Build canonical lists from defined roles: include roles that can view/send.
+    const allReadableRoleIds = Array.from(this.roles.values())
+      .filter(r => r.permissions?.viewChannels !== false)
+      .map(r => r.id);
+    const allWritableRoleIds = Array.from(this.roles.values())
+      .filter(r => r.permissions?.sendMessages === true)
+      .map(r => r.id);
+
+    for (const [id, ch] of this.channels.entries()) {
+      const perms = ch.permissions || { read: true, write: true, manage: false };
+
+      const hasExplicitGates = (perms.roles !== undefined) || (perms.readRoles !== undefined) || (perms.writeRoles !== undefined);
+
+      if (!hasExplicitGates) {
+        ch.permissions = {
+          ...perms,
+          read: perms.read ?? true,
+          write: perms.write ?? true,
+          manage: perms.manage ?? false,
+          readRoles: perms.read === false ? [] : allReadableRoleIds,
+          writeRoles: perms.write === true ? allWritableRoleIds : [],
+        };
+      } else {
+        ch.permissions = {
+          ...perms,
+          read: perms.read ?? true,
+          write: perms.write ?? true,
+          manage: perms.manage ?? false,
+          readRoles: perms.readRoles !== undefined ? perms.readRoles : (perms.roles !== undefined ? perms.roles : allReadableRoleIds),
+          writeRoles: perms.writeRoles !== undefined ? perms.writeRoles : (perms.roles !== undefined ? perms.roles : (perms.write ? allWritableRoleIds : [])),
+        };
+      }
+      ch.updatedAt = new Date();
+      this.channels.set(id, ch);
+    }
+  }
+
   private getServerIconPath(): string | null {
+    const mediaDir = path.join(this.dataRoot, 'server_media');
     for (const ext of ['png', 'jpg', 'jpeg', 'gif', 'webp']) {
-      const p = path.join(this.dataRoot, `server-icon.${ext}`);
+      const p = path.join(mediaDir, `servericon.${ext}`);
       if (fs.existsSync(p)) return p;
     }
     return null;
@@ -637,6 +744,13 @@ export class Server {
 
   private applyInitialConfig(config: InitialServerConfig) {
     if (config.ownerUsername) this.ownerUsername = config.ownerUsername;
+    // If an owner is provided in initial config, ensure they have the admin role
+    if (config.ownerUsername) {
+      const adminRoleId = this.findAdminRoleId();
+      if (adminRoleId) {
+        this.userRoles.set(config.ownerUsername, adminRoleId);
+      }
+    }
     // User roles
     if (config.userRoles) {
       for (const [username, role] of Object.entries(config.userRoles)) {
@@ -716,7 +830,8 @@ export class Server {
   }
 
   private setupRoutes() {
-    this.app.use(express.json());
+    // Allow larger JSON payloads for image uploads (data URIs can be large).
+    this.app.use(express.json({ limit: '10mb' }));
     this.app.use('/emotes', express.static(path.join(__dirname, '../emotes')));
 
     const upload = multer({ dest: path.join(__dirname, '../emotes') });
@@ -823,12 +938,19 @@ export class Server {
         name: this.serverName,
         ownerUsername: this.ownerUsername || null,
         iconUrl: iconPath ? '/server/icon' : null,
+        allowClaimOwnership: this.allowClaimOwnership !== false,
       });
     });
 
     // Server icon: anyone can upload (gated by UI; only owner sees the option).
     this.app.post('/server/icon', (req, res) => {
       const { dataUri } = req.body;
+      try {
+        const size = req.headers['content-length'] || '<unknown>';
+        console.debug('[Server] POST /server/icon received, content-length=', size);
+      } catch (e) {
+        // ignore
+      }
       if (typeof dataUri !== 'string') {
         return res.status(400).json({ error: 'dataUri is required' });
       }
@@ -836,13 +958,21 @@ export class Server {
       if (!match) return res.status(400).json({ error: 'Invalid data URI format' });
       const ext  = match[1] === 'jpeg' ? 'jpg' : match[1];
       const data = Buffer.from(match[2], 'base64');
-      // Remove any previously stored icon with a different extension.
+      // Ensure server media directory exists and remove any previous icons.
+      const mediaDir = path.join(this.dataRoot, 'server_media');
+      try { fs.mkdirSync(mediaDir, { recursive: true }); } catch (e) { /* ignore */ }
       for (const e of ['png', 'jpg', 'jpeg', 'gif', 'webp']) {
-        const old = path.join(this.dataRoot, `server-icon.${e}`);
+        const old = path.join(mediaDir, `servericon.${e}`);
         if (fs.existsSync(old)) { try { fs.unlinkSync(old); } catch {} }
       }
-      const iconPath = path.join(this.dataRoot, `server-icon.${ext}`);
+      const iconPath = path.join(mediaDir, `servericon.${ext}`);
       fs.writeFileSync(iconPath, data);
+      // Notify connected clients that the server icon changed so they can reload it.
+      try {
+        this.io.emit('server_info_updated', { serverId: this.serverId, iconUrl: '/server/icon' });
+      } catch (e) {
+        console.error('[Server] Failed to emit server_info_updated', e);
+      }
       res.json({ success: true, iconUrl: '/server/icon' });
     });
 
@@ -850,6 +980,10 @@ export class Server {
     this.app.get('/server/icon', (_req, res) => {
       const iconPath = this.getServerIconPath();
       if (!iconPath) return res.status(404).json({ error: 'No server icon set' });
+      // Prevent aggressive caching so clients can fetch updates when the icon changes.
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       res.sendFile(path.resolve(iconPath));
     });
 
@@ -864,7 +998,16 @@ export class Server {
       }
       // If a token is configured, validate it.
       if (this.adminToken && this.adminToken.trim()) {
-        const supplied = (req.headers['x-admin-token'] as string) || token as string;
+        const suppliedRaw = (req.headers['x-admin-token'] as string) || token as string;
+        const supplied = suppliedRaw ? suppliedRaw.toString().trim() : suppliedRaw;
+        // Debug: log hashed comparison to help diagnose 401s without printing raw tokens
+        try {
+          const storedHash = this.hashAdminToken(this.adminToken);
+          const suppliedHash = supplied ? this.hashAdminToken(supplied) : '<none>';
+          console.debug('[claim-owner] admin token present; comparing hashes', { storedHash, suppliedHash });
+        } catch (e) {
+          console.debug('[claim-owner] admin token hash compare failed', e);
+        }
         if (!supplied || supplied !== this.adminToken) {
           return res.status(401).json({
             error: 'Admin token required to claim ownership',
@@ -874,7 +1017,13 @@ export class Server {
       }
       // Overwrite only if no owner set (or admin token was verified = transfer).
       this.ownerUsername = username.trim();
+      // Assign the owner the admin role so they get full permissions
+      const adminRoleId = this.findAdminRoleId();
+      if (adminRoleId) {
+        this.userRoles.set(this.ownerUsername, adminRoleId);
+      }
       this.saveToDisk();
+      this.io.emit('member_role_updated', { username: this.ownerUsername, role: adminRoleId });
       res.json({ success: true, ownerUsername: this.ownerUsername });
     });
 
@@ -919,7 +1068,14 @@ export class Server {
 
     // Role management endpoints
     this.app.get('/roles', (_req, res) => {
-      res.json({ roles: Array.from(this.roles.values()) });
+      try {
+        const roles = Array.from(this.roles.values());
+        console.log(`[Server] GET /roles -> count=${roles.length}`);
+        return res.json({ roles });
+      } catch (e) {
+        console.error('[Server] Error handling GET /roles', e);
+        return res.status(500).json({ roles: [] });
+      }
     });
 
     this.app.post('/roles', (req, res) => {
@@ -936,6 +1092,8 @@ export class Server {
         updatedAt: new Date()
       };
       this.roles.set(role.id, role);
+      // Notify connected clients that roles changed
+      this.io.emit('roles_updated', { roles: Array.from(this.roles.values()) });
       res.json(role);
     });
 
@@ -954,7 +1112,54 @@ export class Server {
         updatedAt: new Date()
       };
       this.roles.set(roleId, updated);
+      // Notify connected clients that roles changed
+      this.io.emit('roles_updated', { roles: Array.from(this.roles.values()) });
       res.json(updated);
+    });
+
+    this.app.delete('/roles/:roleId', (req, res) => {
+      const { roleId } = req.params;
+      if (!this.roles.has(roleId)) {
+        return res.status(404).json({ error: 'Role not found' });
+      }
+
+      // Prevent deletion of the canonical default roles
+      if (roleId === 'owner' || roleId === 'member') {
+        return res.status(400).json({ error: 'Default role cannot be deleted' });
+      }
+
+      // Remove role from roles map
+      this.roles.delete(roleId);
+
+      // Remove role references from user role assignments
+      for (const [username, r] of Array.from(this.userRoles.entries())) {
+        if (r === roleId) this.userRoles.delete(username);
+      }
+
+      // Strip role references from channel permissions
+      for (const channel of Array.from(this.channels.values())) {
+        const perms = { ...(channel.permissions || {}) } as ChannelPermissions;
+        if (perms.roles) perms.roles = perms.roles.filter(r => r !== roleId);
+        if (perms.readRoles) perms.readRoles = perms.readRoles.filter(r => r !== roleId);
+        if (perms.writeRoles) perms.writeRoles = perms.writeRoles.filter(r => r !== roleId);
+        channel.permissions = perms;
+        this.channels.set(channel.id, channel);
+      }
+
+      // Strip role references from section permissions
+      for (const section of Array.from(this.sections.values())) {
+        const perms = { ...(section.permissions || {}) } as SectionPermissions;
+        if (perms.roles) perms.roles = perms.roles.filter(r => r !== roleId);
+        if (perms.viewRoles) perms.viewRoles = perms.viewRoles.filter(r => r !== roleId);
+        if (perms.manageRoles) perms.manageRoles = perms.manageRoles.filter(r => r !== roleId);
+        section.permissions = perms;
+        this.sections.set(section.id, section);
+      }
+
+      this.saveToDisk();
+      // Notify connected clients that roles changed
+      this.io.emit('roles_updated', { roles: Array.from(this.roles.values()) });
+      res.json({ success: true });
     });
 
     // Channel management endpoints
@@ -1530,7 +1735,8 @@ export class Server {
       name: this.serverName,
       sections: Array.from(this.sections.values()),
       channels: Array.from(this.channels.values()),
-      roles: Array.from(this.roles.values())
+      roles: Array.from(this.roles.values()),
+      allowClaimOwnership: this.allowClaimOwnership !== false
     };
   }
 
@@ -1576,7 +1782,13 @@ export class Server {
         this.connectedUsers.set(socket.id, data.username);
         // Also register in userRoles if not present yet (keeps them in the member list)
         if (!this.userRoles.has(data.username)) {
-          // Don't save to disk on identify alone — role will be set via PATCH
+          // Assign the default lowest-permission role (e.g., Member) so new joiners get sensible access
+          const memberRoleId = this.findMemberRoleId();
+          if (memberRoleId) {
+            this.userRoles.set(data.username, memberRoleId);
+            this.saveToDisk();
+            this.io.emit('member_role_updated', { username: data.username, role: memberRoleId });
+          }
         }
         this.io.emit('user_online', { username: data.username });
       });

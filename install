@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Kiama CLI installer
+# - builds the server
+# - runs `npm link` in src/server to expose `kiama-server` globally
+# - creates a stamp file with installed version so future runs only update on version change
+
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Determine whether we're running from the repo root (dev) or from a packaged
+# distribution folder (e.g. copied into dist/server). In dev mode the server
+# package lives at `ROOT_DIR/src/server`. In dist mode the bundled JS lives in
+# the same folder as this script.
+if [ -d "$ROOT_DIR/src/server" ]; then
+  SERVER_DIR="$ROOT_DIR/src/server"
+  STAMP_FILE="$ROOT_DIR/.kiama-install-stamp"
+  DIST_MODE=0
+else
+  SERVER_DIR="$ROOT_DIR"
+  STAMP_FILE="$ROOT_DIR/.kiama-install-stamp"
+  DIST_MODE=1
+fi
+
+echo "Kiama installer — building server and linking CLI"
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm not found. Please install Node.js/npm first." >&2
+  exit 1
+fi
+
+if [ ! -d "$SERVER_DIR" ]; then
+  echo "Server folder not found at $SERVER_DIR" >&2
+  exit 1
+fi
+
+cd "$SERVER_DIR"
+
+INSTALLED_VERSION=""
+if [ -f "$STAMP_FILE" ]; then
+  INSTALLED_VERSION=$(grep '^version:' "$STAMP_FILE" | cut -d: -f2- | tr -d '\n' || true)
+fi
+
+# In dev mode we read version from server package.json; in dist mode try to
+# infer from the bundled filename.
+if [ "$DIST_MODE" -eq 0 ]; then
+  if [ ! -f package.json ]; then
+    echo "No package.json found in $SERVER_DIR, aborting." >&2
+    exit 1
+  fi
+  PKG_VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
+else
+  BUNDLED_JS=$(ls kiama-server-*.js 2>/dev/null | head -n1 || true)
+  if [ -n "$BUNDLED_JS" ]; then
+    PKG_VERSION="$(echo "$BUNDLED_JS" | sed -n 's/^kiama-server-\([0-9.]*\)\.js$/\1/p' || true)"
+    if [ -z "$PKG_VERSION" ]; then
+      PKG_VERSION="0.0.0"
+    fi
+  else
+    PKG_VERSION="0.0.0"
+  fi
+fi
+
+if [ "$INSTALLED_VERSION" = "$PKG_VERSION" ]; then
+  echo "Kiama server v$PKG_VERSION already installed. Re-linking to ensure CLI is active..."
+  npm link || true
+  # If running from a distribution folder, still ensure the wrapper exists
+  # and that package mapping points to it. For dev mode we can exit early.
+  if [ "$DIST_MODE" -eq 0 ]; then
+    echo "Done. Run 'kiama-server --help' to verify." 
+    exit 0
+  fi
+  # In dist mode continue on to recreate wrapper and package mapping then relink.
+fi
+
+if [ "$DIST_MODE" -eq 0 ]; then
+  echo "Installing server dependencies (may take a while)..."
+  npm install
+
+  echo "Building server..."
+  npm run build
+
+  # Create a minimal package.json inside the dist output and install
+  # production dependencies so the distributed `dist/server` contains
+  # the native modules (e.g. better-sqlite3) the bundle requires.
+  DIST_DIR="$(cd "$SERVER_DIR/../../dist/server" && pwd)"
+  if [ -d "$DIST_DIR" ]; then
+    echo "Creating dist package.json at $DIST_DIR/package.json"
+    node -e "const p=require('./package.json'); const fs=require('fs'); const path=require('path'); const distPkg={name:p.name,version:p.version,dependencies:p.dependencies,bin:{'kiama-server':'./kiama-server'}}; fs.writeFileSync(path.resolve('$DIST_DIR','package.json'), JSON.stringify(distPkg,null,2));"
+    echo "Installing production dependencies into $DIST_DIR (may take a while)..."
+    npm --prefix "$DIST_DIR" install --production || echo "Warning: installing production deps into $DIST_DIR failed; run 'npm --prefix $DIST_DIR install --production' manually." >&2
+  else
+    echo "Warning: expected dist folder not found at $DIST_DIR" >&2
+  fi
+
+  # Create a wrapper in src/server so the package's `bin` can point at it.
+  # This ensures `npm link` installs a small wrapper that invokes the bundled JS in dist.
+  BUNDLED_JS_NAME="kiama-server-$PKG_VERSION.js"
+  WRAPPER_PATH="$SERVER_DIR/kiama-server"
+  echo "Creating wrapper $WRAPPER_PATH -> ../../dist/server/$BUNDLED_JS_NAME"
+  cat > "$WRAPPER_PATH" <<EOF
+#!/usr/bin/env bash
+SOURCE="\$0"
+while [ -h "\$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "\$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "\$SOURCE")"
+  [[ \$SOURCE != /* ]] && SOURCE="\$DIR/\$SOURCE"
+done
+DIR="$(cd -P "$(dirname "\$SOURCE")" >/dev/null 2>&1 && pwd)"
+node "\$DIR/../../dist/server/$BUNDLED_JS_NAME" "\$@"
+EOF
+  chmod +x "$WRAPPER_PATH"
+
+  echo "Linking CLI globally via 'npm link' (you may be prompted for sudo on some systems)..."
+  npm link
+else
+  # Distribution mode — ensure there's a minimal package.json that maps the
+  # `kiama-server` bin to the bundled JS so `npm link` can register the CLI.
+  BUNDLED_JS=$(ls kiama-server-*.js 2>/dev/null | head -n1 || true)
+  if [ -z "$BUNDLED_JS" ]; then
+    echo "No bundled server JS (kiama-server-*.js) found in $SERVER_DIR" >&2
+    exit 1
+  fi
+
+  # If the distribution already includes a package.json (packaged by the
+  # build), leave it in place so dependencies from the original manifest
+  # are available. Otherwise create a minimal package.json that exposes the
+  # `kiama-server` bin so `npm link` can register the CLI.
+  CREATED_TEMP_PKG=0
+  if [ -f package.json ]; then
+    echo "Found package.json in distribution; using existing manifest for installs."
+  else
+    echo "Creating temporary package.json for distribution install..."
+    cat > package.json <<EOF
+{
+  "name": "kiama-server",
+  "version": "$PKG_VERSION",
+  "bin": {
+    "kiama-server": "./kiama-server"
+  }
+}
+EOF
+    CREATED_TEMP_PKG=1
+  fi
+
+  # Create a small executable wrapper with a Node shebang so the linked CLI
+  # runs the bundled JS correctly even if the bundle lacks a shebang.
+  WRAPPER_NAME="kiama-server"
+  echo "Creating executable wrapper $WRAPPER_NAME -> $BUNDLED_JS"
+  # Create wrapper with $BUNDLED_JS expanded into the file so it points
+  # at the actual bundled JS filename. We escape the dollars for runtime
+  # variables that must remain literal in the wrapper (\$0, \$@, etc.).
+  cat > "$WRAPPER_NAME" <<EOF
+#!/usr/bin/env bash
+# Resolve symlinks for \$0 so the wrapper finds the real directory
+SOURCE="\$0"
+while [ -h "\$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "\$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "\$SOURCE")"
+  [[ \$SOURCE != /* ]] && SOURCE="\$DIR/\$SOURCE"
+done
+DIR="$(cd -P "$(dirname "\$SOURCE")" >/dev/null 2>&1 && pwd)"
+node "\$DIR/$BUNDLED_JS" "\$@"
+EOF
+  chmod +x "$WRAPPER_NAME"
+
+  # Install production dependencies into the distribution folder so native
+  # modules like better-sqlite3 are available to the bundled JS at runtime.
+  echo "Installing production dependencies into $SERVER_DIR (dist mode)..."
+  # Prefer modern npm flag --omit=dev; fall back to --production for older npm.
+  if npm --prefix "$SERVER_DIR" --version >/dev/null 2>&1; then
+    NPM_VER=$(npm --version)
+  else
+    NPM_VER="unknown"
+  fi
+  echo "npm version: $NPM_VER"
+  npm --prefix "$SERVER_DIR" install --omit=dev --no-audit --no-fund || \
+    npm --prefix "$SERVER_DIR" install --production --no-audit --no-fund || \
+    echo "Warning: 'npm --prefix $SERVER_DIR install' failed; you may need to run it manually to build native modules." >&2
+
+  echo "Linking packaged server via 'npm link' in $SERVER_DIR"
+  npm link
+
+  # Verify node_modules were created (native modules like better-sqlite3)
+  if [ ! -d "$SERVER_DIR/node_modules" ] || [ ! -d "$SERVER_DIR/node_modules/better-sqlite3" ]; then
+    echo "WARNING: production dependencies not found in $SERVER_DIR/node_modules; attempting recovery steps..." >&2
+    # Try an explicit rebuild (may help if native build artifacts are missing)
+    npm --prefix "$SERVER_DIR" rebuild || true
+    if [ ! -d "$SERVER_DIR/node_modules/better-sqlite3" ]; then
+      echo "Attempting to install better-sqlite3 from source (this requires build tools)..." >&2
+      npm --prefix "$SERVER_DIR" install better-sqlite3 --build-from-source --no-audit --no-fund || true
+    fi
+    if [ ! -d "$SERVER_DIR/node_modules/better-sqlite3" ]; then
+      echo "ERROR: production dependencies not found in $SERVER_DIR/node_modules after recovery attempts" >&2
+      echo "Run the following to diagnose and build native modules (requires Xcode Command Line Tools on macOS):" >&2
+      echo "  xcode-select --install" >&2
+      echo "  npm --prefix \"$SERVER_DIR\" install --omit=dev --no-audit --no-fund" >&2
+      echo "Debug info:" >&2
+      echo "  node --version: $(node --version 2>/dev/null || echo 'unknown')" >&2
+      echo "  npm --version: $(npm --version 2>/dev/null || echo 'unknown')" >&2
+      echo "  pwd: $(pwd)" >&2
+      echo "  ls -la $SERVER_DIR" >&2
+      echo "  ls -la $SERVER_DIR/node_modules || true" >&2
+      # No package.json restore needed in this installer flow.
+      exit 1
+    fi
+  fi
+
+  # If a temporary package.json was created earlier, leave it in place so the
+  # distribution contains a manifest consumers can use to run `npm install`.
+  # Ensure the global bin symlink points to the wrapper we created.
+  GLOBAL_BIN="$(npm bin -g)"
+  GLOBAL_NODE_ROOT="$(npm root -g)"
+  if [ -n "$GLOBAL_BIN" ] && [ -n "$GLOBAL_NODE_ROOT" ]; then
+    GLOBAL_LINK="$GLOBAL_BIN/kiama-server"
+    TARGET_WRAPPER="$GLOBAL_NODE_ROOT/kiama-server/kiama-server"
+    if [ -f "$TARGET_WRAPPER" ]; then
+      echo "Ensuring global CLI $GLOBAL_LINK points to wrapper $TARGET_WRAPPER"
+      ln -sf "$TARGET_WRAPPER" "$GLOBAL_LINK" || true
+    fi
+  fi
+fi
+
+echo "Writing install stamp to $STAMP_FILE"
+cat > "$STAMP_FILE" <<EOF
+version:$PKG_VERSION
+date:$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+path:$SERVER_DIR
+EOF
+
+echo "Kiama server v$PKG_VERSION installed and linked. Run 'kiama-server --help' to get started."
+
+exit 0

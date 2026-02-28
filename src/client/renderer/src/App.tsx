@@ -157,71 +157,18 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   } = useTheme();
   const socketRef = React.useRef<any>(null);
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<Map<string, Message[]>>(() => new Map([
-    ['test-general', [
-      { id: 't1', user: 'Test Bot', content: 'Welcome to the Test Server!', type: 'text', timestamp: new Date(), serverId: 'test-server', channelId: 'test-general' },
-      { id: 't2', user: user?.name || 'You', content: 'This is where channel and user sidebars live.', type: 'text', timestamp: new Date(), serverId: 'test-server', channelId: 'test-general' }
-    ]],
-    ['test-random', [
-      { id: 't3', user: 'Alice', content: 'Drop anything fun here.', type: 'text', timestamp: new Date(), serverId: 'test-server', channelId: 'test-random' }
-    ]]
-  ]));
-  const [currentChannelId, setCurrentChannelId] = useState<string>('test-general');
-  const [channels, setChannels] = useState<Channel[]>([
-    { id: 'test-general', name: 'general', type: 'text', position: 0, serverId: 'test-server', sectionId: 'test-text-channels', createdAt: new Date(), updatedAt: new Date() },
-    { id: 'test-random', name: 'random', type: 'text', position: 1, serverId: 'test-server', sectionId: 'test-text-channels', createdAt: new Date(), updatedAt: new Date() },
-    { id: 'test-announcements', name: 'announcements', type: 'announcement', position: 2, serverId: 'test-server', sectionId: 'test-text-channels', createdAt: new Date(), updatedAt: new Date() },
-    { id: 'test-general-voice', name: 'General', type: 'voice', position: 0, serverId: 'test-server', sectionId: 'test-voice-channels', createdAt: new Date(), updatedAt: new Date() },
-    { id: 'test-music', name: 'Music', type: 'voice', position: 1, serverId: 'test-server', sectionId: 'test-voice-channels', createdAt: new Date(), updatedAt: new Date() }
-  ]);
-  const [sections, setSections] = useState<ChannelSection[]>([
-    { id: 'test-text-channels', name: 'TEXT CHANNELS', serverId: 'test-server', position: 0, createdAt: new Date(), updatedAt: new Date() },
-    { id: 'test-voice-channels', name: 'VOICE CHANNELS', serverId: 'test-server', position: 1, createdAt: new Date(), updatedAt: new Date() }
-  ]);
+  const [messages, setMessages] = useState<Map<string, Message[]>>(() => new Map());
+  const [currentChannelId, setCurrentChannelId] = useState<string>('');
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [sections, setSections] = useState<ChannelSection[]>([]);
+  const [channelsLoading, setChannelsLoading] = useState<boolean>(false);
   const [currentServer, setCurrentServer] = useState<string>(SERVER_ID);
   const [servers, setServers] = useState<Server[]>([
-    { id: 'home', name: 'Home', url: SERVER_URL },
-    { id: 'test-server', name: 'Test Server', url: SERVER_URL }
+    { id: 'home', name: 'Home', url: SERVER_URL }
   ]);
   const [currentServerId, setCurrentServerId] = useState<string>('home');
   const [activeView, setActiveView] = useState<ActiveView>('home');
-  const [users, setUsers] = useState<User[]>([
-    {
-      id: '1',
-      name: 'You',
-      status: 'online',
-      role: 'owner',
-      accessibleChannels: ['test-general', 'test-random', 'test-announcements', 'test-general-voice', 'test-music']
-    },
-    {
-      id: '2',
-      name: 'Alice',
-      status: 'online',
-      role: 'mod',
-      accessibleChannels: ['test-general', 'test-random']
-    },
-    {
-      id: '3',
-      name: 'Bob',
-      status: 'idle',
-      role: 'Support',
-      accessibleChannels: ['test-general']
-    },
-    {
-      id: '4',
-      name: 'Charlie',
-      status: 'dnd',
-      role: 'mod',
-      accessibleChannels: ['test-general', 'test-general-voice', 'test-music']
-    },
-    {
-      id: '5',
-      name: 'Diana',
-      status: 'offline',
-      role: 'Members',
-      accessibleChannels: ['test-general']
-    }
-  ]);
+  const [users, setUsers] = useState<User[]>([]);
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [userListWidth, setUserListWidth] = useState(240);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -266,17 +213,28 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   // Hydrate server list from the saved account data on login.
   useEffect(() => {
     if (!user?.serverList?.servers?.length) return;
-    setServers(prev => {
-      const incoming: Server[] = user.serverList.servers.map((s: any) => ({
+    const incoming: Server[] = user.serverList.servers.map((s: any) => {
+      let name = s.name;
+      try {
+        const parsed = new URL(s.url);
+        const hostLabel = parsed.hostname + (parsed.port ? `:${parsed.port}` : '');
+        if (!name || name === s.url) name = hostLabel;
+      } catch (err) {
+        // ignore
+      }
+      return {
         id: s.id,
-        name: s.name,
+        name,
         url: s.url,
         icon: s.icon ? `file://${appAccountManager.getMediaFilePath(s.icon)}` : undefined
-      }));
-      // Merge: always keep 'home', use account entries for non-home servers
+      };
+    });
+    setServers(prev => {
       const homeEntry = prev.find(s => s.id === 'home') || { id: 'home', name: 'Home', url: SERVER_URL };
       return [homeEntry, ...incoming];
     });
+    // Fetch /info for each hydrated server to obtain authoritative names/icons
+    incoming.forEach(s => { if (s.id !== 'home') void fetchServerInfo(s); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
   const [viewportWidth, setViewportWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1920);
@@ -296,12 +254,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [dndOverSectionId, setDndOverSectionId] = useState<string | null>(null);
   const [dndOverChannelId, setDndOverChannelId] = useState<string | null>(null);
   const [userSidebarTab, setUserSidebarTab] = useState<'members' | 'metrics'>('members');
-  const [serverRoles, setServerRoles] = useState<Role[]>([
-    { id: 'role-owner', name: 'owner', color: '#f59e0b', permissions: { manageServer: true, manageChannels: true, manageRoles: true, kickMembers: true, banMembers: true, sendMessages: true, viewChannels: true } },
-    { id: 'role-mod', name: 'mod', color: '#10b981', permissions: { manageServer: false, manageChannels: true, manageRoles: false, kickMembers: true, banMembers: false, sendMessages: true, viewChannels: true } },
-    { id: 'role-support', name: 'Support', color: '#3b82f6', permissions: { manageServer: false, manageChannels: false, manageRoles: false, kickMembers: false, banMembers: false, sendMessages: true, viewChannels: true } },
-    { id: 'role-members', name: 'Members', color: '#9ca3af', permissions: { manageServer: false, manageChannels: false, manageRoles: false, kickMembers: false, banMembers: false, sendMessages: true, viewChannels: true } },
-  ]);
+  const [serverRoles, setServerRoles] = useState<Role[]>([]);
+  const [serverRolesLoading, setServerRolesLoading] = useState<boolean>(false);
   const [serverSettingsChannelId, setServerSettingsChannelId] = useState<string>('');
   const [channelSettingsChannelId, setChannelSettingsChannelId] = useState<string | null>(null);
   const [sectionSettingsSectionId, setSectionSettingsSectionId] = useState<string | null>(null);
@@ -313,7 +267,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [serverSettingsLoading, setServerSettingsLoading] = useState(false);
   const [serverPasswordRequired, setServerPasswordRequired] = useState<boolean | null>(null);
   // Per-server info (owner username + icon URL) fetched via GET /info.
-  const [serverInfoCache, setServerInfoCache] = useState<Map<string, { ownerUsername: string | null; iconUrl: string | null }>>(new Map());
+  const [serverInfoCache, setServerInfoCache] = useState<Map<string, { ownerUsername: string | null; iconUrl: string | null; allowClaimOwnership?: boolean }>>(new Map());
   // Per-server member list (username → role + online status) fetched via GET /members.
   const [serverMembers, setServerMembers] = useState<Map<string, MemberEntry[]>>(new Map());
   // Controls the Discord-style user profile popover.
@@ -322,6 +276,62 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
   // Tracks which client-side serverId to tag the next channels_list response with.
   const pendingChannelServerIdRef = useRef<string>(currentServerId);
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  // Lightweight ping to determine if a server is reachable before switching.
+  const pingServer = async (server: Server): Promise<boolean> => {
+    if (!server || !server.url) return false;
+    // Try the configured URL first; if it fails and the URL used https://,
+    // try falling back to http://. If no protocol was provided, try http then https.
+    const urls: string[] = [];
+    try {
+      const parsed = new URL(server.url);
+      urls.push(parsed.origin);
+      if (parsed.protocol === 'https:') {
+        urls.push(`http://${parsed.hostname}${parsed.port ? `:${parsed.port}` : ''}`);
+      } else if (parsed.protocol === 'http:') {
+        urls.push(`https://${parsed.hostname}${parsed.port ? `:${parsed.port}` : ''}`);
+      }
+    } catch (err) {
+      // Not a full URL — prepend http and https fallbacks
+      urls.push(`http://${server.url}`);
+      urls.push(`https://${server.url}`);
+    }
+
+    for (const base of urls) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`${base}/info`, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (res.ok) {
+          // If we discovered a working base URL different from the stored one,
+          // update the server entry so subsequent requests use the working URL.
+          if (base !== server.url) {
+            setServers(prev => prev.map(s => s.id === server.id ? { ...s, url: base } : s));
+            console.info('[Kiama] pingServer: updated server.url to working base', base);
+          }
+          return true;
+        }
+      } catch (e) {
+        // try next candidate
+      }
+    }
+    return false;
+  };
+
+  // Normalize incoming role arrays to ensure unique IDs and avoid duplicate
+  // entries in the UI regardless of race between optimistic updates and
+  // server-emitted `roles_updated` events.
+  const normalizeRoles = (arr: Role[] | undefined | null) => {
+    if (!arr || arr.length === 0) return [] as Role[];
+    const m = new Map<string, Role>();
+    for (const r of arr) {
+      if (!r || !r.id) continue;
+      m.set(r.id, r);
+    }
+    return Array.from(m.values());
+  };
   // Always holds the latest currentServerId so socket handlers avoid stale closures.
   const currentServerIdRef = useRef<string>(currentServerId);
   useEffect(() => { currentServerIdRef.current = currentServerId; }, [currentServerId]);
@@ -442,8 +452,11 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   useEffect(() => {
     pluginManager.loadPlugins();
 
-    // Discover and install server plugins
-    pluginManager.discoverServerPlugins(SERVER_URL, currentServer);
+    // Discover and install server plugins for the server serving `SERVER_URL`.
+    // Prefer the local `servers` entry that matches the URL so we pass the correct server id.
+    const serverEntryForUrl = servers.find(s => s.url === SERVER_URL);
+    const serverIdForPlugins = serverEntryForUrl ? serverEntryForUrl.id : currentServer;
+    pluginManager.discoverServerPlugins(SERVER_URL, serverIdForPlugins);
 
     // Join default channel
     if (socketRef.current) {
@@ -503,25 +516,33 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       });
     });
 
-    socketRef.current.on('channels_list', (data: { channels: Channel[], sections: ChannelSection[], serverId: string }) => {
-      const targetServerId = pendingChannelServerIdRef.current;
+    socketRef.current.on('channels_list', (data: { channels: Channel[], sections: ChannelSection[], serverId?: string }) => {
+      // Prefer the serverId returned by the server payload; fall back to the pending ref.
+      const targetServerId = data.serverId || pendingChannelServerIdRef.current;
+
+      if (!targetServerId) {
+        console.warn('[App] channels_list received with no serverId and no pending target; ignoring to avoid clobbering channels');
+        return;
+      }
 
       // Determine the first channel to auto-select for the incoming server
-      const sortedIncoming = [...data.channels].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      const sortedIncoming = [...(data.channels || [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
       const firstChannelId = sortedIncoming[0]?.id || '';
 
       setChannels(prev => {
         // Keep channels that belong to other servers, replace only those for this server
         const others = prev.filter(c => c.serverId !== targetServerId);
-        const incoming = data.channels.map(c => ({ ...c, serverId: targetServerId }));
+        const incoming = (data.channels || []).map(c => ({ ...c, serverId: targetServerId, messageCount: undefined }));
         return [...others, ...incoming];
       });
       setSections(prev => {
         const others = prev.filter(s => s.serverId !== targetServerId);
-        const incoming = data.sections.map(s => ({ ...s, serverId: targetServerId }));
+        const incoming = (data.sections || []).map(s => ({ ...s, serverId: targetServerId }));
         return [...others, ...incoming];
       });
 
+      // Channels have been loaded from the server
+      setChannelsLoading(false);
       // Auto-select the first channel when loading a server's channels
       if (firstChannelId) {
         setCurrentChannelId(firstChannelId);
@@ -536,7 +557,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       setChannels(prev =>
         prev.some(c => c.id === channel.id)
           ? prev
-          : [...prev, { ...channel, serverId: pendingChannelServerIdRef.current }]
+          : [...prev, { ...channel, serverId: pendingChannelServerIdRef.current, messageCount: undefined }]
       );
     });
 
@@ -568,6 +589,51 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       setChannels(prev => prev.map(c =>
         c.sectionId === data.sectionId ? { ...c, sectionId: undefined } : c
       ));
+    });
+
+    socketRef.current.on('roles_updated', (data: { roles: Role[] }) => {
+      try {
+        const incoming: Role[] = data.roles || [];
+        // Replace the locally-known server roles with the authoritative set
+        setServerRoles(normalizeRoles(incoming));
+        // If a channel settings view is open, refresh that server's channels
+        try {
+          const openChannel = channelSettingsChannelId ? channels.find(c => c.id === channelSettingsChannelId) : null;
+          if (openChannel && socketRef.current) {
+            // Ask server for the latest channel list for that server so permissions reflect updates
+            pendingChannelServerIdRef.current = openChannel.serverId;
+            socketRef.current.emit('get_channels');
+          }
+        } catch (err) {
+          // ignore
+        }
+      } catch (err) {
+        console.error('Failed to handle roles_updated', err);
+      }
+    });
+
+    // Server info updates (e.g., icon changed) — update local server entries so
+    // all connected clients reflect the new icon immediately.
+    socketRef.current.on('server_info_updated', (data: { serverId?: string; iconUrl?: string }) => {
+      try {
+        const serverId = data?.serverId;
+        const iconUrl = data?.iconUrl;
+        if (!serverId || !iconUrl) return;
+        const srvr = servers.find(s => s.id === serverId);
+        const base = srvr ? srvr.url.replace(/\/$/, '') : '';
+        const full = base ? `${base}${iconUrl.startsWith('/') ? iconUrl : '/' + iconUrl}?t=${Date.now()}` : iconUrl;
+        setServers(prev => prev.map(s => s.id === serverId ? { ...s, icon: full } : s));
+        if (srvr) {
+          setServerInfoCache(prev => {
+            const next = new Map(prev);
+            const existing = prev.get(srvr.url) || { ownerUsername: null, iconUrl: null } as any;
+            next.set(srvr.url, { ...existing, iconUrl: full });
+            return next;
+          });
+        }
+      } catch (e) {
+        console.error('Failed to handle server_info_updated', e);
+      }
     });
 
     // Member presence / role events
@@ -620,6 +686,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         socketRef.current.off('section_created');
         socketRef.current.off('section_updated');
         socketRef.current.off('section_deleted');
+        socketRef.current.off('roles_updated');
         socketRef.current.off('member_role_updated');
         socketRef.current.off('user_online');
         socketRef.current.off('user_offline');
@@ -629,10 +696,56 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
   // Ask the server for the latest channel + section list for the active server.
   const loadChannelsAndSections = (forServerId?: string) => {
+    const targetServerId = forServerId !== undefined ? forServerId : currentServerId;
+    pendingChannelServerIdRef.current = targetServerId;
+
+    // Indicate loading while we attempt socket + REST fetch
+    setChannelsLoading(true);
+
+    // First try socket route (fast, real-time)
     if (socketRef.current) {
-      pendingChannelServerIdRef.current = forServerId !== undefined ? forServerId : currentServerId;
       socketRef.current.emit('get_channels');
     }
+
+    // Also attempt a REST fallback so the UI can populate even if socket
+    // events are delayed or lost (helps in flaky network / build mismatches).
+    const server = servers.find(s => s.id === targetServerId);
+    if (!server || server.id === 'home') return;
+
+    (async () => {
+      try {
+        const [chRes, secRes] = await Promise.all([
+          fetch(`${server.url}/channels`),
+          fetch(`${server.url}/sections`)
+        ]);
+        if (chRes.ok) {
+          const chData = await chRes.json();
+          const incoming = (chData.channels || []).map((c: any) => ({ ...c, serverId: targetServerId, messageCount: undefined }));
+          setChannels(prev => {
+            const others = prev.filter(c => c.serverId !== targetServerId);
+            return [...others, ...incoming];
+          });
+          // Auto-select first channel if none selected
+          const first = incoming.sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))[0];
+          if (first) {
+            setCurrentChannelId(prev => prev || first.id);
+          }
+        }
+        if (secRes.ok) {
+          const secData = await secRes.json();
+          const incoming = (secData.sections || []).map((s: any) => ({ ...s, serverId: targetServerId }));
+          setSections(prev => {
+            const others = prev.filter(s => s.serverId !== targetServerId);
+            return [...others, ...incoming];
+          });
+        }
+      } catch (e) {
+        console.debug('[App] REST channels/sections fetch failed', e);
+      } finally {
+        // Ensure loading indicator is cleared in all cases
+        setChannelsLoading(false);
+      }
+    })();
   };
 
   // Move the active socket subscription to a new channel room.
@@ -666,15 +779,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       const res = await fetch(`${server.url}/roles`);
       if (res.ok) {
         const data = await res.json();
-        // Merge fetched roles with existing ones: server roles take precedence for
-        // shared names, but local roles whose names aren't on the server are preserved
-        // so that previously-resolved role colors in chat don't disappear.
-        setServerRoles(prev => {
-          const incoming: Role[] = data.roles || [];
-          const incomingNames = new Set(incoming.map(r => r.name));
-          const preserved = prev.filter(r => !incomingNames.has(r.name));
-          return [...incoming, ...preserved];
-        });
+        // Replace local/test roles with the authoritative server-provided list.
+        // This ensures the Roles/Permissions UI only shows roles that actually exist on the server.
+        const incoming: Role[] = data.roles || [];
+        setServerRoles(normalizeRoles(incoming));
       }
       // On non-OK or error, leave serverRoles untouched to avoid breaking existing colors.
     } catch (error) {
@@ -711,11 +819,16 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       const res = await fetch(`${server.url}/info`);
       if (!res.ok) return;
       const info = await res.json();
+      // If the server advertises a friendly name, use it in the UI.
+      if (info.name && info.name !== server.name) {
+        setServers(prev => prev.map(s => s.id === server.id ? { ...s, name: info.name } : s));
+      }
       setServerInfoCache(prev => {
         const next = new Map(prev);
         next.set(server.url, {
           ownerUsername: info.ownerUsername ?? null,
           iconUrl: info.iconUrl ?? null,
+          allowClaimOwnership: info.allowClaimOwnership !== false,
         });
         return next;
       });
@@ -724,6 +837,58 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       if (info.iconUrl) {
         const serverIconUrl = `${server.url}/server/icon?t=${Date.now()}`;
         setServers(prev => prev.map(s => s.id === server.id ? { ...s, icon: serverIconUrl } : s));
+      }
+
+      // If no owner is set and the server allows claiming, prompt the first joining user
+      if (!info.ownerUsername && info.allowClaimOwnership !== false && user?.username) {
+        const ClaimOwnerModal = () => {
+          const [ownerInput, setOwnerInput] = useState(user.username || '');
+          const [tokenInput, setTokenInput] = useState('');
+          const [showToken, setShowToken] = useState(false);
+          const [busy, setBusy] = useState(false);
+          const [needsToken, setNeedsToken] = useState(false);
+          const [msg, setMsg] = useState<string | null>(null);
+
+          const submit = async () => {
+            if (!ownerInput.trim()) return;
+            setBusy(true);
+            const result = await claimOwner(ownerInput.trim(), tokenInput || undefined, server.id);
+            setBusy(false);
+            if (result.success) {
+              closeModal();
+            } else {
+              if (result.requiresToken) setNeedsToken(true);
+              setMsg(result.error || 'Failed to claim ownership.');
+            }
+          };
+
+          const footer = (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <Button variant="secondary" onClick={() => { closeModal(); setActiveView('home'); setCurrentServerId('home'); }} disabled={busy}>Cancel</Button>
+              <Button variant="primary" onClick={submit} disabled={busy} iconLeft={<i className={busy ? 'fas fa-spinner fa-spin' : 'fas fa-crown'} />}>{busy ? 'Claiming…' : 'Claim Ownership'}</Button>
+            </div>
+          );
+
+          return (
+            <ModalPanel title="Claim Server Ownership" description="This server has no owner yet. Claim ownership to finish setup and receive admin privileges." footer={footer}>
+              <p style={{ marginTop: 0, marginBottom: 8, color: 'var(--text-primary)' }}>You will be set as the server owner: <strong style={{ color: 'var(--text-primary)' }}>{user.username}</strong></p>
+              <TextField
+                containerClassName="field--grow field--with-icon"
+                label={needsToken ? 'Admin token (required)' : 'Admin token (optional)'}
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                type={showToken ? 'text' : 'password'}
+                disabled={busy}
+                suffix={(
+                  <Button className="icon-button" variant="ghost" onClick={() => setShowToken(v => !v)} iconLeft={<i className={showToken ? 'fas fa-eye-slash' : 'fas fa-eye'} />} />
+                )}
+              />
+              {msg && <p style={{ color: 'var(--text-primary)', marginTop: 8, fontWeight: 600 }}>{msg}</p>}
+              {/* Claim-owner modal: no fetched/active server debug shown in production UI. */}
+            </ModalPanel>
+          );
+        };
+        openModal(<ClaimOwnerModal />, { size: 'small', closable: false });
       }
     } catch (e) {
       // Server may not have the /info endpoint yet — silently ignore.
@@ -734,23 +899,42 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const claimOwner = async (
     ownerUsername: string,
     adminToken?: string,
+    targetServerIdArg?: string,
   ): Promise<{ success: boolean; requiresToken?: boolean; error?: string }> => {
-    const targetServerId = serverSettingsServerId || currentServerId;
+    const targetServerId = targetServerIdArg || serverSettingsServerId || currentServerId;
     const server = servers.find(s => s.id === targetServerId);
-    if (!server || server.id === 'home' || !server.url) {
-      return { success: false, error: 'Ownership can only be set on real servers.' };
+    if (!server) {
+      return { success: false, error: `Ownership can only be set on real servers. No server found for id "${targetServerId}".` };
+    }
+    if (server.id === 'home') {
+      return { success: false, error: 'Ownership can only be set on real servers. You are viewing Home.' };
+    }
+    if (!server.url || !/^https?:\/\//i.test(server.url)) {
+      return { success: false, error: `Ownership can only be set on real servers. Server has invalid URL: "${server.url || '<none>'}".` };
     }
     try {
+      const trimmedToken = adminToken ? adminToken.toString().trim() : undefined;
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (adminToken) headers['X-Admin-Token'] = adminToken;
-      const res = await fetch(`${server.url}/server/claim-owner`, {
+      if (trimmedToken) headers['X-Admin-Token'] = trimmedToken;
+      const url = `${server.url}/server/claim-owner`;
+      const body = JSON.stringify({ username: ownerUsername, token: trimmedToken });
+      console.debug('[claimOwner] POST', { url, headers, body });
+      const res = await fetch(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ username: ownerUsername, token: adminToken }),
+        body,
       });
-      const data = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch (e) {
+        const text = await res.text();
+        console.debug('[claimOwner] non-JSON response', { status: res.status, text });
+        return { success: false, error: `Server responded ${res.status}: ${text}` };
+      }
+      console.debug('[claimOwner] response', { status: res.status, data });
       if (!res.ok) {
-        return { success: false, requiresToken: data.requiresToken === true, error: data.error };
+        return { success: false, requiresToken: data?.requiresToken === true, error: data?.error || `Server error ${res.status}` };
       }
       // Update the cache so the UI reflects the new owner immediately.
       setServerInfoCache(prev => {
@@ -761,7 +945,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       });
       return { success: true };
     } catch (err: any) {
-      return { success: false, error: err?.message || 'Network error' };
+      const msg = err?.message || 'Network error';
+      return { success: false, error: `Failed to contact server: ${msg}` };
     }
   };
 
@@ -819,20 +1004,12 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
       if (!res.ok) {
         console.error('Failed to update channel permissions');
+        return;
       }
 
-      setChannels(prev => prev.map(channel => {
-        if (channel.id !== channelId) return channel;
-        const basePerms = channel.permissions || { read: true, write: true, manage: false };
-        return {
-          ...channel,
-          permissions: {
-            ...basePerms,
-            readRoles,
-            writeRoles
-          }
-        };
-      }));
+      // Use server response as the source of truth for the updated channel
+      const updated = await res.json();
+      setChannels(prev => prev.map(ch => ch.id === updated.id ? updated : ch));
     } catch (error) {
       console.error('Error updating channel permissions', error);
     }
@@ -886,7 +1063,14 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       }
 
       const created = await res.json();
-      setServerRoles(prev => [...prev, created]);
+      // Merge created role into local state, replacing any existing entry with the
+      // same id to avoid duplicates if a server-side `roles_updated` event also
+      // arrives shortly after creation.
+      setServerRoles(prev => normalizeRoles((() => {
+        const exists = prev.some(r => r.id === created.id);
+        if (exists) return prev.map(r => r.id === created.id ? created : r);
+        return [...prev, created];
+      })()));
     } catch (error) {
       console.error('Failed to create role', error);
     }
@@ -909,6 +1093,40 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       });
     } catch (error) {
       console.error('Failed to update role', error);
+    }
+  };
+
+  const deleteServerRole = async (id: string) => {
+    const serverId = serverSettingsServerId || currentServerId;
+    const server = servers.find(s => s.id === serverId);
+    if (!server) return;
+
+    console.debug('[App] deleteServerRole', { serverId: serverId, serverUrl: server.url, roleId: id });
+    // Optimistic local removal
+    setServerRoles(prev => prev.filter(r => r.id !== id));
+
+    try {
+      const res = await fetch(`${server.url}/roles/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        // Log response body to help diagnose why deletion failed and reconcile.
+        let body: any = undefined;
+        try { body = await res.json(); } catch (e) { /* ignore */ }
+        console.error('Failed to delete role', { status: res.status, body });
+        // reload roles from server to reconcile optimistic removal
+        try {
+          const fresh = await fetch(`${server.url}/roles`);
+          if (fresh.ok) {
+            const data = await fresh.json();
+            setServerRoles(normalizeRoles(data.roles || []));
+          }
+        } catch (e) {
+          console.error('Failed to reload roles after delete failure', e);
+        }
+        return;
+      }
+      console.info('[App] deleteServerRole succeeded', { serverId: serverId, roleId: id });
+    } catch (err) {
+      console.error('Failed to delete role', err);
     }
   };
 
@@ -942,7 +1160,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   // Swap to a different server, showing a brief loading state while reconnecting.
-  const switchServer = (serverId: string) => {
+  const switchServer = async (serverId: string) => {
     console.debug('[Kiama] switchServer START', { serverId, currentServerId });
     const server = servers.find(s => s.id === serverId);
     if (!server) return;
@@ -972,7 +1190,21 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
     if (serverId === currentServerId && activeView === 'server') return;
 
-  setActiveView('server');
+    // Before we flip state, ensure the server is reachable; if not, surface
+    // a simple error page/modal instead of switching into a broken server view.
+    const reachable = await pingServer(server);
+    if (!reachable) {
+      console.warn('[Kiama] switchServer: server unreachable', server.url);
+      setServerError(`Cannot reach server "${server.name}" at ${server.url}.`);
+      // stay on Home for safety
+      setActiveView('home');
+      setCurrentServerId('home');
+      setCurrentServer(SERVER_ID);
+      return;
+    }
+
+    // Now that server is reachable, enter the server view.
+    setActiveView('server');
 
     const nextChannelId = getDefaultChannelIdForServer(serverId);
 
@@ -1007,7 +1239,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const addServer = () => {
     openModal(
       <AddServerPanel
-        onAdd={(server) => {
+        onAdd={async (server) => {
+          // Validate reachability before adding
+          const reachable = await pingServer(server);
+          if (!reachable) return false;
           setServers(prev => {
             const updated = [...prev, server];
             if (user?.username) {
@@ -1018,6 +1253,9 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
             }
             return updated;
           });
+          // Fetch info (name/icon) for the newly added server
+          void fetchServerInfo(server);
+          return true;
         }}
         onClose={closeModal}
       />,
@@ -1030,23 +1268,29 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     const invite = prompt('Enter invite link or server URL:');
     if (!invite) return;
 
-    const serverName = prompt('Name this server:') || 'New Server';
-    const newServer: Server = {
-      id: `server-${Date.now()}`,
-      name: serverName,
-      url: invite
-    };
-
-    setServers(prev => {
-      const updated = [...prev, newServer];
-      if (user?.username) {
-        const nonHome = updated.filter(s => s.id !== 'home');
-        appAccountManager.updateServerList(user.username,
-          nonHome.map(s => ({ id: s.id, name: s.name, url: s.url }))
-        ).catch(() => {});
+    (async () => {
+      const serverName = prompt('Name this server:') || 'New Server';
+      const newServer: Server = {
+        id: `server-${Date.now()}`,
+        name: serverName,
+        url: invite
+      };
+      const reachable = await pingServer(newServer);
+      if (!reachable) {
+        alert('Cannot reach that server. Please check the URL and try again.');
+        return;
       }
-      return updated;
-    });
+      setServers(prev => {
+        const updated = [...prev, newServer];
+        if (user?.username) {
+          const nonHome = updated.filter(s => s.id !== 'home');
+          appAccountManager.updateServerList(user.username,
+            nonHome.map(s => ({ id: s.id, name: s.name, url: s.url }))
+          ).catch(() => {});
+        }
+        return updated;
+      });
+    })();
   };
 
   // Begin dragging the channel sidebar resize handle.
@@ -1310,34 +1554,71 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     dataUri: string,
   ): Promise<{ success: boolean; error?: string }> => {
     try {
+      // Find server entry before updating local state so we can attempt an
+      // upload to the authoritative server URL (if any).
+      const srvr = servers.find(s => s.id === serverId);
+
+      // Save a local copy first so UI updates immediately.
       const filePath = await appAccountManager.saveServerIcon(serverId, dataUri);
       const iconUrl = `file://${filePath}`;
       setServers(prev => prev.map(s => s.id === serverId ? { ...s, icon: iconUrl } : s));
 
-      // Also upload to the server so all clients share the same icon.
-      const srvr = servers.find(s => s.id === serverId);
+      // Attempt to upload to the server so all clients can see the same icon.
       if (srvr && srvr.url && srvr.id !== 'home') {
+        const tried: string[] = [];
+        const candidates: string[] = [];
         try {
-          const uploadRes = await fetch(`${srvr.url}/server/icon`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dataUri }),
-          });
-          if (uploadRes.ok) {
-            // Update the server icon to use the server-hosted URL so it is visible to all clients.
-            const serverIconUrl = `${srvr.url}/server/icon?t=${Date.now()}`;
-            setServers(prev => prev.map(s => s.id === serverId ? { ...s, icon: serverIconUrl } : s));
-            // Refresh server info cache iconUrl
-            setServerInfoCache(prev => {
-              const next = new Map(prev);
-              const existing = prev.get(srvr.url) || { ownerUsername: null };
-              next.set(srvr.url, { ...existing, iconUrl: serverIconUrl });
-              return next;
-            });
-          }
-        } catch (_e) {
-          // Server upload failed — local icon is still saved; silently ignore.
+          const parsed = new URL(srvr.url);
+          candidates.push(parsed.origin);
+          if (parsed.protocol === 'https:') candidates.push(`http://${parsed.hostname}${parsed.port ? `:${parsed.port}` : ''}`);
+          if (parsed.protocol === 'http:') candidates.push(`https://${parsed.hostname}${parsed.port ? `:${parsed.port}` : ''}`);
+        } catch (e) {
+          // If srvr.url is not a full URL, try as-is and with http/https prefixes
+          candidates.push(srvr.url);
+          candidates.push(`http://${srvr.url}`);
+          candidates.push(`https://${srvr.url}`);
         }
+
+        let uploaded = false;
+        for (const base of candidates) {
+          if (tried.includes(base)) continue;
+          tried.push(base);
+          const target = `${base.replace(/\/$/, '')}/server/icon`;
+          console.debug('[App] attempting server icon upload to', target);
+          try {
+            const uploadRes = await fetch(target, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ dataUri }),
+            });
+            const text = await uploadRes.text().catch(() => '');
+            if (uploadRes.ok) {
+              const serverIconUrl = `${base.replace(/\/$/, '')}/server/icon?t=${Date.now()}`;
+              setServers(prev => prev.map(s => s.id === serverId ? { ...s, icon: serverIconUrl } : s));
+              // Refresh server info cache and trigger a fetch to /info to ensure consistency
+              setServerInfoCache(prev => {
+                const next = new Map(prev);
+                const existing = prev.get(srvr.url) || { ownerUsername: null, iconUrl: null } as any;
+                next.set(srvr.url, { ...existing, iconUrl: serverIconUrl });
+                return next;
+              });
+              // Ask the server for latest /info to ensure everyone is in sync
+              try { await fetchServerInfo(srvr); } catch (_) {}
+              uploaded = true;
+              console.info('[App] server icon upload succeeded to', base);
+              break;
+            } else {
+              console.warn('[App] server icon upload returned non-OK', { target, status: uploadRes.status, body: text });
+            }
+          } catch (e) {
+            console.warn('[App] server icon upload attempt failed', { target, error: String(e) });
+          }
+        }
+        if (!uploaded) {
+          console.error('[App] server icon upload: all attempts failed', { tried: tried.slice() });
+        }
+      } else if (!srvr) {
+        console.warn('[App] updateServerIcon: could not find server entry for', serverId, '— upload skipped');
       }
 
       // Persist icon reference and server info to the account's server list
@@ -1480,7 +1761,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       .filter(r => r.permissions?.manageChannels === true || r.name?.toLowerCase() === 'owner')
       .map(r => r.id);
     try {
-      const response = await fetch(`${SERVER_URL}/channels`, {
+      const serverId = serverSettingsServerId || currentServerId;
+      const server = servers.find(s => s.id === serverId);
+      const baseUrl = server?.url || SERVER_URL;
+      const response = await fetch(`${baseUrl}/channels`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1505,7 +1789,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       .filter(r => r.permissions?.manageChannels === true || r.name?.toLowerCase() === 'owner')
       .map(r => r.id);
     try {
-      const response = await fetch(`${SERVER_URL}/sections`, {
+      const serverId = serverSettingsServerId || currentServerId;
+      const server = servers.find(s => s.id === serverId);
+      const baseUrl = server?.url || SERVER_URL;
+      const response = await fetch(`${baseUrl}/sections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1524,7 +1811,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     const serverChannels = channels.filter(c => c.serverId === currentServerId);
     if (serverChannels.length <= 1) return; // must keep at least one channel
     try {
-      const response = await fetch(`${SERVER_URL}/channels/${channelId}`, { method: 'DELETE' });
+      const serverId = serverSettingsServerId || currentServerId;
+      const server = servers.find(s => s.id === serverId);
+      const baseUrl = server?.url || SERVER_URL;
+      const response = await fetch(`${baseUrl}/channels/${channelId}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('Failed to delete channel');
       // Optimistic removal while waiting for socket confirmation
       setChannels(prev => prev.filter(c => c.id !== channelId));
@@ -1545,7 +1835,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     const channelsInThisSection   = serverChannels.filter(c => c.sectionId === sectionId).length;
     if (channelsInThisSection > 0 && channelsInOtherSections === 0) return;
     try {
-      const response = await fetch(`${SERVER_URL}/sections/${sectionId}`, { method: 'DELETE' });
+      const serverId = serverSettingsServerId || currentServerId;
+      const server = servers.find(s => s.id === serverId);
+      const baseUrl = server?.url || SERVER_URL;
+      const response = await fetch(`${baseUrl}/sections/${sectionId}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('Failed to delete section');
       setSections(prev => prev.filter(s => s.id !== sectionId));
     } catch (error) {
@@ -1556,7 +1849,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   // Rename an existing channel.
   const renameChannel = async (channelId: string, name: string) => {
     try {
-      const response = await fetch(`${SERVER_URL}/channels/${channelId}`, {
+      const serverId = serverSettingsServerId || currentServerId;
+      const server = servers.find(s => s.id === serverId);
+      const baseUrl = server?.url || SERVER_URL;
+      const response = await fetch(`${baseUrl}/channels/${channelId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name })
@@ -1571,7 +1867,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   // Rename an existing section.
   const renameSection = async (sectionId: string, name: string) => {
     try {
-      const response = await fetch(`${SERVER_URL}/sections/${sectionId}`, {
+      const serverId = serverSettingsServerId || currentServerId;
+      const server = servers.find(s => s.id === serverId);
+      const baseUrl = server?.url || SERVER_URL;
+      const response = await fetch(`${baseUrl}/sections/${sectionId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name })
@@ -1586,7 +1885,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   // Move a channel to a different section (or remove it from any section).
   const moveChannelToSection = async (channelId: string, sectionId: string | undefined) => {
     try {
-      const response = await fetch(`${SERVER_URL}/channels/${channelId}`, {
+      const serverId = serverSettingsServerId || currentServerId;
+      const server = servers.find(s => s.id === serverId);
+      const baseUrl = server?.url || SERVER_URL;
+      const response = await fetch(`${baseUrl}/channels/${channelId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sectionId: sectionId ?? null })
@@ -1605,10 +1907,13 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       const idx = orderedIds.indexOf(s.id);
       return idx >= 0 ? { ...s, position: idx } : s;
     }));
+    const serverId = serverSettingsServerId || currentServerId;
+    const server = servers.find(s => s.id === serverId);
+    const baseUrl = server?.url || SERVER_URL;
     for (let i = 0; i < orderedIds.length; i++) {
       const id = orderedIds[i];
       try {
-        await fetch(`${SERVER_URL}/sections/${id}`, {
+        await fetch(`${baseUrl}/sections/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ position: i }),
@@ -1623,11 +1928,14 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       if (!u) return c;
       return { ...c, position: u.position, ...(u.sectionId !== undefined ? { sectionId: u.sectionId } : {}) };
     }));
+    const serverId = serverSettingsServerId || currentServerId;
+    const server = servers.find(s => s.id === serverId);
+    const baseUrl = server?.url || SERVER_URL;
     for (const { id, position, sectionId } of updates) {
       try {
         const body: Record<string, unknown> = { position };
         if (sectionId !== undefined) body.sectionId = sectionId ?? null;
-        await fetch(`${SERVER_URL}/channels/${id}`, {
+        await fetch(`${baseUrl}/channels/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -1714,7 +2022,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     settings: { nsfw: boolean; slowMode: number; topic: string; allowPinning: boolean }
   ) => {
     try {
-      const response = await fetch(`${SERVER_URL}/channels/${channelId}/settings`, {
+      const serverId = serverSettingsServerId || currentServerId;
+      const server = servers.find(s => s.id === serverId);
+      const baseUrl = server?.url || SERVER_URL;
+      const response = await fetch(`${baseUrl}/channels/${channelId}/settings`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
@@ -1729,7 +2040,40 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   // Open the channel settings view for the given channel.
-  const openChannelSettings = (channelId: string) => {
+  const openChannelSettings = async (channelId: string) => {
+    const channel = channels.find(c => c.id === channelId);
+    console.log('[App] openChannelSettings channelId=', channelId, 'resolvedChannel=', channel);
+    if (channel && channel.serverId) {
+      // If the channel is assigned to 'home' but the user is currently
+      // viewing a real server, prefer the current server so permissions
+      // can be loaded. This handles the case where local demo channels
+      // exist under 'home' but the UI is showing a connected server.
+      const effectiveServerId = (channel.serverId === 'home' && currentServerId !== 'home')
+        ? currentServerId
+        : channel.serverId;
+      const server = servers.find(s => s.id === effectiveServerId && s.id !== 'home');
+      console.log('[App] openChannelSettings effectiveServerId=', effectiveServerId, 'resolvedServer=', server ? server.id : null, 'channel.serverId=', channel.serverId);
+      console.log('[App] openChannelSettings calling fetchRolesForServer for', effectiveServerId);
+      await fetchRolesForServer(effectiveServerId);
+
+      // Attempt to refresh channels for the effective server. If we don't have
+      // a matching `servers` entry, fall back to `SERVER_URL` so local servers work.
+      const fetchServer = servers.find(s => s.id === effectiveServerId) || { id: effectiveServerId, url: SERVER_URL } as any;
+      try {
+        const chanRes = await fetch(`${fetchServer.url}/channels`);
+        if (chanRes.ok) {
+          const chData = await chanRes.json();
+          const incomingChannels: Channel[] = chData.channels || [];
+          setChannels(prev => {
+            const filtered = prev.filter(p => p.serverId !== fetchServer.id);
+            return [...filtered, ...incomingChannels.map(c => ({ ...c, serverId: fetchServer.id }))];
+          });
+        }
+      } catch (err) {
+        console.error('Failed to refresh channels for channel settings', err);
+      }
+    }
+
     setChannelSettingsChannelId(channelId);
     setActiveView('channel-settings');
   };
@@ -1738,6 +2082,41 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const closeChannelSettings = () => {
     setChannelSettingsChannelId(null);
     setActiveView('server');
+  };
+
+  // Fetch authoritative roles for a given server id and update state.
+  const fetchRolesForServer = async (serverId: string) => {
+    // Allow callers to pass 'home' or an ID that may not exist in `servers`.
+    const targetId = serverId === 'home' ? currentServerId : serverId;
+
+    // Try to resolve by id first, then by URL, then fall back to the first non-home server.
+    let server = servers.find(s => s.id === targetId && s.id !== 'home');
+    if (!server) server = servers.find(s => s.id !== 'home');
+    // If still no server found, assume the default SERVER_URL (local server)
+    if (!server) {
+      console.warn('[App] fetchRolesForServer: no non-home server entries; falling back to SERVER_URL');
+      server = { id: targetId, name: `Server ${targetId}`, url: SERVER_URL } as any;
+    }
+
+    try {
+      setServerRolesLoading(true);
+      const resolvedServer = server as { id: string; name?: string; url: string };
+      console.log('[App] fetchRolesForServer requesting', `${resolvedServer.url}/roles`, 'for server id', resolvedServer.id);
+      const rolesRes = await fetch(`${resolvedServer.url}/roles`);
+      if (rolesRes.ok) {
+        const data = await rolesRes.json();
+        const incoming: Role[] = data.roles || [];
+        setServerRoles(normalizeRoles(incoming));
+        setServerSettingsServerId(resolvedServer.id);
+        console.log('[App] fetchRolesForServer loaded', resolvedServer.id, 'roles=', incoming.length);
+      } else {
+        console.warn('[App] fetchRolesForServer non-OK response', rolesRes.status);
+      }
+    } catch (err) {
+      console.error('Failed to fetch roles for server', err);
+    } finally {
+      setServerRolesLoading(false);
+    }
   };
 
   // Open the section settings view for the given section.
@@ -1751,6 +2130,14 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setSectionSettingsSectionId(null);
     setActiveView('server');
   };
+
+  // Ensure we have the authoritative roles loaded for the active server so
+  // message/user name colors render correctly.
+  React.useEffect(() => {
+    if (!currentServerId) return;
+    // Fire-and-forget; fetchRolesForServer sets loading state and updates roles
+    void fetchRolesForServer(currentServerId);
+  }, [currentServerId, servers]);
 
   // Open a ModalPanel-based prompt to rename a section.
   const openRenameSectionModal = (section: ChannelSection) => {
@@ -2130,7 +2517,12 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const isSectionSettingsView = activeView === 'section-settings';
 
   // Determine whether the current user has permission to manage channels/sections.
-  const currentUserData = users.find(u => u.name === (user?.name ?? '')) || users.find(u => u.name === 'You');
+  // Prefer authoritative member data from `serverMembers` for real servers, fall back to local `users`.
+  const _serverMemberList: MemberEntry[] = Array.isArray(serverMembers.get(currentServerId)) ? serverMembers.get(currentServerId)! : [];
+  const serverMember = _serverMemberList.find(m => m.username === (user?.name ?? user?.username ?? ''));
+  const currentUserData: User | undefined = serverMember
+    ? { id: serverMember.username, name: serverMember.username, status: serverMember.status as any, role: serverMember.role }
+    : (users.find(u => u.name === (user?.name ?? user?.username ?? '')) || users.find(u => u.name === 'You'));
   const currentUserRoleObj = serverRoles.find(r =>
     r.name?.toLowerCase() === currentUserData?.role?.toLowerCase()
   );
@@ -2145,6 +2537,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     isCurrentUserServerOwner ||
     currentUserRoleObj?.permissions?.manageChannels === true;
 
+  const canManageServer =
+    isCurrentUserServerOwner ||
+    currentUserRoleObj?.permissions?.manageServer === true;
+
   // Visibility helpers — determine whether the current user's role can see a section/channel.
   // Managers always bypass restrictions; empty role-list means public (everyone can see).
   const canUserViewSection = React.useCallback((section: ChannelSection): boolean => {
@@ -2152,8 +2548,25 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     const viewRoles = section.permissions?.viewRoles ?? section.permissions?.roles ?? [];
     if (viewRoles.length === 0) return true;
     return viewRoles.some((rid: string) => {
-      const role = serverRoles.find(r => r.id === rid);
-      return role?.name?.toLowerCase() === currentUserData?.role?.toLowerCase();
+      // Resolve role either by id or by name (server may store either)
+      const role = serverRoles.find(r => r.id === rid) || serverRoles.find(r => r.name?.toLowerCase() === String(rid).toLowerCase());
+      const userRole = String(currentUserData?.role ?? '').toLowerCase();
+      const matches = !!(
+        (role && ((role.name ?? '').toLowerCase() === userRole || (role.id ?? '').toLowerCase() === userRole)) ||
+        String(rid).toLowerCase() === userRole
+      );
+      if (!matches && currentUserData?.name === 'TestUser1') {
+        try {
+          console.debug('[perm-debug] viewSection', {
+            username: currentUserData?.name,
+            userRole: currentUserData?.role,
+            sectionId: section.id,
+            viewRoles,
+            resolvedRole: role ?? null,
+          });
+        } catch (e) {}
+      }
+      return matches;
     });
   }, [canManageChannels, serverRoles, currentUserData]);
 
@@ -2162,15 +2575,54 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     const readRoles = channel.permissions?.readRoles ?? channel.permissions?.roles ?? [];
     if (readRoles.length === 0) return true;
     return readRoles.some((rid: string) => {
-      const role = serverRoles.find(r => r.id === rid);
-      return role?.name?.toLowerCase() === currentUserData?.role?.toLowerCase();
+      // Resolve role either by id or by name (server may store either)
+      const role = serverRoles.find(r => r.id === rid) || serverRoles.find(r => r.name?.toLowerCase() === String(rid).toLowerCase());
+      const userRole = String(currentUserData?.role ?? '').toLowerCase();
+      const matches = !!(
+        (role && ((role.name ?? '').toLowerCase() === userRole || (role.id ?? '').toLowerCase() === userRole)) ||
+        String(rid).toLowerCase() === userRole
+      );
+      if (!matches && currentUserData?.name === 'TestUser1') {
+        try {
+          console.debug('[perm-debug] readChannel', {
+            username: currentUserData?.name,
+            userRole: currentUserData?.role,
+            channelId: channel.id,
+            readRoles,
+            resolvedRole: role ?? null,
+          });
+        } catch (e) {}
+      }
+      return matches;
+    });
+  }, [canManageChannels, serverRoles, currentUserData]);
+
+  const canUserWriteChannel = React.useCallback((channel: Channel): boolean => {
+    if (canManageChannels) return true;
+    // If channel explicitly disallows writing, block unless manager
+    if (channel.permissions && channel.permissions.write === false) return false;
+    const writeRoles = channel.permissions?.writeRoles ?? channel.permissions?.roles ?? [];
+    if (writeRoles.length === 0) return true;
+    const userRole = String(currentUserData?.role ?? '').toLowerCase();
+    return writeRoles.some((rid: string) => {
+      const role = serverRoles.find(r => r.id === rid) || serverRoles.find(r => r.name?.toLowerCase() === String(rid).toLowerCase());
+      return !!(
+        (role && ((role.name ?? '').toLowerCase() === userRole || (role.id ?? '').toLowerCase() === userRole)) ||
+        String(rid).toLowerCase() === userRole
+      );
     });
   }, [canManageChannels, serverRoles, currentUserData]);
   const roleColorByName = React.useMemo(() => {
     const map = new Map<string, string>();
     serverRoles.forEach(role => {
+      const color = role.color || '#9ca3af';
       if (role.name) {
-        map.set(role.name, role.color || '#9ca3af');
+        map.set(role.name, color);
+        map.set(role.name.toLowerCase(), color);
+      }
+      if (role.id) {
+        map.set(role.id, color);
+        map.set(String(role.id).toLowerCase(), color);
       }
     });
     return map;
@@ -2178,7 +2630,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
   const getRoleColor = (role?: string) => {
     if (!role) return undefined;
-    return roleColorByName.get(role);
+    // Try direct match, then case-insensitive lookup
+    return roleColorByName.get(role) ?? roleColorByName.get(role.toLowerCase());
   };
   const showMobileNavButtons = viewportWidth <= 1100;
   const showServerListPanel = !isMobile || showMobileServerList;
@@ -2320,11 +2773,46 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     })
     .filter(entry => entry.mediaCount > 0);
 
+  // Precompute visible sections and channels for the sidebar to avoid complex IIFEs in JSX.
+  const visibleSections = sections
+    .filter(section => section.serverId === currentServerId && canUserViewSection(section))
+    .sort((a, b) => a.position - b.position);
+
+  const visibleSectionsWithChannels = visibleSections.map(s => ({
+    section: s,
+    channels: (channelsBySection[s.id] || []).filter(ch => canUserReadChannel(ch))
+  }));
+
+  const totalVisibleChannels = visibleSectionsWithChannels.reduce((sum, s) => sum + s.channels.length, 0);
+
+  if (totalVisibleChannels === 0 && currentServerId !== 'home') {
+    try {
+      console.debug('[perm-snapshot] no-visible-channels', {
+        serverId: currentServerId,
+        currentUser: currentUserData ?? null,
+        serverRoles: serverRoles.map(r => ({ id: r.id, name: r.name })),
+        sections: visibleSectionsWithChannels.map(s => ({ id: s.section.id, name: s.section.name, channelCount: s.channels.length, rawChannels: (channelsBySection[s.section.id] || []).map(c => ({ id: c.id, name: c.name, permissions: c.permissions })) })),
+        channels: channels.filter(c => c.serverId === currentServerId).map(c => ({ id: c.id, name: c.name, permissions: c.permissions }))
+      });
+    } catch (e) {}
+  }
+
   return (
     <SurfaceProvider soft3DEnabled={soft3DEnabled}>
     <div className={`app-shell ${soft3DEnabled ? 'soft-3d' : 'soft-3d-off'}`}>
       <TitleBar />
       <div className="app">
+      {serverError && (
+        <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-overlay, rgba(0,0,0,0.6))', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--bg-panel, #0f1720)', color: 'var(--text-primary)', padding: 24, borderRadius: 8, width: 560, boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}>
+            <h2 style={{ marginTop: 0 }}>Cannot reach server</h2>
+            <p style={{ marginBottom: 16 }}>{serverError}</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <Button variant="secondary" onClick={() => { setServerError(null); setActiveView('home'); setCurrentServerId('home'); }}>Back to Home</Button>
+            </div>
+          </div>
+        </div>
+      )}
       {isMobile && (showMobileServerList || showMobileSidebar || showMobileUserList) && (
         <div className="mobile-backdrop" onClick={closeMobileDrawers} />
       )}
@@ -2403,9 +2891,11 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                     </button>
                     {showServerMenu && (
                       <div className="server-menu" onMouseLeave={closeServerMenu}>
-                        <button onClick={() => { openServerSettings(); closeServerMenu(); }}>
-                          <i className="fas fa-sliders-h"></i> Server settings
-                        </button>
+                        {canManageServer && (
+                          <button onClick={() => { openServerSettings(); closeServerMenu(); }}>
+                            <i className="fas fa-sliders-h"></i> Server settings
+                          </button>
+                        )}
                         <button className="danger" onClick={() => { leaveServer(currentServerId); closeServerMenu(); }}>
                           <i className="fas fa-sign-out-alt"></i> Leave {currentServerName}
                         </button>
@@ -2421,10 +2911,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
               </div>
 
               <div className="channels-list">
-                {sections
-                  .filter(section => section.serverId === currentServerId && canUserViewSection(section))
-                  .sort((a, b) => a.position - b.position)
-                  .map(section => {
+                {visibleSections.map(section => {
                     // Show all channels to managers; restrict to readable ones for regular users.
                     const sectionChannels = (channelsBySection[section.id] || []).filter(ch => canUserReadChannel(ch));
                     return (
@@ -2558,9 +3045,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                                   {channel.name}
                                   {channel.settings?.nsfw && <span className="nsfw-indicator">🔞</span>}
                                 </span>
-                                {channel.messageCount && channel.messageCount > 0 && (
-                                  <span className="message-count">({channel.messageCount})</span>
-                                )}
+                                {/* message-count intentionally removed */}
                               </div>
                             ))}
                         </div>
@@ -2620,9 +3105,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                               {channel.name}
                               {channel.settings?.nsfw && <span className="nsfw-indicator">🔞</span>}
                             </span>
-                            {channel.messageCount && channel.messageCount > 0 && (
-                              <span className="message-count">({channel.messageCount})</span>
-                            )}
+                            {/* message-count intentionally removed */}
                           </div>
                         ))}
                     </div>
@@ -2777,6 +3260,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 passwordRequired={serverPasswordRequired}
                 onCreateRole={createServerRole}
                 onUpdateRole={updateServerRole}
+                onDeleteRole={deleteServerRole}
                 onUpdateServerIcon={handleUpdateServerIcon}
                 ownerUsername={settingsServer ? (serverInfoCache.get(settingsServer.url)?.ownerUsername ?? null) : null}
                 currentUsername={user?.username ?? user?.name}
@@ -2787,11 +3271,13 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 channel={channelSettingsChannel}
                 sections={channelSettingsSections}
                 roles={serverRoles}
+                rolesLoading={serverRolesLoading}
                 onBack={closeChannelSettings}
                 onRename={renameChannel}
                 onMoveTo={moveChannelToSection}
                 onSaveSettings={updateChannelSettings}
                 onSavePermissions={saveChannelPermissions}
+                onRequestRoles={() => fetchRolesForServer(channelSettingsChannel.serverId)}
               />
             ) : isSectionSettingsView && sectionSettingsSection ? (
               <SectionSettingsPage
@@ -2832,6 +3318,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 onCloseReactionPicker={() => { setReactToMessageId(null); setPickerAnchor(null); }}
                 handleReactionEmoteSelect={handleReactionEmoteSelect}
                 pickerAnchor={pickerAnchor}
+                channelsLoading={channelsLoading}
+                canSend={currentChannel ? canUserWriteChannel(currentChannel) : false}
               />
             )}
           </div>

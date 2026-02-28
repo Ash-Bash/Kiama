@@ -11,7 +11,8 @@ interface Server {
 }
 
 interface AddServerPanelProps {
-  onAdd: (server: Server) => void;
+  // onAdd may be async and should return true when the server was accepted
+  onAdd: (server: Server) => Promise<boolean> | boolean;
   onClose: () => void;
 }
 
@@ -19,19 +20,40 @@ const normalizeAddress = (value: string): string => {
   const trimmed = value.trim();
   if (!trimmed) return '';
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
+  return `http://${trimmed}`;
 };
 
 // Self-contained panel for adding a new server via URL.
 const AddServerPanel: React.FC<AddServerPanelProps> = ({ onAdd, onClose }) => {
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const [error, setError] = React.useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setError(null);
     const formData = new FormData(e.currentTarget);
     const address = (formData.get('address') as string || '').trim();
     const url = normalizeAddress(address);
     if (!url) return;
-    onAdd({ id: `server-${Date.now()}`, name: url, url });
-    onClose();
+    // Derive a friendly display name from the URL (hostname[:port]) instead
+    // of using the raw URL string so we don't show the protocol in the UI.
+    let displayName = url;
+    try {
+      const parsed = new URL(url);
+      displayName = parsed.hostname + (parsed.port ? `:${parsed.port}` : '');
+    } catch (err) {
+      // keep raw url as fallback
+    }
+    const serverObj: Server = { id: `server-${Date.now()}`, name: displayName, url };
+    try {
+      const result = await onAdd(serverObj);
+      if (result) {
+        onClose();
+      } else {
+        setError('Unable to reach that server. Please check the address and try again.');
+      }
+    } catch (err) {
+      setError('Failed to validate server. Try again.');
+    }
   };
 
   return (
@@ -57,6 +79,7 @@ const AddServerPanel: React.FC<AddServerPanelProps> = ({ onAdd, onClose }) => {
           required
           autoFocus
         />
+        {error && <div className="add-server-error" style={{ color: 'var(--accent-danger)', marginTop: 8 }}>{error}</div>}
       </form>
     </ModalPanel>
   );

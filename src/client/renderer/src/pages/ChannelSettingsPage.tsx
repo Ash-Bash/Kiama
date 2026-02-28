@@ -284,14 +284,21 @@ const ChannelSettingsSubPage: React.FC<SettingsSubPageProps> = ({ channel, onSav
 interface ChannelPermissionsSubPageProps {
   channel: Channel;
   roles: Role[];
+  rolesLoading?: boolean;
+  onRequestRoles?: () => Promise<void> | void;
   onSave: (readRoles: string[], writeRoles: string[]) => Promise<void> | void;
 }
 
 const ChannelPermissionsSubPage: React.FC<ChannelPermissionsSubPageProps> = ({
   channel,
   roles,
+  rolesLoading,
+  onRequestRoles,
   onSave,
 }) => {
+  useEffect(() => {
+    console.log('[ChannelPermissions] props roles length=', roles.length, 'rolesLoading=', rolesLoading);
+  }, [roles, rolesLoading]);
   const [readRoles, setReadRoles]   = useState<string[]>(
     channel.permissions?.readRoles ?? channel.permissions?.roles ?? []
   );
@@ -301,9 +308,13 @@ const ChannelPermissionsSubPage: React.FC<ChannelPermissionsSubPageProps> = ({
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setReadRoles(channel.permissions?.readRoles ?? channel.permissions?.roles ?? []);
-    setWriteRoles(channel.permissions?.writeRoles ?? channel.permissions?.roles ?? []);
-  }, [channel]);
+    const availableRoleIds = new Set(roles.map(r => r.id));
+    const rawRead = channel.permissions?.readRoles ?? channel.permissions?.roles ?? [];
+    const rawWrite = channel.permissions?.writeRoles ?? channel.permissions?.roles ?? [];
+    // Only keep role ids that exist on the server (remove any local/test ids)
+    setReadRoles(rawRead.filter((id: string) => availableRoleIds.has(id)));
+    setWriteRoles(rawWrite.filter((id: string) => availableRoleIds.has(id)));
+  }, [channel, roles]);
 
   const toggleRole = (target: 'read' | 'write', roleId: string) => {
     if (target === 'read') {
@@ -318,6 +329,7 @@ const ChannelPermissionsSubPage: React.FC<ChannelPermissionsSubPageProps> = ({
   };
 
   const save = async () => {
+    if (rolesLoading) return; // prevent saving while roles are loading
     setSaving(true);
     await onSave(readRoles, writeRoles);
     setSaving(false);
@@ -336,39 +348,65 @@ const ChannelPermissionsSubPage: React.FC<ChannelPermissionsSubPageProps> = ({
           <div className="channel-perms__col">
             <div className="channel-perms__col-header">Can view (visibility)</div>
             <div className="channel-perms__col-body">
-              {roles.length === 0 && (
-                <span className="settings-sub-page__hint">No roles defined on this server yet.</span>
-              )}
-              {roles.map(role => (
-                <Toggle
-                  key={role.id}
-                  inline
-                  label={role.name}
-                  checked={readRoles.includes(role.id)}
-                  onChange={() => toggleRole('read', role.id)}
-                  tintColor={role.color}
-                  size="small"
-                />
-              ))}
+                    {rolesLoading ? (
+                      <div className="settings-sub-page__loading">
+                        <i className="fas fa-spinner fa-spin" style={{ marginRight: 8 }} />
+                        <span>Loading roles…</span>
+                      </div>
+                    ) : roles.length === 0 ? (
+                      <div>
+                        <span className="settings-sub-page__hint">No roles defined on this server yet.</span>
+                        {typeof onRequestRoles === 'function' && (
+                          <div style={{ marginTop: 8 }}>
+                            <Button variant="primary" onClick={() => onRequestRoles()}>Reload roles</Button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      roles.map(role => (
+                        <Toggle
+                          key={role.id}
+                          inline
+                          label={role.name}
+                          checked={readRoles.includes(role.id)}
+                          onChange={() => toggleRole('read', role.id)}
+                          tintColor={role.color}
+                          size="small"
+                        />
+                      ))
+                    )}
             </div>
           </div>
           <div className="channel-perms__col">
             <div className="channel-perms__col-header">Can write</div>
             <div className="channel-perms__col-body">
-              {roles.length === 0 && (
-                <span className="settings-sub-page__hint">No roles defined on this server yet.</span>
+              {rolesLoading ? (
+                <div className="settings-sub-page__loading">
+                  <i className="fas fa-spinner fa-spin" style={{ marginRight: 8 }} />
+                  <span>Loading roles…</span>
+                </div>
+              ) : roles.length === 0 ? (
+                <div>
+                  <span className="settings-sub-page__hint">No roles defined on this server yet.</span>
+                  {typeof onRequestRoles === 'function' && (
+                    <div style={{ marginTop: 8 }}>
+                      <Button variant="primary" onClick={() => onRequestRoles()}>Reload roles</Button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                roles.map(role => (
+                  <Toggle
+                    key={role.id}
+                    inline
+                    label={role.name}
+                    checked={writeRoles.includes(role.id)}
+                    onChange={() => toggleRole('write', role.id)}
+                    tintColor={role.color}
+                    size="small"
+                  />
+                ))
               )}
-              {roles.map(role => (
-                <Toggle
-                  key={role.id}
-                  inline
-                  label={role.name}
-                  checked={writeRoles.includes(role.id)}
-                  onChange={() => toggleRole('write', role.id)}
-                  tintColor={role.color}
-                  size="small"
-                />
-              ))}
             </div>
           </div>
         </div>
@@ -382,10 +420,10 @@ const ChannelPermissionsSubPage: React.FC<ChannelPermissionsSubPageProps> = ({
         <Button
           variant="primary"
           onClick={save}
-          disabled={saving}
+          disabled={saving || rolesLoading}
           iconLeft={<i className={saving ? 'fas fa-spinner fa-spin' : 'fas fa-save'} />}
         >
-          {saving ? 'Saving…' : 'Save permissions'}
+          {saving ? 'Saving…' : rolesLoading ? 'Loading…' : 'Save permissions'}
         </Button>
       </div>
     </div>
@@ -398,6 +436,7 @@ export interface ChannelSettingsPageProps {
   channel: Channel;
   sections: ChannelSection[];
   roles: Role[];
+  rolesLoading?: boolean;
   onBack: () => void;
   onRename: (channelId: string, name: string) => Promise<void> | void;
   onMoveTo: (channelId: string, sectionId: string | undefined) => Promise<void> | void;
@@ -408,12 +447,15 @@ export interface ChannelSettingsPageProps {
     allowPinning: boolean;
   }) => Promise<void> | void;
   onSavePermissions: (channelId: string, readRoles: string[], writeRoles: string[]) => Promise<void> | void;
+  onRequestRoles?: () => Promise<void> | void;
 }
 
 const ChannelSettingsPage: React.FC<ChannelSettingsPageProps> = ({
   channel,
   sections,
   roles,
+  rolesLoading,
+  onRequestRoles,
   onBack,
   onRename,
   onMoveTo,
@@ -434,7 +476,7 @@ const ChannelSettingsPage: React.FC<ChannelSettingsPageProps> = ({
       items: [
         { id: 'overview',     label: 'Overview',     icon: 'fas fa-info-circle' },
         { id: 'settings',     label: 'Settings',     icon: 'fas fa-sliders-h'   },
-        { id: 'permissions',  label: 'Permissions',  icon: 'fas fa-lock'         },
+        { id: 'permissions',  label: 'Permissions',  icon: 'fas fa-lock' },
       ],
     },
   ];
@@ -450,6 +492,8 @@ const ChannelSettingsPage: React.FC<ChannelSettingsPageProps> = ({
       </div>
     </div>
   );
+
+  
 
   return (
     <SettingsLayout
@@ -479,6 +523,8 @@ const ChannelSettingsPage: React.FC<ChannelSettingsPageProps> = ({
         <ChannelPermissionsSubPage
           channel={channel}
           roles={roles}
+          rolesLoading={rolesLoading}
+          onRequestRoles={onRequestRoles}
           onSave={(readRoles, writeRoles) => onSavePermissions(channel.id, readRoles, writeRoles)}
         />
       )}
