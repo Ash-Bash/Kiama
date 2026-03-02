@@ -183,6 +183,7 @@ export class AccountManager {
       id: uuidv4(),
       username,
       passwordHash: await this.hashPassword(password),
+      serverNicknames: {},
       credentials: {},
       serverList: { ...EMPTY_SERVER_LIST, servers: [], folders: [] },
       isBot: false,
@@ -199,6 +200,29 @@ export class AccountManager {
     } catch { /* Windows does not support Unix permissions */ }
 
     return account;
+  }
+
+  /**
+   * Return the per-server nickname for `username` on `serverId`, or undefined.
+   */
+  async getServerNickname(username: string, serverId: string): Promise<string | undefined> {
+    const account = await this.loadAccount(username);
+    return account.serverNicknames ? account.serverNicknames[serverId] : undefined;
+  }
+
+  /**
+   * Set or clear the per-server nickname for `username` on `serverId`.
+   */
+  async setServerNickname(username: string, serverId: string, nickname?: string): Promise<void> {
+    const account = await this.loadAccount(username);
+    account.serverNicknames = account.serverNicknames ?? {};
+    if (!nickname) {
+      delete account.serverNicknames[serverId];
+    } else {
+      account.serverNicknames[serverId] = nickname;
+    }
+    account.updatedAt = new Date().toISOString();
+    await this.saveAccount(account);
   }
 
   /**

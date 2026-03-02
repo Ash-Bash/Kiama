@@ -239,6 +239,22 @@ export class Server {
     this.botAccountManager = new BotAccountManager(this.dataRoot);
     this.ensureAdminToken();
     this.initializeServerState(initialConfig);
+    // Migrate any in-memory userRoles into the DB so members are persisted.
+    try {
+      const insert = this.db.prepare(`
+        INSERT OR IGNORE INTO members (serverId, username, nickname, role, status) VALUES (?, ?, ?, ?, ?)
+      `);
+      const updateStatus = this.db.prepare(`
+        UPDATE members SET role = COALESCE(?, role), status = COALESCE(?, status) WHERE serverId = ? AND username = ?
+      `);
+      for (const [username, role] of this.userRoles.entries()) {
+        const status = Array.from(this.connectedUsers.values()).some(u => u === username) ? 'online' : 'offline';
+        insert.run(this.serverId, username, null, role, status);
+        updateStatus.run(role, status, this.serverId, username);
+      }
+    } catch (e) {
+      console.warn('Failed to migrate user roles into DB:', e);
+    }
     this.setupRoutes();
     this.setupSocket();
     this.pluginManager.loadPlugins();
@@ -287,6 +303,29 @@ export class Server {
         data TEXT,
         serverId TEXT,
         mediaPath TEXT
+      );
+    `);
+    // Members table stores per-server member records including role and nickname
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS members (
+        serverId TEXT,
+        username TEXT,
+        nickname TEXT,
+        role TEXT,
+        status TEXT,
+        PRIMARY KEY (serverId, username)
+      );
+    `);
+
+    // Roles table (optional storage for server roles)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS roles (
+        serverId TEXT,
+        roleId TEXT,
+        name TEXT,
+        color TEXT,
+        permissions TEXT,
+        PRIMARY KEY (serverId, roleId)
       );
     `);
   }
@@ -1029,17 +1068,31 @@ export class Server {
 
     // GET /members — list all known members with their roles and online status
     this.app.get('/members', (req, res) => {
-      const onlineUsernames = new Set(this.connectedUsers.values());
-      const seen = new Set<string>();
-      const members: Array<{ username: string; role?: string; status: string }> = [];
-      for (const [username, role] of this.userRoles.entries()) {
-        seen.add(username);
-        members.push({ username, role, status: onlineUsernames.has(username) ? 'online' : 'offline' });
+      try {
+        const stmt = this.db.prepare('SELECT username, role, status FROM members WHERE serverId = ?');
+        const rows = stmt.all(this.serverId) as Array<{ username: string; role?: string; status?: string }>;
+        const members = rows.map(r => ({ username: r.username, role: r.role, status: r.status || 'offline' }));
+        // Include any online usernames not yet stored in members
+        const onlineUsernames = Array.from(this.connectedUsers.values());
+        const present = new Set(members.map(m => m.username));
+        for (const username of onlineUsernames) {
+          if (!present.has(username)) members.push({ username, role: undefined, status: 'online' });
+        }
+        res.json({ members });
+      } catch (e) {
+        // Fallback to in-memory representation on DB error
+        const onlineUsernames = new Set(this.connectedUsers.values());
+        const seen = new Set<string>();
+        const members: Array<{ username: string; role?: string; status: string }> = [];
+        for (const [username, role] of this.userRoles.entries()) {
+          seen.add(username);
+          members.push({ username, role, status: onlineUsernames.has(username) ? 'online' : 'offline' });
+        }
+        for (const username of onlineUsernames) {
+          if (!seen.has(username)) members.push({ username, status: 'online' });
+        }
+        res.json({ members });
       }
-      for (const username of onlineUsernames) {
-        if (!seen.has(username)) members.push({ username, status: 'online' });
-      }
-      res.json({ members });
     });
 
     // PATCH /members/:username/role — assign a role to a user
@@ -1047,14 +1100,30 @@ export class Server {
       const { username } = req.params;
       const { role } = req.body as { role?: string };
       if (typeof role !== 'string') return res.status(400).json({ error: 'role must be a string' });
-      if (role.trim()) {
-        this.userRoles.set(username, role.trim());
-      } else {
-        this.userRoles.delete(username);
+      try {
+        if (role.trim()) {
+          const stmt = this.db.prepare(`INSERT OR REPLACE INTO members (serverId, username, nickname, role, status) VALUES (?, ?, COALESCE((SELECT nickname FROM members WHERE serverId = ? AND username = ?), NULL), ?, COALESCE((SELECT status FROM members WHERE serverId = ? AND username = ?), 'offline'))`);
+          stmt.run(this.serverId, username, this.serverId, username, role.trim(), this.serverId, username);
+          this.userRoles.set(username, role.trim());
+        } else {
+          const stmt = this.db.prepare(`UPDATE members SET role = NULL WHERE serverId = ? AND username = ?`);
+          stmt.run(this.serverId, username);
+          this.userRoles.delete(username);
+        }
+        this.saveToDisk();
+        this.io.emit('member_role_updated', { username, role: role.trim() || null });
+        res.json({ username, role: role.trim() || null });
+      } catch (e) {
+        // Fallback to in-memory behavior
+        if (role.trim()) {
+          this.userRoles.set(username, role.trim());
+        } else {
+          this.userRoles.delete(username);
+        }
+        this.saveToDisk();
+        this.io.emit('member_role_updated', { username, role: role.trim() || null });
+        res.json({ username, role: role.trim() || null });
       }
-      this.saveToDisk();
-      this.io.emit('member_role_updated', { username, role: role.trim() || null });
-      res.json({ username, role: role.trim() || null });
     });
 
     // System stats endpoint
@@ -1791,6 +1860,20 @@ export class Server {
           }
         }
         this.io.emit('user_online', { username: data.username });
+        // Persist online status to DB members table
+        try {
+          const stmt = this.db.prepare(`
+            INSERT OR IGNORE INTO members (serverId, username, nickname, role, status) VALUES (?, ?, ?, ?, ?)
+          `);
+          const update = this.db.prepare(`
+            UPDATE members SET status = ?, role = COALESCE(?, role) WHERE serverId = ? AND username = ?
+          `);
+          const role = this.userRoles.get(data.username) ?? null;
+          stmt.run(this.serverId, data.username, null, role, 'online');
+          update.run('online', role, this.serverId, data.username);
+        } catch (e) {
+          console.warn('Failed to persist member online status:', e);
+        }
       });
 
       socket.on('join_channel', (data: { channelId: string }) => {
@@ -1871,6 +1954,15 @@ export class Server {
         if (username) {
           const stillOnline = Array.from(this.connectedUsers.values()).some(u => u === username);
           if (!stillOnline) this.io.emit('user_offline', { username });
+          // Update DB status to offline if no sockets remain for this username
+          try {
+            if (!stillOnline) {
+              const upd = this.db.prepare(`UPDATE members SET status = ? WHERE serverId = ? AND username = ?`);
+              upd.run('offline', this.serverId, username);
+            }
+          } catch (e) {
+            console.warn('Failed to persist member offline status:', e);
+          }
         }
       });
     });

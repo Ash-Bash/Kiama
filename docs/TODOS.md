@@ -8,7 +8,7 @@ This document lists planned work items grouped by area. Each item should be trac
 - Allow custom server data location: support a `--data-root`/`KIAMA_DATA_ROOT` option to point to an external data directory.
 - Message/media auto-deletion ("spring cleaning"): implement configurable retention rules to delete old messages and media.
 - Fully integrate backup functionality: connect UI/server backup triggers, scheduled backups, and restore flows.
-- Detect duplicate usernames & nicknames: detect same display names and provide a per-server nickname system (like Discord) to allow unique identification.
+ - [x] Detect duplicate usernames & nicknames: detect same display names and provide a per-server nickname system (like Discord) to allow unique identification.
 
 ## Client TODO
 

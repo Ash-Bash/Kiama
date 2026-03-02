@@ -19,6 +19,7 @@ import SettingsPage from './pages/SettingsPage';
 import ServerSettingsPage from './pages/ServerSettingsPage';
 import ChannelSettingsPage from './pages/ChannelSettingsPage';
 import SectionSettingsPage from './pages/SectionSettingsPage';
+import ServerUserSettingsPage from './pages/ServerUserSettingsPage';
 import Select from './components/Select';
 import Button from './components/Button';
 import TextField from './components/TextField';
@@ -140,7 +141,7 @@ interface MemberEntry {
   status: 'online' | 'offline';
 }
 
-type ActiveView = 'home' | 'server' | 'settings' | 'server-settings' | 'channel-settings' | 'section-settings';
+type ActiveView = 'home' | 'server' | 'settings' | 'server-settings' | 'server-profile' | 'channel-settings' | 'section-settings';
 
 // Main renderer shell that wires sockets, plugins, and page layout together.
 function AppContent({ token, user, onLogout }: { token: string; user: any; onLogout: () => void }) {
@@ -210,6 +211,29 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.profilePic]);
 
+  // Load this client's per-server nickname for the current server so the UI
+  // can display the preferred name immediately.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const localUsername = user?.username ?? user?.name;
+      if (!localUsername || !currentServerId) return;
+      try {
+        const nick = await appAccountManager.getServerNickname(localUsername, currentServerId);
+        if (!mounted) return;
+        setCurrentUserNicknames(prev => {
+          const next = new Map(prev);
+          if (nick) next.set(currentServerId, nick);
+          else next.delete(currentServerId);
+          return next;
+        });
+      } catch (e) {
+        // ignore
+      }
+    })();
+    return () => { mounted = false; };
+  }, [user?.username, user?.name, currentServerId]);
+
   // Hydrate server list from the saved account data on login.
   useEffect(() => {
     if (!user?.serverList?.servers?.length) return;
@@ -265,6 +289,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [localReactions, setLocalReactions] = useState<Map<string, { emoji: string; users: string[] }[]>>(new Map());
   const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null);
   const [serverSettingsLoading, setServerSettingsLoading] = useState(false);
+  // Local map of this client's preferred nickname per-server (serverId -> nickname)
+  const [currentUserNicknames, setCurrentUserNicknames] = useState<Map<string, string>>(() => new Map());
   const [serverPasswordRequired, setServerPasswordRequired] = useState<boolean | null>(null);
   // Per-server info (owner username + icon URL) fetched via GET /info.
   const [serverInfoCache, setServerInfoCache] = useState<Map<string, { ownerUsername: string | null; iconUrl: string | null; allowClaimOwnership?: boolean }>>(new Map());
@@ -811,6 +837,14 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setServerSettingsLoading(false);
   };
 
+  // Open the user-facing server profile page (per-server nickname, lightweight)
+  const openServerProfile = async () => {
+    const server = servers.find(s => s.id === currentServerId && s.id !== 'home');
+    if (!server) return;
+    setServerSettingsServerId(server.id);
+    setActiveView('server-profile');
+  };
+
   // Fetch the server's /info endpoint to get ownerUsername and iconUrl.
   // Called every time we switch to a real server (not 'home').
   const fetchServerInfo = async (server: Server) => {
@@ -1134,12 +1168,12 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setServers(prev => {
       const updated = prev.filter(s => s.id !== serverId);
       // Persist to account
-      if (user?.username) {
-        const nonHome = updated.filter(s => s.id !== 'home');
-        appAccountManager.updateServerList(user.username,
-          nonHome.map(s => ({ id: s.id, name: s.name, url: s.url }))
-        ).catch(() => {});
-      }
+          if (user?.username) {
+            const nonHome = updated.filter(s => s.id !== 'home');
+            appAccountManager.updateServerList(user!.username,
+              nonHome.map(s => ({ id: s.id, name: s.name, url: s.url }))
+            ).catch(() => {});
+          }
       return updated;
     });
 
@@ -1247,7 +1281,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
             const updated = [...prev, server];
             if (user?.username) {
               const nonHome = updated.filter(s => s.id !== 'home');
-              appAccountManager.updateServerList(user.username,
+              appAccountManager.updateServerList(user!.username,
                 nonHome.map(s => ({ id: s.id, name: s.name, url: s.url }))
               ).catch(() => {});
             }
@@ -1280,11 +1314,41 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         alert('Cannot reach that server. Please check the URL and try again.');
         return;
       }
+      // Fetch member list to detect username conflicts and offer a per-server nickname.
+      try {
+        const res = await fetch(`${invite.replace(/\/$/, '')}/members`);
+        if (res.ok && user?.username) {
+          const body = await res.json();
+          const members: MemberEntry[] = Array.isArray(body) ? body : (body.members ?? []);
+          const names = members.map(m => m.username.toLowerCase());
+          // Load our current preferred nickname for this server (if any)
+          const existingNick = user?.username ? await appAccountManager.getServerNickname(user.username, newServer.id) : undefined;
+          // If someone on the server already uses our username, or our desired nickname is taken, prompt.
+          if (names.includes((user?.username ?? '').toLowerCase()) || (existingNick && names.includes(existingNick.toLowerCase()))) {
+            let choice = prompt('A user with your username or nickname already exists on that server. Enter a preferred nickname (leave blank to use your username):');
+            // If user cancels prompt, choice will be null -> treat as empty (use username)
+              if (choice !== null) {
+                const trimmed = choice.trim() || undefined;
+                if (user?.username) {
+                  await appAccountManager.setServerNickname(user!.username, newServer.id, trimmed ?? undefined);
+                  setCurrentUserNicknames(prev => {
+                    const next = new Map(prev);
+                    if (trimmed) next.set(newServer.id, trimmed);
+                    else next.delete(newServer.id);
+                    return next;
+                  });
+                }
+              }
+          }
+        }
+      } catch (e) {
+        // Ignore member fetch failures — server may not support /members.
+      }
       setServers(prev => {
         const updated = [...prev, newServer];
         if (user?.username) {
           const nonHome = updated.filter(s => s.id !== 'home');
-          appAccountManager.updateServerList(user.username,
+          appAccountManager.updateServerList(user!.username,
             nonHome.map(s => ({ id: s.id, name: s.name, url: s.url }))
           ).catch(() => {});
         }
@@ -1624,7 +1688,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       // Persist icon reference and server info to the account's server list
       if (user?.username) {
         const iconFilename = filePath.split('/').pop() || '';
-        await appAccountManager.updateServerList(user.username, [{
+        await appAccountManager.updateServerList(user!.username, [{
           id: serverId,
           name: srvr?.name || serverId,
           url: srvr?.url || '',
@@ -2237,6 +2301,14 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     const processedMessage = pluginManager.processMessage(msg);
     const userMeta = users.find(u => u.name === processedMessage.user);
 
+    // Resolve display name for the message author. If the author is the
+    // currently logged-in user and we have a per-server nickname stored,
+    // prefer that for display.
+    const localUsername = user?.username ?? user?.name;
+    const displayNameForMessageAuthor = (processedMessage.user === localUsername)
+      ? (currentUserNicknames.get(currentServerId) ?? processedMessage.user)
+      : processedMessage.user;
+
     // Check if there's a custom component for this message type
     const MessageComponent = pluginManager.getMessageTypeComponent(processedMessage.type);
 
@@ -2247,7 +2319,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         // Plugin is disabled, render as plain text
         return (
           <div key={processedMessage.id} className="message">
-            <span className="username">{processedMessage.user}:</span>
+            <span className="username">{displayNameForMessageAuthor}:</span>
             <span className="content" dangerouslySetInnerHTML={{ __html: toSafeHtml(processedMessage) }} />
             <span className="message-type">[{processedMessage.type} - disabled]</span>
           </div>
@@ -2275,7 +2347,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     const isGroupStart = index == null || index === 0 || !arr || arr[index - 1].user !== processedMessage.user;
 
     // Avatar: use provided avatar URL or generate 1-2 letter initials
-    const avatarInitials = processedMessage.user
+    const avatarInitials = (displayNameForMessageAuthor || processedMessage.user)
       .split(' ')
       .slice(0, 2)
       .map(w => w[0]?.toUpperCase() || '')
@@ -2377,7 +2449,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
           {/* Avatar */}
           <div className="message-avatar" style={userMeta?.avatar ? undefined : { background: avatarBg }}>
             {userMeta?.avatar
-              ? <img src={userMeta.avatar} alt={processedMessage.user} />
+              ? <img src={userMeta.avatar} alt={displayNameForMessageAuthor} />
               : <span className="avatar-initials">{avatarInitials}</span>
             }
           </div>
@@ -2390,7 +2462,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 className="message-username"
                 style={roleColor ? { color: roleColor } : undefined}
               >
-                {processedMessage.user}
+                {displayNameForMessageAuthor}
               </span>
               {resolvedRole && (
                 <span className="message-role-badge" style={roleColor ? { color: roleColor, borderColor: roleColor } : undefined}>
@@ -2513,6 +2585,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const isSettingsView = activeView === 'settings';
   const isServerView = activeView === 'server';
   const isServerSettingsView = activeView === 'server-settings';
+  const isServerProfileView = activeView === 'server-profile';
   const isChannelSettingsView = activeView === 'channel-settings';
   const isSectionSettingsView = activeView === 'section-settings';
 
@@ -2702,7 +2775,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     ? users
     : (Array.isArray(serverMembers.get(currentServerId)) ? serverMembers.get(currentServerId)! : []).map(m => ({
         id: m.username,
-        name: m.username,
+        name: m.username === (user?.username ?? user?.name) ? (currentUserNicknames.get(currentServerId) ?? m.username) : m.username,
         status: m.status,
         role: m.role,
       }));
@@ -2896,6 +2969,9 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                             <i className="fas fa-sliders-h"></i> Server settings
                           </button>
                         )}
+                        <button onClick={() => { openServerProfile(); closeServerMenu(); }}>
+                          <i className="fas fa-id-badge"></i> Server profile
+                        </button>
                         <button className="danger" onClick={() => { leaveServer(currentServerId); closeServerMenu(); }}>
                           <i className="fas fa-sign-out-alt"></i> Leave {currentServerName}
                         </button>
@@ -3265,6 +3341,20 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 ownerUsername={settingsServer ? (serverInfoCache.get(settingsServer.url)?.ownerUsername ?? null) : null}
                 currentUsername={user?.username ?? user?.name}
                 onClaimOwner={claimOwner}
+              />
+            ) : isServerProfileView && settingsServer ? (
+              <ServerUserSettingsPage
+                server={settingsServer}
+                currentUsername={user?.username ?? user?.name}
+                onBack={closeServerSettings}
+                onNicknameSaved={(nick) => {
+                  setCurrentUserNicknames(prev => {
+                    const next = new Map(prev);
+                    if (nick) next.set(settingsServer.id, nick);
+                    else next.delete(settingsServer.id);
+                    return next;
+                  });
+                }}
               />
             ) : isChannelSettingsView && channelSettingsChannel ? (
               <ChannelSettingsPage

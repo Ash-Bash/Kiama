@@ -35,6 +35,8 @@ export interface LocalAccount {
   username: string;
   passwordHash: string;     // bcrypt hash – never store plain-text
   profilePic?: string;      // Filename in the account's media dir
+  /** Per-server nicknames: serverId -> nickname */
+  serverNicknames?: Record<string, string>;
   credentials: {
     token?: string;         // Reserved for future cloud auth
   };
