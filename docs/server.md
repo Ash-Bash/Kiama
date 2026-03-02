@@ -144,3 +144,4 @@ References
 - Bot accounts: `src/server/src/utils/BotAccountManager.ts`
 - Install script / packaging: `install` and `dist/server/install`
 
+See project TODOs: [docs/TODOS.md](docs/TODOS.md)
