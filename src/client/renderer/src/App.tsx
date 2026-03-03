@@ -24,6 +24,7 @@ import Select from './components/Select';
 import Button from './components/Button';
 import TextField from './components/TextField';
 import ModalPanel from './components/ModalPanel';
+import NsfwSplash from './components/NsfwSplash';
 import ContextMenu, { ContextMenuItemDef } from './components/ContextMenu';
 import './styles/App.scss';
 import './styles/components/ChannelSettings.scss';
@@ -157,6 +158,25 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setFontById,
   } = useTheme();
   const socketRef = React.useRef<any>(null);
+  const normalizeChannel = (c: any, serverId?: string) => ({
+    id: c.id,
+    name: c.name,
+    type: c.type,
+    sectionId: c.sectionId,
+    position: c.position,
+    serverId: serverId ?? c.serverId,
+    permissions: c.permissions || {},
+    settings: {
+      nsfw: !!(c.settings && c.settings.nsfw),
+      slowMode: (c.settings && typeof c.settings.slowMode === 'number') ? c.settings.slowMode : 0,
+      topic: (c.settings && typeof c.settings.topic === 'string') ? c.settings.topic : '',
+      allowPinning: c.settings && typeof c.settings.allowPinning === 'boolean' ? c.settings.allowPinning : true,
+      ...c.settings,
+    },
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+    messageCount: c.messageCount,
+  });
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Map<string, Message[]>>(() => new Map());
   const [currentChannelId, setCurrentChannelId] = useState<string>('');
@@ -189,6 +209,56 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [settingsThemeMode, setSettingsThemeMode] = useState<'light' | 'dark'>(currentMode);
   const [settingsSelectedTheme, setSettingsSelectedTheme] = useState<string>(currentThemeId);
   const [settingsFontId, setSettingsFontId] = useState<string>(currentFontId);
+  // NSFW acknowledgement set (persisted to localStorage). Tracks channels
+  // the user has acknowledged so we don't show the splash every time.
+  const [nsfwAcknowledged, setNsfwAcknowledged] = useState<Set<string>>(new Set());
+  const [nsfwModalVisible, setNsfwModalVisible] = useState(false);
+  const [nsfwModalChannelId, setNsfwModalChannelId] = useState<string | null>(null);
+  const [prevChannelId, setPrevChannelId] = useState<string | null>(null);
+
+  const persistNsfwAcks = (set: Set<string>, forUser?: string | null) => {
+    try {
+      if (typeof window === 'undefined') return;
+      const userKey = forUser || (user?.username ?? user?.name ?? 'anonymous');
+      const key = `nsfw_ack::${userKey}`;
+      window.localStorage.setItem(key, JSON.stringify(Array.from(set)));
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  // Load per-user acknowledgements whenever the active user changes.
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined') return;
+      const userKey = user?.username ?? user?.name ?? 'anonymous';
+      const key = `nsfw_ack::${userKey}`;
+      const raw = window.localStorage.getItem(key);
+      if (!raw) {
+        console.debug('[NSFW] no ack key for user', userKey);
+        setNsfwAcknowledged(new Set());
+        return;
+      }
+      try {
+        const arr = JSON.parse(raw);
+        console.debug('[NSFW] loaded ack for user', userKey, arr);
+        setNsfwAcknowledged(new Set(Array.isArray(arr) ? arr : []));
+      } catch (e) {
+        console.debug('[NSFW] failed to parse ack for user', userKey, raw);
+        setNsfwAcknowledged(new Set());
+      }
+    } catch (e) {
+      setNsfwAcknowledged(new Set());
+    }
+  }, [user?.username, user?.name]);
+  // Log NSFW modal visibility changes for debugging
+  useEffect(() => {
+    try {
+      console.debug('[NSFW] modalVisible changed', { visible: nsfwModalVisible, channelId: nsfwModalChannelId });
+    } catch (e) {
+      // ignore
+    }
+  }, [nsfwModalVisible, nsfwModalChannelId]);
   // Pre-initialize portal containers at mount time so they exist before any portal renders.
   useEffect(() => {
     ['kiama-context-menu-root', 'kiama-popover-root', 'kiama-profile-popover-root'].forEach(id => {
@@ -461,12 +531,26 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   }));
 
   useEffect(() => {
-    // Initialize socket with auth
+    // Initialize socket with auth and attach immediate handlers that must
+    // be present before we emit any join events (prevents missing nsfw_required)
     socketRef.current = io('http://localhost:3000', {
       auth: {
         token: token
       }
     });
+
+    // Attach NSFW-required handler immediately so we don't miss it if the
+    // server responds quickly after a join emit done elsewhere during init.
+    try {
+      socketRef.current.on('nsfw_required', (data: { channelId: string }) => {
+        console.debug('[socket:init] nsfw_required for', data?.channelId);
+        setPrevChannelId(currentChannelId || null);
+        setNsfwModalChannelId(data.channelId);
+        setNsfwModalVisible(true);
+      });
+    } catch (e) {
+      // ignore
+    }
 
     return () => {
       if (socketRef.current) {
@@ -486,7 +570,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
     // Join default channel
     if (socketRef.current) {
-      socketRef.current.emit('join_channel', { channelId: 'general' });
+      socketRef.current.emit('join_channel', { channelId: 'general', nsfwAck: nsfwAcknowledged.has('general') });
     }
   }, [pluginManager, currentServer, token]);
 
@@ -526,6 +610,9 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       });
     });
 
+    // `nsfw_required` is registered immediately after socket creation to
+    // avoid races where the server responds before handlers are attached.
+
     socketRef.current.on('channel_history', (data: { channelId: string, messages: Message[] }) => {
       const processedMessages = data.messages.map(msg => {
         let processed = { ...msg };
@@ -558,7 +645,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       setChannels(prev => {
         // Keep channels that belong to other servers, replace only those for this server
         const others = prev.filter(c => c.serverId !== targetServerId);
-        const incoming = (data.channels || []).map(c => ({ ...c, serverId: targetServerId, messageCount: undefined }));
+        const incoming = (data.channels || []).map(c => ({ ...normalizeChannel(c, targetServerId), messageCount: undefined }));
         return [...others, ...incoming];
       });
       setSections(prev => {
@@ -573,7 +660,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       if (firstChannelId) {
         setCurrentChannelId(firstChannelId);
         if (socketRef.current) {
-          socketRef.current.emit('join_channel', { channelId: firstChannelId });
+          socketRef.current.emit('join_channel', { channelId: firstChannelId, nsfwAck: nsfwAcknowledged.has(firstChannelId) });
         }
       }
     });
@@ -583,12 +670,12 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       setChannels(prev =>
         prev.some(c => c.id === channel.id)
           ? prev
-          : [...prev, { ...channel, serverId: pendingChannelServerIdRef.current, messageCount: undefined }]
+          : [...prev, { ...normalizeChannel(channel, pendingChannelServerIdRef.current), messageCount: undefined }]
       );
     });
 
     socketRef.current.on('channel_updated', (channel: Channel) => {
-      setChannels(prev => prev.map(c => c.id === channel.id ? { ...channel, serverId: c.serverId } : c));
+      setChannels(prev => prev.map(c => c.id === channel.id ? { ...normalizeChannel(channel, c.serverId) } : c));
     });
 
     socketRef.current.on('channel_deleted', (data: { channelId: string }) => {
@@ -746,7 +833,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         ]);
         if (chRes.ok) {
           const chData = await chRes.json();
-          const incoming = (chData.channels || []).map((c: any) => ({ ...c, serverId: targetServerId, messageCount: undefined }));
+          const incoming = (chData.channels || []).map((c: any) => ({ ...normalizeChannel(c, targetServerId), messageCount: undefined }));
           setChannels(prev => {
             const others = prev.filter(c => c.serverId !== targetServerId);
             return [...others, ...incoming];
@@ -776,18 +863,67 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
   // Move the active socket subscription to a new channel room.
   const joinChannel = (channelId: string) => {
+    const prev = currentChannelId;
+    console.debug('[joinChannel] requested', { channelId, current: currentChannelId, user: user?.username ?? user?.name });
+    // If an NSFW modal is already visible, allow switching to a different
+    // channel by closing the modal and proceeding, but prevent re-opening
+    // the same modal (avoids stacking and stuck state).
+    if (nsfwModalVisible) {
+      if (channelId === nsfwModalChannelId) return; // same channel, no-op
+      // Close existing modal and clear previous selection so the new
+      // channel can be selected normally.
+      setNsfwModalVisible(false);
+      setNsfwModalChannelId(null);
+      setPrevChannelId(null);
+    }
     if (socketRef.current) {
       // Leave current channel
       socketRef.current.emit('leave_channel', { channelId: currentChannelId });
 
-      // Join new channel
-      socketRef.current.emit('join_channel', { channelId });
+      // Join new channel (include nsfw acknowledgment flag)
+      socketRef.current.emit('join_channel', { channelId, nsfwAck: nsfwAcknowledged.has(channelId) });
     }
     setCurrentChannelId(channelId);
 
     if (viewportWidth <= 768) {
       setShowMobileSidebar(false);
     }
+
+    // If the channel is marked NSFW and the user hasn't acknowledged it yet,
+    // show a splash/age confirmation. If they cancel, we'll revert to the
+    // previously active channel. Guard to ensure only one modal opens.
+    const ch = channels.find(c => c.id === channelId);
+    console.debug('[joinChannel] resolved channel', ch ? { id: ch.id, nsfw: !!ch.settings?.nsfw } : null, 'ack?', nsfwAcknowledged.has(channelId));
+    if (ch && ch.settings?.nsfw) {
+      if (!nsfwAcknowledged.has(channelId)) {
+        console.debug('[joinChannel] showing NSFW modal for', channelId);
+        setPrevChannelId(prev || null);
+        setNsfwModalChannelId(channelId);
+        setNsfwModalVisible(true);
+      } else {
+        console.debug('[joinChannel] user already acknowledged nsfw for', channelId);
+      }
+    }
+
+    // Fallback: if channel info wasn't available yet (ch undefined) or the
+    // modal didn't appear for some reason, check shortly after loading and
+    // show the splash if the channel is NSFW and not acknowledged. Also
+    // leave the socket room so the client doesn't receive NSFW history.
+    setTimeout(() => {
+      try {
+        const maybe = channels.find(c => c.id === channelId);
+        if (!maybe) return;
+        if (maybe.settings?.nsfw && !nsfwAcknowledged.has(channelId) && !nsfwModalVisible) {
+          console.debug('[joinChannel][fallback] showing NSFW modal for', channelId);
+          setPrevChannelId(prev || null);
+          setNsfwModalChannelId(channelId);
+          setNsfwModalVisible(true);
+          if (socketRef.current) socketRef.current.emit('leave_channel', { channelId });
+        }
+      } catch (e) {
+        // ignore
+      }
+    }, 150);
   };
 
   // Open the server settings view and preload roles + the first channel.
@@ -1042,8 +1178,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       }
 
       // Use server response as the source of truth for the updated channel
+      // Preserve local-only fields (serverId, messageCount) which the server
+      // responses don't include so channels don't get hidden from the UI.
       const updated = await res.json();
-      setChannels(prev => prev.map(ch => ch.id === updated.id ? updated : ch));
+      setChannels(prev => prev.map(ch => ch.id === updated.id ? { ...updated, serverId: ch.serverId, messageCount: ch.messageCount } : ch));
     } catch (error) {
       console.error('Error updating channel permissions', error);
     }
@@ -1833,6 +1971,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name, type, sectionId,
+          settings: { nsfw: false, slowMode: 0, allowPinning: true },
           permissions: {
             read: true, write: true, manage: false,
             readRoles: managedRoleIds,
@@ -2089,10 +2228,13 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       const serverId = serverSettingsServerId || currentServerId;
       const server = servers.find(s => s.id === serverId);
       const baseUrl = server?.url || SERVER_URL;
-      const response = await fetch(`${baseUrl}/channels/${channelId}/settings`, {
+      // Server expects a PATCH to /channels/:channelId with a `settings`
+      // object. Previous code hit a non-existent /channels/:id/settings
+      // route so updates weren't persisted.
+      const response = await fetch(`${baseUrl}/channels/${channelId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
+        body: JSON.stringify({ settings })
       });
       if (!response.ok) throw new Error('Failed to update channel settings');
       setChannels(prev => prev.map(c =>
@@ -2364,13 +2506,65 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       if (!value) return '';
       const d = value instanceof Date ? value : new Date(value);
       if (Number.isNaN(d.getTime())) return '';
+      const now = new Date();
+      const msInDay = 24 * 60 * 60 * 1000;
+      // If message is older than 1 day, include the date + time
+      if (now.getTime() - d.getTime() > msInDay) {
+        const dateStr = d.toLocaleDateString();
+        const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        return `${dateStr} ${timeStr}`;
+      }
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    };
+
+    const isReplyToMe = !!(processedMessage.replyTo && (processedMessage.replyTo.user === localUsername));
+
+    // (reply detection runs here)
+
+    // Helper: jump to the referenced message element and animate it
+    const jumpToReferencedMessage = (refId?: string) => {
+      if (!refId) return;
+      const container = document.querySelector('.message-list') as HTMLElement | null;
+      const el = container
+        ? (container.querySelector(`[data-message-id="${refId}"]`) as HTMLElement | null)
+        : (document.querySelector(`[data-message-id="${refId}"]`) as HTMLElement | null);
+      if (!el) {
+        console.info('[Kiama] referenced message not found in DOM:', refId);
+        return;
+      }
+      const containerRect = container ? container.getBoundingClientRect() : null;
+      const elRect = el.getBoundingClientRect();
+      const inView = containerRect
+        ? (elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom)
+        : (elRect.top >= 0 && elRect.bottom <= window.innerHeight);
+
+      const applyHighlight = () => {
+        try {
+          el.setAttribute('tabindex', '-1');
+          // focus without scrolling (we handle scrolling separately)
+          (el as HTMLElement).focus({ preventScroll: true } as any);
+        } catch (e) {
+          // ignore focus errors
+        }
+        el.classList.add('message-jump-highlight');
+        setTimeout(() => el.classList.remove('message-jump-highlight'), 1600);
+      };
+
+      if (!inView) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // wait for the smooth scroll to settle before highlighting
+        setTimeout(applyHighlight, 420);
+      } else {
+        applyHighlight();
+      }
     };
 
     return (
       <div
         key={processedMessage.id}
-        className={`message${isGroupStart ? ' message--group-start' : ''}`}
+        data-message-id={processedMessage.id}
+        tabIndex={-1}
+        className={`message${isGroupStart ? ' message--group-start' : ''}${isReplyToMe ? ' message--reply-target' : ''}`}
         onContextMenu={(e) => {
           if (processedMessage.user === 'You') {
             e.preventDefault();
@@ -2394,19 +2588,15 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
           >
             <i className="far fa-smile-beam" />
           </button>
-          <button
-            className="message-action-btn"
-            title="Reply"
-            onClick={() => setReplyingTo(processedMessage as Message)}
-          >
-            <i className="fas fa-reply" />
-          </button>
-          <button
-            className="message-action-btn"
-            title="Forward"
-          >
-            <i className="fas fa-share" />
-          </button>
+          {processedMessage.user !== localUsername && (
+            <button
+              className="message-action-btn"
+              title="Reply"
+              onClick={() => setReplyingTo(processedMessage as Message)}
+            >
+              <i className="fas fa-reply" />
+            </button>
+          )}
           <button
             className="message-action-btn"
             title="More options"
@@ -2428,15 +2618,23 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
             <i className="fas fa-reply reply-context-icon" />
             <span
               className="reply-context-name"
+              role="button"
+              tabIndex={0}
+              onClick={() => jumpToReferencedMessage(processedMessage.replyTo?.id)}
+              onKeyPress={(e) => { if (e.key === 'Enter') jumpToReferencedMessage(processedMessage.replyTo?.id); }}
               style={(() => {
                 const refMeta = users.find(u => u.name === processedMessage.replyTo!.user);
                 const refColor = getRoleColor(refMeta?.role);
-                return refColor ? { color: refColor } : undefined;
+                return Object.assign({ cursor: 'pointer' }, refColor ? { color: refColor } : undefined);
               })()}
             >
               {processedMessage.replyTo.user}
             </span>
-            <span className="reply-context-content">
+            <span
+              className="reply-context-content"
+              onClick={() => jumpToReferencedMessage(processedMessage.replyTo?.id)}
+              style={{ cursor: 'pointer' }}
+            >
               {processedMessage.replyTo.content.length > 80
                 ? processedMessage.replyTo.content.slice(0, 80) + '…'
                 : processedMessage.replyTo.content}
@@ -2473,6 +2671,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 {formatTime(processedMessage.timestamp)}
               </span>
             </div>
+
+            {/* reply flag removed (temporary debug UI) */}
 
             {/* Content */}
             <div className="message-content">
@@ -2520,6 +2720,9 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 </button>
               </div>
             )}
+            {/* NSFW splash modal was previously rendered per-message which caused
+                it to re-mount on message updates. It is now rendered once at the
+                top-level (below) so it appears immediately on channel click. */}
           </div>
         </div>
       </div>
@@ -3409,11 +3612,46 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 handleReactionEmoteSelect={handleReactionEmoteSelect}
                 pickerAnchor={pickerAnchor}
                 channelsLoading={channelsLoading}
-                canSend={currentChannel ? canUserWriteChannel(currentChannel) : false}
+                canSend={currentChannel ? (canUserWriteChannel(currentChannel) && !nsfwModalVisible) : false}
               />
             )}
           </div>
         </div>
+
+        {/* Top-level NSFW splash so it appears immediately on channel click and
+            does not re-mount when messages update (avoids visual glitches). */}
+        <NsfwSplash
+          channelName={channels.find(c => c.id === nsfwModalChannelId)?.name ?? 'Channel'}
+          visible={nsfwModalVisible}
+          onCancel={() => {
+            setNsfwModalVisible(false);
+            setNsfwModalChannelId(null);
+            try {
+              const el = document.querySelector('.main-content');
+              if (el) el.classList.remove('nsfw-blur-active');
+            } catch (e) { /* ignore */ }
+            if (prevChannelId) setCurrentChannelId(prevChannelId);
+            setPrevChannelId(null);
+          }}
+          onConfirm={() => {
+            if (!nsfwModalChannelId) return;
+            const next = new Set(nsfwAcknowledged);
+            next.add(nsfwModalChannelId);
+            setNsfwAcknowledged(next);
+            persistNsfwAcks(next, user?.username ?? user?.name ?? 'anonymous');
+            try {
+              const el = document.querySelector('.main-content');
+              if (el) el.classList.remove('nsfw-blur-active');
+            } catch (e) { /* ignore */ }
+            if (socketRef.current) {
+              socketRef.current.emit('join_channel', { channelId: nsfwModalChannelId, nsfwAck: true });
+            }
+            setCurrentChannelId(nsfwModalChannelId);
+            setNsfwModalVisible(false);
+            setNsfwModalChannelId(null);
+            setPrevChannelId(null);
+          }}
+        />
 
         {showUserListPanel && (
           <>
@@ -3673,6 +3911,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
           </div>
         )}
       </div>
+
+      
       </div>
     </div>
     </SurfaceProvider>

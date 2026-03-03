@@ -6,6 +6,7 @@ This document lists planned work items grouped by area. Each item should be trac
 
 - Configure server port number: allow runtime config and persisted default (CLI flag, env var, and config file).
 - Allow custom server data location: support a `--data-root`/`KIAMA_DATA_ROOT` option to point to an external data directory.
+- Provide a Docker container image alternative: publish an official Docker image and `Dockerfile` for users who prefer Docker, including recommended image tags, environment variables, data volume mounts, and brief run examples.
 - Message/media auto-deletion ("spring cleaning"): implement configurable retention rules to delete old messages and media.
 - Fully integrate backup functionality: connect UI/server backup triggers, scheduled backups, and restore flows.
  - [x] Detect duplicate usernames & nicknames: detect same display names and provide a per-server nickname system (like Discord) to allow unique identification.

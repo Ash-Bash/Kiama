@@ -370,11 +370,26 @@ const PermissionsSubPage: React.FC<PermissionsSubPageProps> = ({
   useEffect(() => {
     const nextRead  = currentChannel?.permissions?.readRoles  || currentChannel?.permissions?.roles || [];
     const nextWrite = currentChannel?.permissions?.writeRoles || currentChannel?.permissions?.roles || [];
-    setReadRoles(nextRead);
-    setWriteRoles(nextWrite);
+    const availableRoleIds = new Set(roles.map(r => r.id));
+    setReadRoles(nextRead.filter((id: string) => availableRoleIds.has(id)));
+    setWriteRoles(nextWrite.filter((id: string) => availableRoleIds.has(id)));
   }, [currentChannel]);
+  const availableRoleIds = React.useMemo(() => new Set(roles.map(r => r.id)), [roles]);
+  const initialRead = React.useMemo(() => (currentChannel?.permissions?.readRoles ?? currentChannel?.permissions?.roles ?? []).filter((id: string) => availableRoleIds.has(id)), [currentChannel, availableRoleIds]);
+  const initialWrite = React.useMemo(() => (currentChannel?.permissions?.writeRoles ?? currentChannel?.permissions?.roles ?? []).filter((id: string) => availableRoleIds.has(id)), [currentChannel, availableRoleIds]);
+
+  const setsEqual = (a: string[], b: string[]) => {
+    if (a.length !== b.length) return false;
+    const sa = new Set(a);
+    return b.every(x => sa.has(x));
+  };
+
+  const isDirty = !setsEqual(readRoles, initialRead) || !setsEqual(writeRoles, initialWrite);
+
+  const ownerRoleId = roles.find(r => r.id === 'owner' || (r.name || '').toLowerCase() === 'owner')?.id;
 
   const toggleRole = (target: 'read' | 'write', roleId: string) => {
+    if (roleId === ownerRoleId) return; // owner cannot be toggled
     if (target === 'read') {
       setReadRoles(prev => prev.includes(roleId) ? prev.filter(r => r !== roleId) : [...prev, roleId]);
     } else {
@@ -385,7 +400,9 @@ const PermissionsSubPage: React.FC<PermissionsSubPageProps> = ({
   const save = async () => {
     if (!currentChannel) return;
     setIsSaving(true);
-    await onSavePermissions(currentChannel.id, readRoles, writeRoles);
+    const finalRead = ownerRoleId ? Array.from(new Set([...readRoles, ownerRoleId])) : readRoles;
+    const finalWrite = ownerRoleId ? Array.from(new Set([...writeRoles, ownerRoleId])) : writeRoles;
+    await onSavePermissions(currentChannel.id, finalRead, finalWrite);
     setIsSaving(false);
   };
 
@@ -421,24 +438,48 @@ const PermissionsSubPage: React.FC<PermissionsSubPageProps> = ({
             <div className="channel-perms__col-header">Can read</div>
             <div className="channel-perms__col-body">
               {roles.length === 0 && <span className="settings-sub-page__hint">No roles defined.</span>}
-              {roles.map(role => (
-                <Toggle key={role.id} inline label={role.name} checked={readRoles.includes(role.id)} onChange={() => toggleRole('read', role.id)} tintColor={role.color} size="small" />
-              ))}
+              {roles.map(role => {
+                const isOwner = role.id === 'owner' || (role.name || '').toLowerCase() === 'owner';
+                return (
+                  <Toggle
+                    key={role.id}
+                    inline
+                    label={role.name}
+                    checked={isOwner ? true : readRoles.includes(role.id)}
+                    onChange={() => !isOwner && toggleRole('read', role.id)}
+                    tintColor={role.color}
+                    size="small"
+                    disabled={isOwner}
+                  />
+                );
+              })}
             </div>
           </div>
           <div className="channel-perms__col">
             <div className="channel-perms__col-header">Can write</div>
             <div className="channel-perms__col-body">
               {roles.length === 0 && <span className="settings-sub-page__hint">No roles defined.</span>}
-              {roles.map(role => (
-                <Toggle key={role.id} inline label={role.name} checked={writeRoles.includes(role.id)} onChange={() => toggleRole('write', role.id)} tintColor={role.color} size="small" />
-              ))}
+              {roles.map(role => {
+                const isOwner = role.id === 'owner' || (role.name || '').toLowerCase() === 'owner';
+                return (
+                  <Toggle
+                    key={role.id}
+                    inline
+                    label={role.name}
+                    checked={isOwner ? true : writeRoles.includes(role.id)}
+                    onChange={() => !isOwner && toggleRole('write', role.id)}
+                    tintColor={role.color}
+                    size="small"
+                    disabled={isOwner}
+                  />
+                );
+              })}
             </div>
           </div>
         </div>
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <Button variant="primary" onClick={save} disabled={loading || isSaving || !currentChannel} iconLeft={<i className="fas fa-save" />}>
+        <Button variant="primary" onClick={save} disabled={loading || isSaving || !currentChannel || !isDirty} iconLeft={<i className="fas fa-save" />}>
           {isSaving ? 'Saving...' : 'Save permissions'}
         </Button>
         <span className="settings-sub-page__hint">Applies to the selected channel.</span>

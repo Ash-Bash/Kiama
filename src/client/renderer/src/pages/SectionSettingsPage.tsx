@@ -118,10 +118,23 @@ const SectionPermissionsSubPage: React.FC<SectionPermissionsSubPageProps> = ({
   );
   const [saving, setSaving] = useState(false);
 
+  const availableRoleIds = React.useMemo(() => new Set(roles.map(r => r.id)), [roles]);
+
   useEffect(() => {
-    setViewRoles(section.permissions?.viewRoles ?? section.permissions?.roles ?? []);
-    setManageRoles(section.permissions?.manageRoles ?? []);
-  }, [section]);
+    setViewRoles((section.permissions?.viewRoles ?? section.permissions?.roles ?? []).filter((id: string) => availableRoleIds.has(id)));
+    setManageRoles((section.permissions?.manageRoles ?? []).filter((id: string) => availableRoleIds.has(id)));
+  }, [section, roles, availableRoleIds]);
+
+  const initialView = React.useMemo(() => (section.permissions?.viewRoles ?? section.permissions?.roles ?? []).filter((id: string) => availableRoleIds.has(id)), [section, availableRoleIds]);
+  const initialManage = React.useMemo(() => (section.permissions?.manageRoles ?? []).filter((id: string) => availableRoleIds.has(id)), [section, availableRoleIds]);
+
+  const setsEqual = (a: string[], b: string[]) => {
+    if (a.length !== b.length) return false;
+    const sa = new Set(a);
+    return b.every(x => sa.has(x));
+  };
+
+  const isDirty = !setsEqual(viewRoles, initialView) || !setsEqual(manageRoles, initialManage);
 
   const toggle = (target: 'view' | 'manage', roleId: string) => {
     if (target === 'view') {
@@ -135,9 +148,14 @@ const SectionPermissionsSubPage: React.FC<SectionPermissionsSubPageProps> = ({
     }
   };
 
+  const ownerRoleId = roles.find(r => r.id === 'owner' || (r.name || '').toLowerCase() === 'owner')?.id;
+
   const save = async () => {
+    if (!isDirty) return;
     setSaving(true);
-    await onSave(viewRoles, manageRoles);
+    const finalView = ownerRoleId ? Array.from(new Set([...viewRoles, ownerRoleId])) : viewRoles;
+    const finalManage = ownerRoleId ? Array.from(new Set([...manageRoles, ownerRoleId])) : manageRoles;
+    await onSave(finalView, finalManage);
     setSaving(false);
   };
 
@@ -163,17 +181,21 @@ const SectionPermissionsSubPage: React.FC<SectionPermissionsSubPageProps> = ({
                   No roles defined on this server yet.
                 </span>
               )}
-              {roles.map(role => (
-                <Toggle
-                  key={role.id}
-                  inline
-                  label={role.name}
-                  checked={viewRoles.includes(role.id)}
-                  onChange={() => toggle('view', role.id)}
-                  tintColor={role.color}
-                  size="small"
-                />
-              ))}
+              {roles.map(role => {
+                const isOwner = role.id === 'owner' || (role.name || '').toLowerCase() === 'owner';
+                return (
+                  <Toggle
+                    key={role.id}
+                    inline
+                    label={role.name}
+                    checked={isOwner ? true : viewRoles.includes(role.id)}
+                    onChange={() => !isOwner && toggle('view', role.id)}
+                    tintColor={role.color}
+                    size="small"
+                    disabled={isOwner}
+                  />
+                );
+              })}
             </div>
           </div>
           <div className="channel-perms__col">
@@ -184,17 +206,21 @@ const SectionPermissionsSubPage: React.FC<SectionPermissionsSubPageProps> = ({
                   No roles defined on this server yet.
                 </span>
               )}
-              {roles.map(role => (
-                <Toggle
-                  key={role.id}
-                  inline
-                  label={role.name}
-                  checked={manageRoles.includes(role.id)}
-                  onChange={() => toggle('manage', role.id)}
-                  tintColor={role.color}
-                  size="small"
-                />
-              ))}
+              {roles.map(role => {
+                const isOwner = role.id === 'owner' || (role.name || '').toLowerCase() === 'owner';
+                return (
+                  <Toggle
+                    key={role.id}
+                    inline
+                    label={role.name}
+                    checked={isOwner ? true : manageRoles.includes(role.id)}
+                    onChange={() => !isOwner && toggle('manage', role.id)}
+                    tintColor={role.color}
+                    size="small"
+                    disabled={isOwner}
+                  />
+                );
+              })}
             </div>
           </div>
         </div>
@@ -208,7 +234,7 @@ const SectionPermissionsSubPage: React.FC<SectionPermissionsSubPageProps> = ({
         <Button
           variant="primary"
           onClick={save}
-          disabled={saving}
+          disabled={saving || !isDirty}
           iconLeft={<i className={saving ? 'fas fa-spinner fa-spin' : 'fas fa-save'} />}
         >
           {saving ? 'Saving…' : 'Save permissions'}

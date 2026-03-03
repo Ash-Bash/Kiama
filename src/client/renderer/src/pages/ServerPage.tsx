@@ -100,6 +100,15 @@ const ServerPage: React.FC<ServerPageProps> = ({
   canSend,
   channelsLoading,
 }) => {
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    if (replyingTo) {
+      // Focus the input when reply mode is entered
+      // small timeout ensures DOM is updated
+      setTimeout(() => inputRef.current?.focus(), 20);
+    }
+  }, [replyingTo]);
   return (
     <Page
       className="server-page"
@@ -152,7 +161,33 @@ const ServerPage: React.FC<ServerPageProps> = ({
         </div>
       ) : (
         <div className="message-list">
-          {currentMessages.map((msg, i, arr) => renderMessage(msg, i, arr))}
+          {currentMessages.map((msg, i, arr) => {
+            const current = new Date(msg.timestamp);
+            const prev = i > 0 ? arr[i - 1] : null;
+            let showDaySeparator = false;
+            if (!prev) {
+              showDaySeparator = true;
+            } else {
+              const prevDate = new Date(prev.timestamp);
+              const sameDay = current.getFullYear() === prevDate.getFullYear() && current.getMonth() === prevDate.getMonth() && current.getDate() === prevDate.getDate();
+              const msInDay = 24 * 60 * 60 * 1000;
+              const gap = current.getTime() - prevDate.getTime();
+              if (!sameDay || gap > msInDay) showDaySeparator = true;
+            }
+
+            const formatHeaderDate = (d: Date) => d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+
+            return (
+              <React.Fragment key={msg.id}>
+                {showDaySeparator && (
+                  <div className="day-separator" aria-hidden>
+                    <span className="day-separator-label">{formatHeaderDate(current)}</span>
+                  </div>
+                )}
+                {renderMessage(msg, i, arr)}
+              </React.Fragment>
+            );
+          })}
         </div>
       )}
 
@@ -190,6 +225,7 @@ const ServerPage: React.FC<ServerPageProps> = ({
                 <i className="fas fa-plus"></i>
               </button>
               <input
+                ref={inputRef}
                 value={message}
                 onChange={(e) => onMessageChange(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && onSendMessage()}

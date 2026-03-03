@@ -23,6 +23,7 @@ export interface TypedMessage {
   data?: any;
   serverId: string;
   channelId: string;
+  replyTo?: { id: string; user: string; content: string };
 }
 
 export interface ChannelSettings {
@@ -302,9 +303,31 @@ export class Server {
         timestamp TEXT,
         data TEXT,
         serverId TEXT,
-        mediaPath TEXT
+        mediaPath TEXT,
+        replyToId TEXT,
+        replyToUser TEXT,
+        replyToContent TEXT
       );
     `);
+    // Ensure older databases get new reply columns added via ALTER TABLE
+    try {
+      const cols: any[] = this.db.prepare(`PRAGMA table_info('messages')`).all();
+      const existing = new Set(cols.map(c => c.name));
+      const additions: Array<{ name: string; def: string }> = [];
+      if (!existing.has('replyToId')) additions.push({ name: 'replyToId', def: 'TEXT' });
+      if (!existing.has('replyToUser')) additions.push({ name: 'replyToUser', def: 'TEXT' });
+      if (!existing.has('replyToContent')) additions.push({ name: 'replyToContent', def: 'TEXT' });
+      for (const col of additions) {
+        try {
+          this.db.exec(`ALTER TABLE messages ADD COLUMN ${col.name} ${col.def}`);
+          console.log(`Added column ${col.name} to messages table`);
+        } catch (e) {
+          console.warn(`Failed to add column ${col.name}:`, e);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to migrate messages table for reply columns:', e);
+    }
     // Members table stores per-server member records including role and nickname
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS members (
@@ -332,8 +355,8 @@ export class Server {
 
   private storeMessage(message: TypedMessage) {
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO messages (id, channelId, user, userRole, content, type, timestamp, data, serverId, mediaPath)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO messages (id, channelId, user, userRole, content, type, timestamp, data, serverId, mediaPath, replyToId, replyToUser, replyToContent)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       message.id,
@@ -345,7 +368,10 @@ export class Server {
       message.timestamp.toISOString(),
       message.data ? JSON.stringify(message.data) : null,
       message.serverId,
-      (message.data && message.data.mediaPath) ? message.data.mediaPath : null
+      (message.data && message.data.mediaPath) ? message.data.mediaPath : null,
+      message.replyTo ? message.replyTo.id : null,
+      message.replyTo ? message.replyTo.user : null,
+      message.replyTo ? message.replyTo.content : null
     );
   }
 
@@ -384,7 +410,8 @@ export class Server {
         type: row.type,
         timestamp: new Date(row.timestamp),
         data: row.data ? JSON.parse(row.data) : undefined,
-        serverId: row.serverId
+        serverId: row.serverId,
+        replyTo: row.replyToId ? { id: row.replyToId, user: row.replyToUser, content: row.replyToContent } : undefined
       };
       if (!this.messages.has(row.channelId)) {
         this.messages.set(row.channelId, []);
@@ -1417,6 +1444,10 @@ export class Server {
         return res.status(404).json({ error: 'Channel not found' });
       }
       const { readRoles, writeRoles, roles } = req.body;
+      // Debug logging: record incoming permission updates to help trace
+      // intermittent issues where permissions appear to be cleared or
+      // channels unexpectedly change after saving from the client.
+      console.debug && console.debug(`[permissions] PATCH /channels/${channelId}/permissions`, { readRoles, writeRoles, roles });
       const updated: Channel = {
         ...existing,
         permissions: {
@@ -1430,6 +1461,7 @@ export class Server {
         },
         updatedAt: new Date(),
       };
+      console.debug && console.debug(`[permissions] Updated channel ${channelId}`, updated);
       this.channels.set(channelId, updated);
       this.io.emit('channel_updated', updated);
       this.saveToDisk();
@@ -1443,6 +1475,7 @@ export class Server {
         return res.status(404).json({ error: 'Section not found' });
       }
       const { viewRoles, manageRoles, roles } = req.body;
+      console.debug && console.debug(`[permissions] PATCH /sections/${sectionId}/permissions`, { viewRoles, manageRoles, roles });
       const updated: ChannelSection = {
         ...existing,
         permissions: {
@@ -1455,6 +1488,7 @@ export class Server {
         },
         updatedAt: new Date(),
       };
+      console.debug && console.debug(`[permissions] Updated section ${sectionId}`, updated);
       this.sections.set(sectionId, updated);
       this.io.emit('section_updated', updated);
       this.saveToDisk();
@@ -1876,19 +1910,31 @@ export class Server {
         }
       });
 
-      socket.on('join_channel', (data: { channelId: string }) => {
+      socket.on('join_channel', (data: { channelId: string, nsfwAck?: boolean }) => {
         const channel = this.channels.get(data.channelId);
-        if (channel) {
-          socket.join(`channel_${data.channelId}`);
-          console.log(`User joined channel: ${channel.name}`);
+        if (!channel) return;
 
-          // Send recent messages for this channel
-          const channelMessages = this.messages.get(data.channelId) || [];
-          socket.emit('channel_history', {
-            channelId: data.channelId,
-            messages: channelMessages.slice(-50) // Last 50 messages
-          });
+        // If the channel is marked NSFW, require client acknowledgement before
+        // allowing the socket to join and receive history. Clients may pass
+        // `nsfwAck: true` when they have confirmed age; otherwise emit a
+        // `nsfw_required` event so the client can prompt the user.
+        if (channel.settings?.nsfw) {
+          if (!data.nsfwAck) {
+            socket.emit('nsfw_required', { channelId: data.channelId });
+            console.log(`NSFW acknowledgement required for channel: ${channel.name}`);
+            return;
+          }
         }
+
+        socket.join(`channel_${data.channelId}`);
+        console.log(`User joined channel: ${channel.name}`);
+
+        // Send recent messages for this channel
+        const channelMessages = this.messages.get(data.channelId) || [];
+        socket.emit('channel_history', {
+          channelId: data.channelId,
+          messages: channelMessages.slice(-50) // Last 50 messages
+        });
       });
 
       socket.on('leave_channel', (data: { channelId: string }) => {
@@ -1921,6 +1967,7 @@ export class Server {
           timestamp: new Date(),
           data: data.data,
           serverId: this.serverId,
+          replyTo: data.replyTo ? { id: data.replyTo.id, user: data.replyTo.user, content: data.replyTo.content } : undefined,
           channelId: channelId
         };
 

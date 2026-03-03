@@ -65,6 +65,8 @@
   --sidebar-width: 240px;
   --server-list-width: 72px;
   --top-bar-height: 64px;
+  /* App font stack used throughout the UI */
+  --app-font: 'Space Grotesk', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
 // Component imports
@@ -381,9 +383,12 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  font-family: var(--app-font);
+  color: var(--text-primary);
 
   h3 {
-    font-size: 20px;
+      font-size: 24px;
+      font-weight: 700;
   }
 
   p {
@@ -402,13 +407,16 @@ html, body {
     h3 {
       margin: 0;
       color: var(--text-primary);
-      font-size: 18px;
+      font-size: 26px;
+      line-height: 1.05;
+      font-weight: 700;
     }
 
     p {
-      margin: 4px 0 0;
+      margin: 6px 0 0;
       color: var(--text-secondary);
-      font-size: 14px;
+      font-size: 16px;
+      line-height: 1.35;
     }
 
     .modal-panel__icon {
@@ -426,6 +434,12 @@ html, body {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    p {
+      color: var(--text-primary);
+      font-size: 17px;
+      line-height: 1.6;
+      margin: 0;
+    }
   }
 
   .modal-panel__footer {
@@ -622,6 +636,53 @@ html, body {
     }
   }
 }
+
+/* Top-level: highlight messages that reply to the current user */
+.message.message--reply-target {
+  background: rgba(255, 241, 118, 0.06);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  border-left: 3px solid rgba(255, 200, 50, 0.18);
+}
+
+/* Day / date separator shown between messages when date changes or gap > 24h */
+.day-separator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 12px 0;
+  width: 100%;
+}
+.day-separator:before,
+.day-separator:after {
+  content: '';
+  height: 1px;
+  background: var(--border);
+  flex: 1 1 auto;
+  margin: 0 12px;
+  opacity: 0.6;
+}
+.day-separator-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: transparent;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+/* Temporary highlight for jump-to-referenced-message action */
+.message.message-jump-highlight {
+  animation: message-highlight-fade 1.6s ease forwards;
+}
+
+@keyframes message-highlight-fade {
+  0% { background-color: rgba(255, 241, 118, 0.18); }
+  60% { background-color: rgba(255, 241, 118, 0.18); }
+  100% { background-color: transparent; }
+}
+
+/* debug-reply-flag removed */
 
 // Mixins
 @mixin flex-center {
@@ -829,6 +890,13 @@ html, body {
       background: linear-gradient(150deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.05)), var(--surface-card-bg);
       border-color: var(--surface-border);
       color: var(--text-primary);
+    }
+
+    /* Slightly larger modal action buttons */
+    &.primary, &.secondary {
+      padding: 12px 20px;
+      font-size: 15px;
+      border-radius: 10px;
     }
 
     &.ghost {
@@ -2058,7 +2126,9 @@ html, body {
 
           // message-count styling removed — no numeric badges shown in channel list
 
-          &.nsfw {
+          // Apply NSFW styling only when the channel is NOT active so the
+          // active state (white text on accent background) is preserved.
+          &:not(.active).nsfw {
             .channel-name {
               color: var(--error);
             }
@@ -2408,6 +2478,7 @@ html, body {
         }
       }
     }
+
   }
 
   .message-input {
@@ -2838,6 +2909,101 @@ html, body {
     border: none !important;
     box-shadow: none !important;
   }
+}
+
+// NSFW splash overlay (blur background + modal)
+.nsfw-splash-overlay {
+  position: fixed; // cover the viewport regardless of portal container
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  background: linear-gradient(rgba(6, 10, 14, 0.55), rgba(6, 10, 14, 0.55));
+  /* Use a subtle backdrop-filter while keeping GPU usage reasonable */
+  backdrop-filter: blur(6px) saturate(0.9);
+}
+.nsfw-splash-inner {
+  /* Use a slightly narrower panel to match the Add Server popup proportions */
+  width: min(540px, 92vw);
+  max-width: 92vw;
+  padding: 20px;
+  box-sizing: border-box;
+}
+.nsfw-splash-inner .modal-panel {
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 20px 44px rgba(3, 8, 14, 0.56), inset 0 1px 0 rgba(255,255,255,0.03);
+}
+.nsfw-splash-icon {
+  font-size: 20px;
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 10px;
+}
+
+/* Scale down header/body typography and action buttons to follow Add Server popup */
+.nsfw-splash-inner .modal-panel__header h3 {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.nsfw-splash-inner .modal-panel__header p {
+  font-size: 13px;
+  margin-top: 3px;
+  line-height: 1.4;
+}
+.nsfw-splash-inner .modal-panel__body p {
+  font-size: 14px;
+  line-height: 1.45;
+}
+.nsfw-splash-inner .modal-panel__footer {
+  padding-top: 8px;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.nsfw-splash-inner .btn.primary,
+.nsfw-splash-inner .btn.secondary,
+.nsfw-splash-inner .btn-primary,
+.nsfw-splash-inner .btn-secondary {
+  padding: 10px 16px;
+  font-size: 14px;
+  border-radius: 8px;
+}
+
+/* When the NSFW portal is active, blur only the main chat view via a class
+   on `.main-content`. The portal renders at top-level so the overlay won't be
+   clipped by internal overflow. */
+.main-content.nsfw-blur-active {
+  /* Use transform with filter for smoother repaints on some GPUs */
+  filter: blur(8px) brightness(0.92);
+  will-change: filter;
+}
+
+/* Button class aliases in case markup uses dash-prefixed classes. Duplicate
+   the visual styles so markup that uses `btn-primary` / `btn-secondary`
+   still renders correctly. */
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover, var(--accent)) 100%);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 3px rgba(0, 0, 0, 0.18),
+    var(--surface-cta-shadow),
+    0 0 0 1px rgba(0, 0, 0, 0.04);
+
+  &:hover:not(:disabled) {
+    background: linear-gradient(135deg, var(--accent-hover, var(--accent)) 0%, var(--accent) 100%);
+  }
+}
+
+.btn-secondary {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.05)), var(--surface-card-bg);
+  border-color: var(--surface-border);
+  color: var(--text-primary);
 }
 
 // ── Drag-and-drop ─────────────────────────────────────────────────────────────
