@@ -989,6 +989,8 @@ html, body {
     border: none !important;
     box-shadow: none !important;
     outline: none;
+    padding: 10px 0;
+    line-height: 20px;
   }
 
   // Keep the chat textarea flat/unstyled inside the message input
@@ -2184,6 +2186,57 @@ html, body {
         justify-content: flex-end;
       }
     }
+    .channel-header-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .channel-pins-btn {
+      position: relative;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background-color: transparent;
+      color: var(--text-secondary);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background-color 0.16s, border-color 0.16s, transform 0.12s, color 0.12s;
+
+      i {
+        font-size: 14px;
+        transform: rotate(-12deg);
+        display: inline-block;
+      }
+
+      &:hover {
+        background-color: var(--hover);
+        border-color: var(--accent);
+        color: var(--text-primary);
+        transform: translateY(-1px);
+      }
+    }
+
+    .channel-pins-count {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      color: #fff;
+      background: var(--accent, #e5533d);
+      border-radius: 999px;
+      border: 1px solid var(--surface-border);
+    }
 
     .mobile-nav-btn {
       width: 36px;
@@ -2268,6 +2321,15 @@ html, body {
             color: var(--text-primary);
             background-color: var(--hover);
           }
+        }
+        .message-action-btn--pin {
+          width: 34px;
+          height: 34px;
+          font-size: 13px;
+        }
+        .message-action-btn--pin.message-action-btn--pinned {
+          color: var(--accent, #f1c40f);
+          background-color: rgba(241,196,15,0.06);
         }
       }
 
@@ -2543,19 +2605,19 @@ html, body {
     }
 
     .message-input-container {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: var(--tertiary-bg);
-      border: none;
-      border-radius: 12px;
-      padding: 0 12px;
-      min-height: 54px;
-      box-shadow: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--tertiary-bg);
+    border: none;
+    border-radius: 12px;
+    padding: 0 12px;
+    min-height: 46px;
+    box-shadow: none;
 
       .message-options-btn {
-        width: 34px;
-        height: 34px;
+        width: 36px;
+        height: 36px;
         border-radius: 10px;
         background: none;
         border: none;
@@ -2578,7 +2640,7 @@ html, body {
 
       input {
         flex: 1;
-        padding: 12px 0;
+        padding: 10px 0;
         border: none;
         background: transparent;
         color: var(--text-primary);

@@ -24,6 +24,7 @@ export interface TypedMessage {
   serverId: string;
   channelId: string;
   replyTo?: { id: string; user: string; content: string };
+  pinned?: boolean;
 }
 
 export interface ChannelSettings {
@@ -165,6 +166,7 @@ export class Server {
   private e2eeEnabled = false;
   private backupManager: BackupManager;
   private botAccountManager: BotAccountManager;
+  private lastMessageAt: Map<string, Map<string, number>> = new Map(); // channelId -> (username -> timestamp ms)
   private initialConfigPath: string | undefined;
   private ownerUsername: string = '';
   private allowClaimOwnership: boolean = true;
@@ -307,6 +309,7 @@ export class Server {
         replyToId TEXT,
         replyToUser TEXT,
         replyToContent TEXT
+        ,pinned INTEGER DEFAULT 0
       );
     `);
     // Ensure older databases get new reply columns added via ALTER TABLE
@@ -317,6 +320,7 @@ export class Server {
       if (!existing.has('replyToId')) additions.push({ name: 'replyToId', def: 'TEXT' });
       if (!existing.has('replyToUser')) additions.push({ name: 'replyToUser', def: 'TEXT' });
       if (!existing.has('replyToContent')) additions.push({ name: 'replyToContent', def: 'TEXT' });
+      if (!existing.has('pinned')) additions.push({ name: 'pinned', def: 'INTEGER DEFAULT 0' });
       for (const col of additions) {
         try {
           this.db.exec(`ALTER TABLE messages ADD COLUMN ${col.name} ${col.def}`);
@@ -355,8 +359,8 @@ export class Server {
 
   private storeMessage(message: TypedMessage) {
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO messages (id, channelId, user, userRole, content, type, timestamp, data, serverId, mediaPath, replyToId, replyToUser, replyToContent)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO messages (id, channelId, user, userRole, content, type, timestamp, data, serverId, mediaPath, replyToId, replyToUser, replyToContent, pinned)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       message.id,
@@ -371,7 +375,8 @@ export class Server {
       (message.data && message.data.mediaPath) ? message.data.mediaPath : null,
       message.replyTo ? message.replyTo.id : null,
       message.replyTo ? message.replyTo.user : null,
-      message.replyTo ? message.replyTo.content : null
+      message.replyTo ? message.replyTo.content : null,
+      message.pinned ? 1 : 0
     );
   }
 
@@ -383,7 +388,8 @@ export class Server {
         content = COALESCE(?, content),
         type = COALESCE(?, type),
         data = COALESCE(?, data),
-        mediaPath = COALESCE(?, mediaPath)
+        mediaPath = COALESCE(?, mediaPath),
+        pinned = COALESCE(?, pinned)
       WHERE id = ?
     `);
     stmt.run(
@@ -393,6 +399,7 @@ export class Server {
       modifiedMessage.type,
       modifiedMessage.data ? JSON.stringify(modifiedMessage.data) : null,
       (modifiedMessage.data && modifiedMessage.data.mediaPath) ? modifiedMessage.data.mediaPath : null,
+      typeof modifiedMessage.pinned === 'boolean' ? (modifiedMessage.pinned ? 1 : 0) : null,
       messageId
     );
   }
@@ -411,7 +418,8 @@ export class Server {
         timestamp: new Date(row.timestamp),
         data: row.data ? JSON.parse(row.data) : undefined,
         serverId: row.serverId,
-        replyTo: row.replyToId ? { id: row.replyToId, user: row.replyToUser, content: row.replyToContent } : undefined
+        replyTo: row.replyToId ? { id: row.replyToId, user: row.replyToUser, content: row.replyToContent } : undefined,
+        pinned: !!row.pinned
       };
       if (!this.messages.has(row.channelId)) {
         this.messages.set(row.channelId, []);
@@ -1518,6 +1526,35 @@ export class Server {
       if (!user || !content || !channelId) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
+      // Enforce slow mode if configured on the channel
+      const channel = this.channels.get(channelId);
+      const slow = channel?.settings?.slowMode ? Number(channel!.settings!.slowMode || 0) : 0;
+
+      const username = typeof user === 'string' ? user : (user.username || user.id || String(user));
+
+      // Helper: determine if user has server/channel manage permissions
+      const userRoleName = this.userRoles.get(username) || '';
+      const roleObj = Array.from(this.roles.values()).find(r => (r.name || '').toLowerCase() === (userRoleName || '').toLowerCase() || (r.id || '').toLowerCase() === (userRoleName || '').toLowerCase());
+      const isOwner = this.ownerUsername && username && username.toLowerCase() === this.ownerUsername.toLowerCase();
+      const bypassSlow = !!(isOwner || roleObj?.permissions?.manageServer || roleObj?.permissions?.manageChannels || roleObj?.permissions?.manageMessages);
+
+      if (slow > 0 && !bypassSlow) {
+        const now = Date.now();
+        let channelMap = this.lastMessageAt.get(channelId);
+        if (!channelMap) {
+          channelMap = new Map();
+          this.lastMessageAt.set(channelId, channelMap);
+        }
+        const last = channelMap.get(username) || 0;
+        const elapsed = Math.max(0, Math.floor((now - last) / 1000));
+        if (last && (now - last) < slow * 1000) {
+          const wait = slow - elapsed;
+          return res.status(429).json({ error: 'Slow mode: please wait before sending another message', retryAfter: wait });
+        }
+        // record now (will be updated again when stored)
+        channelMap.set(username, now);
+      }
+
       const message: TypedMessage = {
         id: uuidv4(),
         user,
@@ -1529,6 +1566,13 @@ export class Server {
         channelId
       };
       this.storeMessage(message);
+      // update last message timestamp to the stored time to be precise
+      try {
+        const uname = typeof user === 'string' ? user : (user.username || user.id || String(user));
+        const channelMap = this.lastMessageAt.get(channelId) ?? new Map();
+        channelMap.set(uname, Date.now());
+        this.lastMessageAt.set(channelId, channelMap);
+      } catch (e) {}
       this.io.to(channelId).emit('message', message);
       res.json({ status: 'ok', message });
     });
@@ -1942,20 +1986,51 @@ export class Server {
         console.log(`User left channel: ${data.channelId}`);
       });
 
-      socket.on('message', (data) => {
+      socket.on('message', (data, ack) => {
         // Handle real-time messages with type and channel support
         const channelId = data.channelId || 'general';
         const channel = this.channels.get(channelId);
 
         if (!channel) {
-          socket.emit('error', { message: 'Channel not found' });
+          if (typeof ack === 'function') ack({ ok: false, reason: 'channel_not_found' });
+          else socket.emit('error', { message: 'Channel not found' });
           return;
         }
 
         // Check write permissions (simplified - no roles yet)
         if (!channel.permissions?.write) {
-          socket.emit('error', { message: 'No write permission for this channel' });
+          if (typeof ack === 'function') ack({ ok: false, reason: 'no_write_permission' });
+          else socket.emit('error', { message: 'No write permission for this channel' });
           return;
+        }
+
+        // Enforce slow mode per-channel unless user has manage permissions
+        const slow = channel?.settings?.slowMode ? Number(channel!.settings!.slowMode || 0) : 0;
+        const username = typeof data.user === 'string' ? data.user : (data.user?.username || data.user?.id || String(data.user));
+        const userRoleName = this.userRoles.get(username) || '';
+        const roleObj = Array.from(this.roles.values()).find(r => (r.name || '').toLowerCase() === (userRoleName || '').toLowerCase() || (r.id || '').toLowerCase() === (userRoleName || '').toLowerCase());
+        const isOwner = this.ownerUsername && username && username.toLowerCase() === this.ownerUsername.toLowerCase();
+        const bypassSlow = !!(isOwner || roleObj?.permissions?.manageServer || roleObj?.permissions?.manageChannels || roleObj?.permissions?.manageMessages);
+        if (slow > 0 && !bypassSlow) {
+          const now = Date.now();
+          let channelMap = this.lastMessageAt.get(channelId);
+          if (!channelMap) {
+            channelMap = new Map();
+            this.lastMessageAt.set(channelId, channelMap);
+          }
+          const last = channelMap.get(username) || 0;
+          if (last && (now - last) < slow * 1000) {
+            const elapsed = Math.floor((now - last) / 1000);
+            const wait = Math.max(1, slow - elapsed);
+            if (typeof ack === 'function') {
+              ack({ ok: false, reason: 'slow_mode', retryAfter: wait });
+            } else {
+              socket.emit('message_rejected', { reason: 'slow_mode', retryAfter: wait });
+            }
+            return;
+          }
+          // provisional record
+          channelMap.set(username, now);
         }
 
         const message: TypedMessage = {
@@ -1984,8 +2059,73 @@ export class Server {
         // Persist to database
         this.storeMessage(message);
 
+        // update last message timestamp (precise)
+        try {
+          const uname = typeof data.user === 'string' ? data.user : (data.user?.username || data.user?.id || String(data.user));
+          const channelMap = this.lastMessageAt.get(channelId) ?? new Map();
+          channelMap.set(uname, Date.now());
+          this.lastMessageAt.set(channelId, channelMap);
+        } catch (e) {}
+
         // Broadcast to channel room
         this.io.to(`channel_${channelId}`).emit('message', message);
+
+        if (typeof ack === 'function') ack({ ok: true, message });
+      });
+
+      // Pin or unpin a message (requires manageMessages/manageChannels or owner)
+      socket.on('pin_message', (data: { messageId: string; channelId: string; pin: boolean }, ack) => {
+        try {
+          const { messageId, channelId, pin } = data || {} as any;
+          if (!messageId || !channelId) {
+            if (typeof ack === 'function') ack({ ok: false, reason: 'invalid_args' });
+            return;
+          }
+          const channel = this.channels.get(channelId);
+          if (!channel) {
+            if (typeof ack === 'function') ack({ ok: false, reason: 'channel_not_found' });
+            return;
+          }
+          // Check if channel allows pinning
+          if (!channel.settings?.allowPinning) {
+            if (typeof ack === 'function') ack({ ok: false, reason: 'pinning_disabled' });
+            return;
+          }
+
+          // Permission check: ensure requester is allowed to manage messages or channel
+          const username = this.connectedUsers.get(socket.id) || '';
+          const userRoleName = this.userRoles.get(username) || '';
+          const roleObj = Array.from(this.roles.values()).find(r => (r.name || '').toLowerCase() === (userRoleName || '').toLowerCase() || (r.id || '').toLowerCase() === (userRoleName || '').toLowerCase());
+          const isOwner = this.ownerUsername && username && username.toLowerCase() === this.ownerUsername.toLowerCase();
+          const allowed = !!(isOwner || roleObj?.permissions?.manageMessages || roleObj?.permissions?.manageChannels);
+          if (!allowed) {
+            if (typeof ack === 'function') ack({ ok: false, reason: 'no_permission' });
+            return;
+          }
+
+          // Find and update the message in memory
+          const channelMessages = this.messages.get(channelId) || [];
+          const idx = channelMessages.findIndex(m => m.id === messageId);
+          if (idx === -1) {
+            if (typeof ack === 'function') ack({ ok: false, reason: 'message_not_found' });
+            return;
+          }
+          const old = channelMessages[idx];
+          const updated = { ...old, pinned: !!pin };
+          channelMessages[idx] = updated;
+          this.messages.set(channelId, channelMessages);
+
+          // Persist change
+          this.updateMessage(messageId, { pinned: !!pin });
+
+          // Broadcast update to channel
+          this.io.to(`channel_${channelId}`).emit('message-update', { messageId, modifiedMessage: { pinned: !!pin } });
+
+          if (typeof ack === 'function') ack({ ok: true, messageId, pinned: !!pin });
+        } catch (e) {
+          console.warn('Error handling pin_message:', e);
+          if (typeof ack === 'function') ack({ ok: false, reason: 'internal_error' });
+        }
       });
 
       socket.on('get_channels', () => {

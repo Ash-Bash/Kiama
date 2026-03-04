@@ -57,6 +57,7 @@ export interface TypedMessage {
   renderedContent?: string; // Sanitized HTML produced by formatter plugins
   reactions?: MessageReaction[]; // Emoji reactions on this message
   replyTo?: ReplyReference; // Reply reference if this message is a reply
+  pinned?: boolean; // whether the message is pinned in the channel
 }
 
 export interface MessageInputButton {

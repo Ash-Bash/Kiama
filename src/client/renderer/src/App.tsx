@@ -15,6 +15,7 @@ import Login from './components/Login';
 import TitleBar from './components/TitleBar';
 import HomePage from './pages/HomePage';
 import ServerPage from './pages/ServerPage';
+import PinnedMessagesPanel from './components/PinnedMessagesPanel';
 import SettingsPage from './pages/SettingsPage';
 import ServerSettingsPage from './pages/ServerSettingsPage';
 import ChannelSettingsPage from './pages/ChannelSettingsPage';
@@ -158,6 +159,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setFontById,
   } = useTheme();
   const socketRef = React.useRef<any>(null);
+  const messageListRef = React.useRef<HTMLDivElement | null>(null);
   const normalizeChannel = (c: any, serverId?: string) => ({
     id: c.id,
     name: c.name,
@@ -199,6 +201,29 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [showMessageOptions, setShowMessageOptions] = useState(false);
   const [showEmotePicker, setShowEmotePicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
+  const [showPinnedPanel, setShowPinnedPanel] = useState(false);
+  const [pinnedPanelAnchor, setPinnedPanelAnchor] = useState<any | null>(null);
+  const [cooldowns, setCooldowns] = useState<Record<string, number>>({}); // channelId -> expiry timestamp ms
+
+  // Tick every second to drop expired cooldowns and trigger re-render for countdowns
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCooldowns(prev => {
+        const next: Record<string, number> = {};
+        const now = Date.now();
+        let changed = false;
+        for (const k of Object.keys(prev)) {
+          if ((prev[k] || 0) > now) {
+            next[k] = prev[k];
+          } else {
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
   const [showServerMenu, setShowServerMenu] = useState(false);
   const [soft3DEnabled, setSoft3DEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
@@ -1585,11 +1610,41 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       return newMessages;
     });
 
+    // Emit with acknowledgement to handle slow-mode rejections
     if (socketRef.current) {
-      socketRef.current.emit('message', messageData);
+      try {
+        socketRef.current.emit('message', messageData, (ack: any) => {
+          if (!ack || !ack.ok) {
+            // remove optimistic message
+            setMessages(prev => {
+              const next = new Map(prev);
+              const arr = next.get(currentChannelId) || [];
+              next.set(currentChannelId, arr.filter(m => m.id !== messageData.id));
+              return next;
+            });
+            if (ack && ack.reason === 'slow_mode') {
+              const retry = Number(ack.retryAfter) || 1;
+              const expires = Date.now() + retry * 1000;
+              setCooldowns(prev => ({ ...prev, [currentChannelId]: expires }));
+            }
+            return;
+          }
+          // accepted — nothing else needed (server already broadcast)
+        });
+      } catch (e) {
+        // fallback: normal emit without ack
+        socketRef.current.emit('message', messageData);
+      }
     }
     setMessage('');
     setReplyingTo(null);
+    // Ensure view focuses the newly-sent message: scroll message list to bottom.
+    requestAnimationFrame(() => {
+      const el = messageListRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
   };
 
   // Shortcut helper for sending a demo poll payload.
@@ -2438,6 +2493,30 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     });
   };
 
+  // Toggle pin state for a message (in-memory)
+  const togglePinMessage = (messageId: string) => {
+    setMessages(prev => {
+      const next = new Map(prev);
+      const channelMessages = (next.get(currentChannelId) || []).slice();
+      const idx = channelMessages.findIndex(m => m.id === messageId);
+      if (idx === -1) return prev;
+      const msg = { ...channelMessages[idx], pinned: !channelMessages[idx].pinned };
+      channelMessages[idx] = msg;
+      next.set(currentChannelId, channelMessages);
+      return next;
+    });
+  };
+
+  const openPinnedPanel = (anchorRect?: any | null) => {
+    setPinnedPanelAnchor(anchorRect ?? null);
+    setShowPinnedPanel(true);
+  };
+
+  const closePinnedPanel = () => {
+    setShowPinnedPanel(false);
+    setPinnedPanelAnchor(null);
+  };
+
   // Render a message with plugin overrides, falling back to sanitized HTML.
   const renderMessage = (msg: Message, index?: number, arr?: Message[]) => {
     const processedMessage = pluginManager.processMessage(msg);
@@ -2515,6 +2594,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         return `${dateStr} ${timeStr}`;
       }
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    };
+
+    // Format a remaining seconds countdown as H:MM:SS or S (if < 60)
+    const formatCountdown = (secs: number) => {
+      if (secs <= 0) return '0s';
+      if (secs < 60) return `${secs}s`;
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const s = secs % 60;
+      if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      return `${m}:${String(s).padStart(2, '0')}`;
     };
 
     const isReplyToMe = !!(processedMessage.replyTo && (processedMessage.replyTo.user === localUsername));
@@ -2597,6 +2687,19 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
               <i className="fas fa-reply" />
             </button>
           )}
+          {/* Pin / Unpin (visible to channel managers when pinning allowed) */}
+          {currentChannel && (currentChannel.settings?.allowPinning ?? true) && (canManageChannels) && (
+            <button
+              className={["message-action-btn", "message-action-btn--pin", processedMessage.pinned ? 'message-action-btn--pinned' : ''].filter(Boolean).join(' ')}
+              title={processedMessage.pinned ? 'Unpin message' : 'Pin message'}
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePinMessage(processedMessage.id);
+              }}
+            >
+              <i className="fas fa-thumbtack" />
+            </button>
+          )}
           <button
             className="message-action-btn"
             title="More options"
@@ -2670,6 +2773,25 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
               <span className="message-timestamp">
                 {formatTime(processedMessage.timestamp)}
               </span>
+              {/* If this is our message and a cooldown is active for this channel,
+                  show a small countdown similar to Discord next to the timestamp. */}
+              {processedMessage.user === (user?.username ?? user?.name) && (() => {
+                const expires = cooldowns[currentChannelId] || 0;
+                const now = Date.now();
+                if (expires > now) {
+                  const remaining = Math.ceil((expires - now) / 1000);
+                  // Only show on recent messages — within last 60s to avoid clutter
+                  const msgTime = new Date(processedMessage.timestamp).getTime();
+                  if (now - msgTime < 60 * 1000) {
+                    return (
+                      <span className="message-slowmode-timer" title="Slow mode active" style={{ marginLeft: 8, color: 'var(--text-secondary)', fontSize: 12 }}>
+                        <i className="far fa-clock" style={{ marginRight: 6 }} />{formatCountdown(remaining)}
+                      </span>
+                    );
+                  }
+                }
+                return null;
+              })()}
             </div>
 
             {/* reply flag removed (temporary debug UI) */}
@@ -3611,8 +3733,11 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 onCloseReactionPicker={() => { setReactToMessageId(null); setPickerAnchor(null); }}
                 handleReactionEmoteSelect={handleReactionEmoteSelect}
                 pickerAnchor={pickerAnchor}
+                messageListRef={messageListRef}
                 channelsLoading={channelsLoading}
                 canSend={currentChannel ? (canUserWriteChannel(currentChannel) && !nsfwModalVisible) : false}
+                cooldownExpiry={cooldowns[currentChannelId] || 0}
+                onOpenPinnedMessages={(anchor) => openPinnedPanel(anchor)}
               />
             )}
           </div>
@@ -3652,6 +3777,27 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
             setPrevChannelId(null);
           }}
         />
+
+        {/* Pinned messages popover (only when current channel allows pinning) */}
+        {showPinnedPanel && currentChannelId && currentChannel && (currentChannel.settings?.allowPinning ?? true) && (
+          <PinnedMessagesPanel
+            anchorRect={pinnedPanelAnchor}
+            onClose={closePinnedPanel}
+            pinnedMessages={(messages.get(currentChannelId) || []).filter(m => m.pinned)}
+            onJumpToMessage={(id: string) => {
+              // jump to message in the list
+              const el = document.querySelector('.message-list') as HTMLElement | null;
+              const target = el ? el.querySelector(`[data-message-id="${id}"]`) as HTMLElement | null : document.querySelector(`[data-message-id="${id}"]`) as HTMLElement | null;
+              if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // highlight briefly
+                target.classList.add('message-jump-highlight');
+                setTimeout(() => target.classList.remove('message-jump-highlight'), 1600);
+              }
+            }}
+            onUnpin={(id: string) => { togglePinMessage(id); }}
+          />
+        )}
 
         {showUserListPanel && (
           <>

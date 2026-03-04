@@ -62,8 +62,11 @@ interface ServerPageProps {
   onCloseReactionPicker: () => void;
   handleReactionEmoteSelect: (emote: PickerEmote) => void;
   pickerAnchor: { top: number; left: number; width: number; height: number } | null;
+  messageListRef?: React.RefObject<HTMLDivElement>;
   channelsLoading?: boolean;
   canSend?: boolean;
+  cooldownExpiry?: number; // timestamp ms when cooldown expires
+  onOpenPinnedMessages?: (anchorRect?: { top: number; left: number; width: number; height: number } | null) => void;
 }
 
 // Server view that shows channel header, message list, and composer controls.
@@ -97,10 +100,28 @@ const ServerPage: React.FC<ServerPageProps> = ({
   onCloseReactionPicker,
   handleReactionEmoteSelect,
   pickerAnchor,
+  messageListRef,
+  cooldownExpiry,
   canSend,
   channelsLoading,
+  onOpenPinnedMessages,
 }) => {
   const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const [remainingSeconds, setRemainingSeconds] = React.useState<number>(0);
+
+  React.useEffect(() => {
+    const compute = () => {
+      const now = Date.now();
+      if (cooldownExpiry && cooldownExpiry > now) {
+        setRemainingSeconds(Math.ceil((cooldownExpiry - now) / 1000));
+      } else {
+        setRemainingSeconds(0);
+      }
+    };
+    compute();
+    const id = setInterval(compute, 500);
+    return () => clearInterval(id);
+  }, [cooldownExpiry]);
 
   React.useEffect(() => {
     if (replyingTo) {
@@ -140,6 +161,25 @@ const ServerPage: React.FC<ServerPageProps> = ({
               'Select a channel'
             )}
           </h3>
+          {/* Right-side channel controls (pins, members) */}
+          <div className="channel-header-controls">
+            {(currentChannel && (currentChannel.settings?.allowPinning ?? true)) && (
+              <button
+                className="channel-pins-btn"
+                title="Pinned Messages"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  if (typeof onOpenPinnedMessages === 'function') onOpenPinnedMessages({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+                }}
+              >
+                <i className="fas fa-thumbtack" />
+                {currentMessages && currentMessages.filter(m => (m as any).pinned).length > 0 && (
+                  <span className="channel-pins-count">{currentMessages.filter(m => (m as any).pinned).length}</span>
+                )}
+              </button>
+            )}
+          </div>
           {showMobileNavButtons && (
             <div className="mobile-nav right">
               <button
@@ -160,7 +200,7 @@ const ServerPage: React.FC<ServerPageProps> = ({
           <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading channels…</div>
         </div>
       ) : (
-        <div className="message-list">
+        <div className="message-list" ref={messageListRef}>
           {currentMessages.map((msg, i, arr) => {
             const current = new Date(msg.timestamp);
             const prev = i > 0 ? arr[i - 1] : null;
@@ -216,7 +256,25 @@ const ServerPage: React.FC<ServerPageProps> = ({
               </div>
             )}
 
-            <div className="message-input-container">
+            {/* Composer area: compact wrapper to control spacing between slow-mode indicator and input */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: -6, marginBottom: 8 }}>
+              {(currentChannel?.settings?.slowMode ?? 0) > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 8px' }}>
+                  {remainingSeconds > 0 ? (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: 12 }}>
+                      <i className="far fa-clock" aria-hidden style={{ fontSize: 14 }} />
+                      <span>{remainingSeconds}s</span>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: 12 }}>
+                      <i className="far fa-clock" aria-hidden style={{ fontSize: 13 }} />
+                      <span>Slow mode is enabled</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="message-input-container">
               <button
                 className="message-options-btn"
                 onClick={onToggleMessageOptions}
@@ -228,8 +286,9 @@ const ServerPage: React.FC<ServerPageProps> = ({
                 ref={inputRef}
                 value={message}
                 onChange={(e) => onMessageChange(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && onSendMessage()}
+                onKeyPress={(e) => e.key === 'Enter' && (!(remainingSeconds && remainingSeconds > 0) ? onSendMessage() : null)}
                 placeholder={`Message #${currentChannel?.name || 'general'}`}
+                disabled={!!(remainingSeconds && remainingSeconds > 0)}
               />
               <div className="message-function-tray">
                 <button className="tray-btn emote-btn" onClick={(e) => openEmojiPicker(e.currentTarget.getBoundingClientRect())} title="Add Emoji">
@@ -239,9 +298,10 @@ const ServerPage: React.FC<ServerPageProps> = ({
                   <i className="fas fa-film"></i>
                 </button>
               </div>
-              <button className="send-btn" onClick={onSendMessage} title="Send Message">
+              <button className="send-btn" onClick={() => { if (!(remainingSeconds && remainingSeconds > 0)) onSendMessage(); }} title="Send Message" disabled={!!(remainingSeconds && remainingSeconds > 0)}>
                 <i className="fas fa-paper-plane"></i>
               </button>
+            </div>
             </div>
           </>
         )}
