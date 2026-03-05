@@ -59,8 +59,10 @@ interface ServerSettingsPageProps {
   onUpdateServerIcon?: (serverId: string, dataUri: string) => Promise<{ success: boolean; error?: string }>;
   /** The username of the current server owner (null = not set, undefined = unknown). */
   ownerUsername?: string | null;
+  ownerAccountId?: string | null;
   /** The username of the currently logged-in account. */
   currentUsername?: string;
+  currentUserAccountId?: string | null;
   /** Claim or transfer server ownership. */
   onClaimOwner?: (username: string, adminToken?: string) => Promise<{ success: boolean; requiresToken?: boolean; error?: string }>;
 }
@@ -519,11 +521,19 @@ function formatDate(iso: string): string {
 interface BackupsSubPageProps {
   serverUrl: string;
   adminToken?: string;
+  ownerUsername?: string | null;
+  ownerAccountId?: string | null;
+  currentUsername?: string | null;
+  currentUserAccountId?: string | null;
 }
 
-const BackupsSubPage: React.FC<BackupsSubPageProps> = ({ serverUrl, adminToken: tokenProp }) => {
+const BackupsSubPage: React.FC<BackupsSubPageProps> = ({ serverUrl, adminToken: tokenProp, ownerUsername, ownerAccountId, currentUsername, currentUserAccountId }) => {
   const [token, setToken]             = useState(tokenProp || '');
-  const [tokenSaved, setTokenSaved]   = useState(!!tokenProp);
+  const ownerIsCurrent = !!(
+    (ownerAccountId && currentUserAccountId && ownerAccountId === currentUserAccountId) ||
+    (currentUsername && ownerUsername && currentUsername.toLowerCase() === ownerUsername.toLowerCase())
+  );
+  const [tokenSaved, setTokenSaved]   = useState(!!tokenProp || ownerIsCurrent);
   const [backups, setBackups]         = useState<BackupEntry[]>([]);
   const [config, setConfig]           = useState<BackupConfig | null>(null);
   const [loading, setLoading]         = useState(false);
@@ -536,10 +546,12 @@ const BackupsSubPage: React.FC<BackupsSubPageProps> = ({ serverUrl, adminToken: 
   const [pendingMax, setPendingMax]   = useState<number>(10);
   const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const authHeaders = useCallback(() => ({
-    'Content-Type': 'application/json',
-    'x-admin-token': token
-  }), [token]);
+  const authHeaders = useCallback(() => {
+    const h: any = { 'Content-Type': 'application/json' };
+    if (token) h['x-admin-token'] = token;
+    if (ownerIsCurrent && currentUsername) h['x-username'] = currentUsername;
+    return h;
+  }, [token, ownerIsCurrent, currentUsername]);
 
   const showStatus = (text: string, ok: boolean) => {
     setStatusMsg({ text, ok });
@@ -548,7 +560,7 @@ const BackupsSubPage: React.FC<BackupsSubPageProps> = ({ serverUrl, adminToken: 
   };
 
   const fetchBackups = useCallback(async () => {
-    if (!token) return;
+    if (!token && !ownerIsCurrent) return;
     setLoading(true);
     try {
       const res = await fetch(`${serverUrl}/admin/backups`, { headers: authHeaders() });
@@ -645,7 +657,9 @@ const BackupsSubPage: React.FC<BackupsSubPageProps> = ({ serverUrl, adminToken: 
     <div className="settings-sub-page">
       <div className="settings-sub-page__header">
         <h2>Backups</h2>
-        <p>Create and manage server data backups. Requires your admin token.</p>
+        <p>
+          Create and manage server data backups. {ownerIsCurrent ? 'You are the server owner; an admin token is not required.' : 'Requires your admin token.'}
+        </p>
       </div>
 
       {/* Token entry */}
@@ -767,7 +781,7 @@ const BackupsSubPage: React.FC<BackupsSubPageProps> = ({ serverUrl, adminToken: 
                     <div className="backup-entry__actions">
                       <a
                         className="backup-action-btn"
-                        href={`${serverUrl}/admin/backups/download/${encodeURIComponent(b.filename)}?token=${encodeURIComponent(token)}`}
+                        href={`${serverUrl}/admin/backups/download/${encodeURIComponent(b.filename)}${token ? `?token=${encodeURIComponent(token)}` : ownerIsCurrent && currentUsername ? `?username=${encodeURIComponent(currentUsername)}` : ''}`}
                         download={b.filename}
                         title="Download"
                       >
@@ -858,11 +872,13 @@ const SecuritySubPage: React.FC<{ passwordRequired: boolean | null }> = ({ passw
 interface OwnershipSubPageProps {
   server: Server;
   ownerUsername?: string | null;
+  ownerAccountId?: string | null;
   currentUsername?: string;
+  currentUserAccountId?: string | null;
   onClaimOwner?: (username: string, adminToken?: string) => Promise<{ success: boolean; requiresToken?: boolean; error?: string }>;
 }
 
-const OwnershipSubPage: React.FC<OwnershipSubPageProps> = ({ ownerUsername, currentUsername, onClaimOwner }) => {
+const OwnershipSubPage: React.FC<OwnershipSubPageProps> = ({ ownerUsername, ownerAccountId, currentUsername, currentUserAccountId, onClaimOwner }) => {
   const [ownerInput, setOwnerInput] = useState(currentUsername ?? '');
   const [tokenInput, setTokenInput] = useState('');
   const [showToken, setShowToken] = useState(false);
@@ -870,9 +886,11 @@ const OwnershipSubPage: React.FC<OwnershipSubPageProps> = ({ ownerUsername, curr
   const [statusMsg, setStatusMsg] = useState('');
   const [needsToken, setNeedsToken] = useState(false);
 
-  const isOwnerSet = !!ownerUsername;
-  const isCurrentOwner = !!(ownerUsername && currentUsername &&
-    ownerUsername.toLowerCase() === currentUsername.toLowerCase());
+  const isOwnerSet = !!(ownerUsername || ownerAccountId);
+  const isCurrentOwner = !!(
+    (ownerAccountId && currentUserAccountId && ownerAccountId === currentUserAccountId) ||
+    (ownerUsername && currentUsername && ownerUsername.toLowerCase() === currentUsername.toLowerCase())
+  );
 
   const handleSubmit = async () => {
     if (!onClaimOwner || !ownerInput.trim()) return;
@@ -1014,7 +1032,9 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
   adminToken,
   onUpdateServerIcon,
   ownerUsername,
+  ownerAccountId,
   currentUsername,
+  currentUserAccountId,
   onClaimOwner,
 }) => {
   const [activeTab, setActiveTab] = useState<ServerTab>('overview');
@@ -1071,12 +1091,14 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
         />
       )}
       {activeTab === 'security'    && <SecuritySubPage passwordRequired={passwordRequired} />}
-      {activeTab === 'backups'     && <BackupsSubPage serverUrl={server.url} adminToken={adminToken} />}
+      {activeTab === 'backups'     && <BackupsSubPage serverUrl={server.url} adminToken={adminToken} ownerUsername={ownerUsername} ownerAccountId={ownerAccountId} currentUsername={currentUsername} currentUserAccountId={currentUserAccountId} />}
       {activeTab === 'ownership'   && (
         <OwnershipSubPage
           server={server}
           ownerUsername={ownerUsername}
+          ownerAccountId={ownerAccountId}
           currentUsername={currentUsername}
+          currentUserAccountId={currentUserAccountId}
           onClaimOwner={onClaimOwner}
         />
       )}

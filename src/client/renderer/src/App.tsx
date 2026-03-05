@@ -388,7 +388,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   const [currentUserNicknames, setCurrentUserNicknames] = useState<Map<string, string>>(() => new Map());
   const [serverPasswordRequired, setServerPasswordRequired] = useState<boolean | null>(null);
   // Per-server info (owner username + icon URL) fetched via GET /info.
-  const [serverInfoCache, setServerInfoCache] = useState<Map<string, { ownerUsername: string | null; iconUrl: string | null; allowClaimOwnership?: boolean }>>(new Map());
+  const [serverInfoCache, setServerInfoCache] = useState<Map<string, { ownerUsername: string | null; ownerAccountId?: string | null; iconUrl: string | null; allowClaimOwnership?: boolean }>>(new Map());
   // Per-server member list (username → role + online status) fetched via GET /members.
   const [serverMembers, setServerMembers] = useState<Map<string, MemberEntry[]>>(new Map());
   // Controls the Discord-style user profile popover.
@@ -607,7 +607,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       loadChannelsAndSections();
       // Announce who we are so the server can track presence
       if (user?.username) {
-        socketRef.current.emit('identify', { username: user.username });
+        socketRef.current.emit('identify', { username: user.username, accountId: user?.id });
       }
     });
 
@@ -1022,6 +1022,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         const next = new Map(prev);
         next.set(server.url, {
           ownerUsername: info.ownerUsername ?? null,
+          ownerAccountId: info.ownerAccountId ?? null,
           iconUrl: info.iconUrl ?? null,
           allowClaimOwnership: info.allowClaimOwnership !== false,
         });
@@ -1112,7 +1113,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (trimmedToken) headers['X-Admin-Token'] = trimmedToken;
       const url = `${server.url}/server/claim-owner`;
-      const body = JSON.stringify({ username: ownerUsername, token: trimmedToken });
+      const body = JSON.stringify({ username: ownerUsername, token: trimmedToken, accountId: user?.id });
       console.debug('[claimOwner] POST', { url, headers, body });
       const res = await fetch(url, {
         method: 'POST',
@@ -1134,8 +1135,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       // Update the cache so the UI reflects the new owner immediately.
       setServerInfoCache(prev => {
         const next = new Map(prev);
-        const existing = prev.get(server.url) || { iconUrl: null };
-        next.set(server.url, { ...existing, ownerUsername: data.ownerUsername });
+        const existing = prev.get(server.url) || { iconUrl: null } as any;
+        next.set(server.url, { ...existing, ownerUsername: data.ownerUsername, ownerAccountId: data.ownerAccountId ?? existing?.ownerAccountId ?? null });
         return next;
       });
       return { success: true };
@@ -1427,7 +1428,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
     // Announce this client's identity so presence tracking works immediately
     if (socketRef.current && user?.username) {
-      socketRef.current.emit('identify', { username: user.username });
+      socketRef.current.emit('identify', { username: user.username, accountId: user?.id });
     }
 
   };
@@ -2928,8 +2929,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   // the legacy in-memory role for local/test servers.
   const currentServerForOwner = servers.find(s => s.id === currentServerId);
   const cachedServerInfo = currentServerForOwner ? serverInfoCache.get(currentServerForOwner.url) : null;
-  const isCurrentUserServerOwner = cachedServerInfo?.ownerUsername
-    ? user?.username?.toLowerCase() === cachedServerInfo.ownerUsername.toLowerCase()
+  const isCurrentUserServerOwner = cachedServerInfo
+    ? (cachedServerInfo.ownerAccountId
+        ? user?.id === cachedServerInfo.ownerAccountId
+        : (cachedServerInfo.ownerUsername ? user?.username?.toLowerCase() === cachedServerInfo.ownerUsername.toLowerCase() : false))
     : currentUserData?.role?.toLowerCase() === 'owner';
   const canManageChannels =
     isCurrentUserServerOwner ||
@@ -3664,7 +3667,9 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 onDeleteRole={deleteServerRole}
                 onUpdateServerIcon={handleUpdateServerIcon}
                 ownerUsername={settingsServer ? (serverInfoCache.get(settingsServer.url)?.ownerUsername ?? null) : null}
+                ownerAccountId={settingsServer ? (serverInfoCache.get(settingsServer.url)?.ownerAccountId ?? null) : null}
                 currentUsername={user?.username ?? user?.name}
+                currentUserAccountId={user?.id}
                 onClaimOwner={claimOwner}
               />
             ) : isServerProfileView && settingsServer ? (
@@ -4042,7 +4047,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
             roles={serverRoles}
             canAssignRoles={canManageChannels}
             isYou={(user?.username ?? user?.name) === profilePopover.member.username}
-            isOwner={profilePopover.member.username === cachedServerInfo?.ownerUsername}
+            isOwner={
+              profilePopover.member.username === cachedServerInfo?.ownerUsername ||
+              (!!cachedServerInfo?.ownerAccountId && user?.id === cachedServerInfo.ownerAccountId && profilePopover.member.username === (user?.username ?? user?.name))
+            }
             anchorRect={profilePopover.rect}
             onAssignRole={(roleName) => assignMemberRole(profilePopover.member.username, roleName)}
             onClose={() => setProfilePopover(null)}

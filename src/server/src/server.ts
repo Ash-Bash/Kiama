@@ -115,6 +115,7 @@ export interface Role {
 export interface InitialServerConfig {
   name: string;
   ownerUsername?: string; // Username of the server owner account
+  ownerAccountId?: string; // Optional account ID of the server owner
   allowClaimOwnership?: boolean; // whether clients should prompt to claim ownership when no owner exists
   userRoles?: Record<string, string>; // username → role name
   sections?: Array<Pick<ChannelSection, 'id' | 'name' | 'position' | 'permissions'>>;
@@ -158,7 +159,7 @@ export class Server {
   private messages: Map<string, TypedMessage[]> = new Map(); // channelId -> messages[]
   private messageHandlers: ((message: any) => any)[] = []; // Plugin message handlers
   private userRoles: Map<string, string> = new Map();        // username → role name
-  private connectedUsers: Map<string, string> = new Map(); // socketId → username
+  private connectedUsers: Map<string, { username: string; accountId?: string }> = new Map(); // socketId → { username, accountId }
   private systemStats: SystemStats | null = null;
   private statsInterval: NodeJS.Timeout | null = null;
   private shuttingDown = false;
@@ -169,6 +170,7 @@ export class Server {
   private lastMessageAt: Map<string, Map<string, number>> = new Map(); // channelId -> (username -> timestamp ms)
   private initialConfigPath: string | undefined;
   private ownerUsername: string = '';
+  private ownerAccountId: string = '';
   private allowClaimOwnership: boolean = true;
 
   constructor(port: number, mode: 'public' | 'private', serverId?: string, adminToken?: string, initialConfig?: InitialServerConfig, initialConfigPath?: string) {
@@ -177,6 +179,7 @@ export class Server {
     this.serverId = serverId || uuidv4();
     this.serverName = initialConfig?.name || 'KIAMA Server';
     this.ownerUsername = initialConfig?.ownerUsername ?? '';
+    this.ownerAccountId = initialConfig?.ownerAccountId ?? '';
     this.allowClaimOwnership = initialConfig?.allowClaimOwnership ?? true;
     this.adminToken = (adminToken || process.env.KIAMA_ADMIN_TOKEN || '').toString().trim();
     this.dataRoot = process.env.KIAMA_DATA_DIR || path.join(__dirname, 'data');
@@ -251,7 +254,7 @@ export class Server {
         UPDATE members SET role = COALESCE(?, role), status = COALESCE(?, status) WHERE serverId = ? AND username = ?
       `);
       for (const [username, role] of this.userRoles.entries()) {
-        const status = Array.from(this.connectedUsers.values()).some(u => u === username) ? 'online' : 'offline';
+        const status = Array.from(this.connectedUsers.values()).some(u => u.username === username) ? 'online' : 'offline';
         insert.run(this.serverId, username, null, role, status);
         updateStatus.run(role, status, this.serverId, username);
       }
@@ -524,6 +527,14 @@ export class Server {
     this.loadMessagesFromDB();
   }
 
+  private isOwnerMatch(username?: string, accountId?: string): boolean {
+    if (this.ownerAccountId && this.ownerAccountId.trim()) {
+      if (!accountId) return false;
+      return accountId === this.ownerAccountId;
+    }
+    return !!(this.ownerUsername && username && username.toLowerCase() === this.ownerUsername.toLowerCase());
+  }
+
   private persistConfigFile(initialConfig?: InitialServerConfig) {
     try {
       const snapshot = this.getConfigSnapshot();
@@ -591,6 +602,7 @@ export class Server {
             permissions: r.permissions,
           })),
           ownerUsername: this.ownerUsername || undefined,
+          ownerAccountId: this.ownerAccountId || undefined,
           userRoles: this.userRoles.size > 0 ? Object.fromEntries(this.userRoles.entries()) : undefined,
         };
         const cfgDir = path.dirname(this.initialConfigPath);
@@ -818,6 +830,7 @@ export class Server {
 
   private applyInitialConfig(config: InitialServerConfig) {
     if (config.ownerUsername) this.ownerUsername = config.ownerUsername;
+    if (config.ownerAccountId) this.ownerAccountId = config.ownerAccountId;
     // If an owner is provided in initial config, ensure they have the admin role
     if (config.ownerUsername) {
       const adminRoleId = this.findAdminRoleId();
@@ -1011,6 +1024,7 @@ export class Server {
         id: this.serverId,
         name: this.serverName,
         ownerUsername: this.ownerUsername || null,
+        ownerAccountId: this.ownerAccountId || null,
         iconUrl: iconPath ? '/server/icon' : null,
         allowClaimOwnership: this.allowClaimOwnership !== false,
       });
@@ -1066,7 +1080,7 @@ export class Server {
     // X-Admin-Token header or body.token.  Without an admin token configured
     // (e.g. first-time setup), any connecting client may claim ownership.
     this.app.post('/server/claim-owner', (req, res) => {
-      const { username, token } = req.body;
+      const { username, token, accountId } = req.body;
       if (!username || typeof username !== 'string' || !username.trim()) {
         return res.status(400).json({ error: 'username is required' });
       }
@@ -1091,6 +1105,9 @@ export class Server {
       }
       // Overwrite only if no owner set (or admin token was verified = transfer).
       this.ownerUsername = username.trim();
+      if (accountId && typeof accountId === 'string' && accountId.trim()) {
+        this.ownerAccountId = accountId.trim();
+      }
       // Assign the owner the admin role so they get full permissions
       const adminRoleId = this.findAdminRoleId();
       if (adminRoleId) {
@@ -1098,7 +1115,7 @@ export class Server {
       }
       this.saveToDisk();
       this.io.emit('member_role_updated', { username: this.ownerUsername, role: adminRoleId });
-      res.json({ success: true, ownerUsername: this.ownerUsername });
+      res.json({ success: true, ownerUsername: this.ownerUsername, ownerAccountId: this.ownerAccountId || null });
     });
 
     // GET /members — list all known members with their roles and online status
@@ -1108,7 +1125,7 @@ export class Server {
         const rows = stmt.all(this.serverId) as Array<{ username: string; role?: string; status?: string }>;
         const members = rows.map(r => ({ username: r.username, role: r.role, status: r.status || 'offline' }));
         // Include any online usernames not yet stored in members
-        const onlineUsernames = Array.from(this.connectedUsers.values());
+        const onlineUsernames = Array.from(this.connectedUsers.values()).map(v => v.username);
         const present = new Set(members.map(m => m.username));
         for (const username of onlineUsernames) {
           if (!present.has(username)) members.push({ username, role: undefined, status: 'online' });
@@ -1116,7 +1133,7 @@ export class Server {
         res.json({ members });
       } catch (e) {
         // Fallback to in-memory representation on DB error
-        const onlineUsernames = new Set(this.connectedUsers.values());
+        const onlineUsernames = new Set(Array.from(this.connectedUsers.values()).map(v => v.username));
         const seen = new Set<string>();
         const members: Array<{ username: string; role?: string; status: string }> = [];
         for (const [username, role] of this.userRoles.entries()) {
@@ -1531,11 +1548,12 @@ export class Server {
       const slow = channel?.settings?.slowMode ? Number(channel!.settings!.slowMode || 0) : 0;
 
       const username = typeof user === 'string' ? user : (user.username || user.id || String(user));
+      const accountId = typeof user === 'string' ? undefined : (user.id || user.accountId || undefined);
 
       // Helper: determine if user has server/channel manage permissions
       const userRoleName = this.userRoles.get(username) || '';
       const roleObj = Array.from(this.roles.values()).find(r => (r.name || '').toLowerCase() === (userRoleName || '').toLowerCase() || (r.id || '').toLowerCase() === (userRoleName || '').toLowerCase());
-      const isOwner = this.ownerUsername && username && username.toLowerCase() === this.ownerUsername.toLowerCase();
+      const isOwner = this.isOwnerMatch(username, accountId);
       const bypassSlow = !!(isOwner || roleObj?.permissions?.manageServer || roleObj?.permissions?.manageChannels || roleObj?.permissions?.manageMessages);
 
       if (slow > 0 && !bypassSlow) {
@@ -1821,9 +1839,9 @@ export class Server {
 
   private requireAdmin(handler: RequestHandler): RequestHandler {
     return (req, res, next) => {
-      if (!this.adminToken) {
-        return res.status(403).json({ error: 'Admin token not configured on server' });
-      }
+      // Accept admin access either by the configured admin token OR by the server owner account.
+      // The client may supply the admin token via `X-Admin-Token` header, `token` query param or body.token.
+      // The client may supply the username via `X-Username` header, `username` query param or body.username.
 
       const tokenHeader = req.headers['x-admin-token'];
       const token = typeof tokenHeader === 'string'
@@ -1832,11 +1850,30 @@ export class Server {
           ? tokenHeader[0]
           : (req.query.token as string) || (req.body?.token as string);
 
-      if (!token || token !== this.adminToken) {
+      const userHeader = req.headers['x-username'];
+      const username = typeof userHeader === 'string'
+        ? userHeader
+        : Array.isArray(userHeader)
+          ? userHeader[0]
+          : (req.query.username as string) || (req.body?.username as string);
+
+      // If an admin token is configured, accept it or the owner username.
+      if (this.adminToken && this.adminToken.trim()) {
+        if (token && token === this.adminToken) {
+          return handler(req, res, next);
+        }
+        if (username && this.ownerUsername && username.toLowerCase() === this.ownerUsername.toLowerCase()) {
+          return handler(req, res, next);
+        }
         return res.status(401).json({ error: 'Unauthorized' });
       }
 
-      return handler(req, res, next);
+      // No admin token configured: allow only if the request is from the server owner account.
+      if (username && this.ownerUsername && username.toLowerCase() === this.ownerUsername.toLowerCase()) {
+        return handler(req, res, next);
+      }
+
+      return res.status(403).json({ error: 'Admin token not configured on server' });
     };
   }
 
@@ -1924,9 +1961,9 @@ export class Server {
     this.io.on('connection', (socket) => {
       console.log('User connected');
 
-      socket.on('identify', (data: { username: string }) => {
+      socket.on('identify', (data: { username: string; accountId?: string }) => {
         if (!data?.username) return;
-        this.connectedUsers.set(socket.id, data.username);
+        this.connectedUsers.set(socket.id, { username: data.username, accountId: data.accountId });
         // Also register in userRoles if not present yet (keeps them in the member list)
         if (!this.userRoles.has(data.username)) {
           // Assign the default lowest-permission role (e.g., Member) so new joiners get sensible access
@@ -2007,9 +2044,10 @@ export class Server {
         // Enforce slow mode per-channel unless user has manage permissions
         const slow = channel?.settings?.slowMode ? Number(channel!.settings!.slowMode || 0) : 0;
         const username = typeof data.user === 'string' ? data.user : (data.user?.username || data.user?.id || String(data.user));
+        const accountId = typeof data.user === 'string' ? undefined : (data.user?.id || data.user?.accountId || undefined);
         const userRoleName = this.userRoles.get(username) || '';
         const roleObj = Array.from(this.roles.values()).find(r => (r.name || '').toLowerCase() === (userRoleName || '').toLowerCase() || (r.id || '').toLowerCase() === (userRoleName || '').toLowerCase());
-        const isOwner = this.ownerUsername && username && username.toLowerCase() === this.ownerUsername.toLowerCase();
+        const isOwner = this.isOwnerMatch(username, accountId);
         const bypassSlow = !!(isOwner || roleObj?.permissions?.manageServer || roleObj?.permissions?.manageChannels || roleObj?.permissions?.manageMessages);
         if (slow > 0 && !bypassSlow) {
           const now = Date.now();
@@ -2093,10 +2131,12 @@ export class Server {
           }
 
           // Permission check: ensure requester is allowed to manage messages or channel
-          const username = this.connectedUsers.get(socket.id) || '';
+          const conn = this.connectedUsers.get(socket.id);
+          const username = conn?.username || '';
+          const accountId = conn?.accountId;
           const userRoleName = this.userRoles.get(username) || '';
           const roleObj = Array.from(this.roles.values()).find(r => (r.name || '').toLowerCase() === (userRoleName || '').toLowerCase() || (r.id || '').toLowerCase() === (userRoleName || '').toLowerCase());
-          const isOwner = this.ownerUsername && username && username.toLowerCase() === this.ownerUsername.toLowerCase();
+          const isOwner = this.isOwnerMatch(username, accountId);
           const allowed = !!(isOwner || roleObj?.permissions?.manageMessages || roleObj?.permissions?.manageChannels);
           if (!allowed) {
             if (typeof ack === 'function') ack({ ok: false, reason: 'no_permission' });
@@ -2136,10 +2176,11 @@ export class Server {
 
       socket.on('disconnect', () => {
         console.log('User disconnected');
-        const username = this.connectedUsers.get(socket.id);
+        const conn = this.connectedUsers.get(socket.id);
+        const username = conn?.username;
         this.connectedUsers.delete(socket.id);
         if (username) {
-          const stillOnline = Array.from(this.connectedUsers.values()).some(u => u === username);
+          const stillOnline = Array.from(this.connectedUsers.values()).some(u => u.username === username);
           if (!stillOnline) this.io.emit('user_offline', { username });
           // Update DB status to offline if no sockets remain for this username
           try {
