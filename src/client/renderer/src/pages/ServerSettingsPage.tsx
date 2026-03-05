@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SettingsLayout, { SettingsNavSection } from '../components/SettingsLayout';
+import ModalWindowPanel from '../components/ModalWindowPanel';
 import Toggle from '../components/Toggle';
 import Button from '../components/Button';
 import Select from '../components/Select';
 import TextField from '../components/TextField';
 import ColorPicker from '../components/ColorPicker';
+import Slider from '../components/Slider';
 import '../styles/components/ServerSettings.scss';
 import { Channel } from '../types/plugin';
 
@@ -23,6 +25,7 @@ interface RolePermissions {
   banMembers: boolean;
   sendMessages: boolean;
   viewChannels: boolean;
+  manageEmotes?: boolean;
 }
 
 const permissionLabels: Record<keyof RolePermissions, string> = {
@@ -33,6 +36,8 @@ const permissionLabels: Record<keyof RolePermissions, string> = {
   banMembers: 'Ban Members',
   sendMessages: 'Send Messages',
   viewChannels: 'View Channels'
+  ,
+  manageEmotes: 'Manage Emotes'
 };
 
 interface Server {
@@ -67,7 +72,7 @@ interface ServerSettingsPageProps {
   onClaimOwner?: (username: string, adminToken?: string) => Promise<{ success: boolean; requiresToken?: boolean; error?: string }>;
 }
 
-type ServerTab = 'overview' | 'roles' | 'permissions' | 'security' | 'backups' | 'ownership';
+type ServerTab = 'overview' | 'roles' | 'permissions' | 'security' | 'backups' | 'ownership' | 'emotes';
 
 const defaultRolePermissions: RolePermissions = {
   manageServer: false,
@@ -77,6 +82,7 @@ const defaultRolePermissions: RolePermissions = {
   banMembers: false,
   sendMessages: true,
   viewChannels: true
+  ,manageEmotes: false
 };
 
 const permissionKeys = Object.keys(permissionLabels) as Array<keyof RolePermissions>;
@@ -309,7 +315,7 @@ const RolesSubPage: React.FC<RolesSubPageProps> = ({ roles, onCreateRole, onUpda
                   key={key}
                   inline
                   label={permissionLabels[key]}
-                  checked={isOwnerRole ? true : rolePermissions[key]}
+                  checked={isOwnerRole ? true : (rolePermissions[key] ?? false)}
                   onChange={(next) => {
                     if (isOwnerRole) return;
                     setRolePermissions(prev => ({ ...prev, [key]: next }));
@@ -486,6 +492,451 @@ const PermissionsSubPage: React.FC<PermissionsSubPageProps> = ({
         </Button>
         <span className="settings-sub-page__hint">Applies to the selected channel.</span>
       </div>
+    </div>
+  );
+};
+
+// == Emotes sub-page ==========================================================
+
+interface EmoteEntry { name: string; url: string; uploadedBy?: string | null }
+
+const EmotesSubPage: React.FC<{ serverId: string; serverUrl: string; currentUsername?: string }> = ({ serverId, serverUrl, currentUsername }) => {
+  const [emotes, setEmotes] = useState<EmoteEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  // Editor state
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorFileUrl, setEditorFileUrl] = useState<string | null>(null);
+  const [editorFile, setEditorFile] = useState<File | null>(null);
+  const [editorName, setEditorName] = useState<string>('');
+  const [isGif, setIsGif] = useState(false);
+  const [zoom, setZoom] = useState<number>(1);
+  const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [rotation, setRotation] = useState<number>(0); // degrees
+  const FRAME_SIZE = 320; // inner crop size in px (export size)
+  const CANVAS_SIZE = 480; // visible canvas size (larger to show image outside frame)
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewLargeRef = useRef<HTMLCanvasElement | null>(null);
+  const previewSmallRef = useRef<HTMLCanvasElement | null>(null);
+  const dragging = useRef<{ active: boolean; lastX: number; lastY: number }>({ active: false, lastX: 0, lastY: 0 });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${serverUrl}/emotes-list`);
+      if (!res.ok) throw new Error('Failed to load emotes');
+      const list = await res.json();
+      // Prepend serverUrl to emote URLs so they load from the correct server
+      setEmotes(list.map((e: any) => ({ name: e.name, url: `${serverUrl}${e.url}`, uploadedBy: e.uploadedBy })));
+    } catch (e) {
+      console.error(e);
+    } finally { setLoading(false); }
+  }, [serverUrl]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleUpload = async (file?: File) => {
+    if (!file) return;
+    const form = new FormData();
+    form.append('emote', file);
+    form.append('name', file.name.replace(/\.[^.]+$/, ''));
+    try {
+      const headers: Record<string, string> = {};
+      if (currentUsername) headers['x-username'] = currentUsername;
+      const res = await fetch(`${serverUrl}/upload-emote`, { method: 'POST', body: form, headers });
+      if (!res.ok) throw new Error('Upload failed');
+      await load();
+    } catch (e) { console.error(e); }
+  };
+
+  const generateRandomName = () => {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let name = '';
+    for (let i = 0; i < 6; i++) {
+      name += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return name;
+  };
+
+  const openEditorWithFile = (file: File) => {
+    const url = URL.createObjectURL(file);
+    const fileIsGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif');
+    setEditorFile(file);
+    setEditorFileUrl(url);
+    setEditorName(generateRandomName());
+    setIsGif(fileIsGif);
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+    setRotation(0);
+    setEditorOpen(true);
+  };
+
+  // Draw image into square canvas keeping aspect/zoom/offset
+  useEffect(() => {
+    if (!editorOpen || !editorFileUrl) return;
+    const img = new Image();
+    img.src = editorFileUrl;
+    imgRef.current = img;
+    img.onload = () => {
+      drawCanvas();
+    };
+    return () => { imgRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorOpen, editorFileUrl]);
+
+  useEffect(() => { if (editorOpen) drawCanvas(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [zoom, offset, rotation]);
+
+  const drawCanvas = () => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img) return;
+    const size = CANVAS_SIZE; // visible canvas size
+    const frameSize = FRAME_SIZE; // crop area
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.save();
+    // clear (keep transparency)
+    ctx.clearRect(0, 0, size, size);
+    // base scale to fit the largest image dimension to the frame size
+    const iw = img.width;
+    const ih = img.height;
+    const baseScale = frameSize / Math.max(iw, ih);
+    const drawW = iw * baseScale * zoom;
+    const drawH = ih * baseScale * zoom;
+    // center position plus offset (offset is in px relative to frame)
+    const cx = size / 2 + offset.x;
+    const cy = size / 2 + offset.y;
+    // apply rotation around center
+    const rad = (rotation % 360) * Math.PI / 180;
+    ctx.translate(cx, cy);
+    ctx.rotate(rad);
+    ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+
+    // update previews (crop to frame area from center of canvas)
+    const updatePreview = (ref: React.RefObject<HTMLCanvasElement>, outSize: number) => {
+      const p = ref.current;
+      if (!p) return;
+      p.width = outSize;
+      p.height = outSize;
+      const pc = p.getContext('2d');
+      if (!pc) return;
+      pc.clearRect(0, 0, outSize, outSize);
+      // Extract the center FRAME_SIZE portion from the CANVAS_SIZE canvas
+      const cropOffset = (CANVAS_SIZE - FRAME_SIZE) / 2;
+      pc.drawImage(canvas, cropOffset, cropOffset, FRAME_SIZE, FRAME_SIZE, 0, 0, outSize, outSize);
+    };
+    updatePreview(previewLargeRef, 64);
+    updatePreview(previewSmallRef, 40);
+  };
+
+  const startDrag = (ev: React.MouseEvent) => {
+    dragging.current.active = true;
+    dragging.current.lastX = ev.clientX;
+    dragging.current.lastY = ev.clientY;
+  };
+
+  const endDrag = () => { dragging.current.active = false; };
+
+  const onPointerMove = (ev: React.MouseEvent) => {
+    if (!dragging.current.active) return;
+    const dx = ev.clientX - dragging.current.lastX;
+    const dy = ev.clientY - dragging.current.lastY;
+    dragging.current.lastX = ev.clientX;
+    dragging.current.lastY = ev.clientY;
+    setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+  };
+
+  const closeEditor = () => {
+    setEditorOpen(false);
+    if (editorFileUrl) {
+      URL.revokeObjectURL(editorFileUrl);
+    }
+    setEditorFile(null);
+    setEditorFileUrl(null);
+    setRotation(0);
+    setIsGif(false);
+  };
+
+  const finishUploadFromEditor = async () => {
+    const headers: Record<string, string> = {};
+    if (currentUsername) headers['x-username'] = currentUsername;
+    
+    // For GIFs, upload the original file directly (to preserve animation)
+    if (isGif && editorFile) {
+      const form = new FormData();
+      form.append('emote', editorFile, `${editorName}.gif`);
+      form.append('name', editorName);
+      try {
+        const res = await fetch(`${serverUrl}/upload-emote`, { method: 'POST', body: form, headers });
+        if (!res.ok) throw new Error('Upload failed');
+        await load();
+      } catch (e) {
+        console.error(e);
+      } finally {
+        closeEditor();
+      }
+      return;
+    }
+
+    // For static images, use the cropped canvas
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // Create a cropped canvas with just the frame area
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = FRAME_SIZE;
+    cropCanvas.height = FRAME_SIZE;
+    const cropCtx = cropCanvas.getContext('2d');
+    if (!cropCtx) return;
+    
+    // Extract center FRAME_SIZE portion from CANVAS_SIZE
+    const cropOffset = (CANVAS_SIZE - FRAME_SIZE) / 2;
+    cropCtx.drawImage(canvas, cropOffset, cropOffset, FRAME_SIZE, FRAME_SIZE, 0, 0, FRAME_SIZE, FRAME_SIZE);
+    
+    await new Promise<void>((resolve) => {
+      cropCanvas.toBlob(async (blob) => {
+        if (!blob) { resolve(); return; }
+        const form = new FormData();
+        form.append('emote', blob, `${editorName}.png`);
+        form.append('name', editorName);
+        try {
+          const res = await fetch(`${serverUrl}/upload-emote`, { method: 'POST', body: form, headers });
+          if (!res.ok) throw new Error('Upload failed');
+          await load();
+        } catch (e) {
+          console.error(e);
+        } finally {
+          resolve();
+          closeEditor();
+        }
+      }, 'image/png');
+    });
+  };
+
+  const rotateCW = () => setRotation(r => (r + 90) % 360);
+  const rotateCCW = () => setRotation(r => (r - 90 + 360) % 360);
+  const resetTransform = () => { setZoom(1); setOffset({ x: 0, y: 0 }); setRotation(0); };
+
+  // Fill: Scale image to completely fill frame (may crop)
+  const fillFrame = () => {
+    const img = imgRef.current;
+    if (!img) return;
+    const iw = img.width;
+    const ih = img.height;
+    // Base scale fits largest dimension to frame - we need smallest dimension to fill
+    const baseScale = FRAME_SIZE / Math.max(iw, ih);
+    const fillScale = FRAME_SIZE / Math.min(iw, ih);
+    // Zoom needed = fillScale / baseScale
+    setZoom(fillScale / baseScale);
+    setOffset({ x: 0, y: 0 });
+  };
+
+  // Fit: Scale image to fit entirely within frame (may have empty space)
+  const fitFrame = () => {
+    const img = imgRef.current;
+    if (!img) return;
+    // Base scale already fits largest dimension to frame, so zoom = 1
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+  };
+
+  const handleDelete = async (name: string) => {
+    if (!confirm(`Delete emote "${name}"?`)) return;
+    try {
+      const headers: Record<string, string> = {};
+      if (currentUsername) headers['x-username'] = currentUsername;
+      const res = await fetch(`${serverUrl}/emotes/${encodeURIComponent(name)}`, { method: 'DELETE', headers });
+      if (!res.ok) throw new Error('Delete failed');
+      await load();
+    } catch (e) { console.error(e); }
+  };
+
+  const onDrop = (ev: React.DragEvent) => {
+    ev.preventDefault();
+    const f = ev.dataTransfer.files?.[0];
+    if (f) openEditorWithFile(f);
+  };
+
+  const onDragOver = (ev: React.DragEvent) => ev.preventDefault();
+
+  const hasEmotes = emotes.length > 0;
+
+  return (
+    <div className="settings-sub-page emotes-page" onDrop={onDrop} onDragOver={onDragOver}>
+      <div className="emotes-page__header">
+        <div className="emotes-page__header-content">
+          <h2 className="emotes-page__title">Emoji</h2>
+          <p className="emotes-page__description">
+            Add custom emoji that anyone can use in this server. Animated GIF emoji may be used by members.
+          </p>
+          <label className="button button--primary emotes-page__upload-btn">
+            <input 
+              aria-label="Upload emote" 
+              type="file" 
+              accept="image/*" 
+              style={{ display: 'none' }} 
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) openEditorWithFile(f); e.currentTarget.value = ''; }} 
+            />
+            Upload Emoji
+          </label>
+          <p className="emotes-page__hint">
+            If you want to upload multiple emojis or skip the editor, drag and drop the file(s) onto this page. The emojis will be named using the file name.
+          </p>
+        </div>
+      </div>
+
+      <hr className="emotes-page__divider" />
+
+      {!hasEmotes && (
+        <div className="emotes-page__empty">
+          <h3 className="emotes-page__empty-title">NO EMOJI</h3>
+          <p className="emotes-page__empty-text">Get the party started by uploading an emoji</p>
+        </div>
+      )}
+
+      {/* Add Emote Editor Modal */}
+      {editorOpen && (
+        <div className="login-delete-overlay" onClick={closeEditor} style={{ zIndex: 9999 }}>
+          <div className={`login-delete-container modal-wide`} onClick={(e) => e.stopPropagation()}>
+            <ModalWindowPanel
+              className="emoji-editor-modal emoji-editor-modal--splitview"
+              asidePosition="right"
+              asideWidth="280px"
+              aside={(
+                <div className="emoji-editor-aside">
+                  <div className="emoji-editor-aside__section">
+                    <div className="emoji-editor-aside__label">Preview</div>
+                    <div className="emoji-editor-aside__previews">
+                      <div className="emoji-preview-box">
+                        <div className="emoji-preview-reaction">
+                          <div className="emoji-preview-reaction__icon">
+                            {isGif ? (
+                              <img src={editorFileUrl || ''} alt="preview" />
+                            ) : (
+                              <canvas ref={previewSmallRef} />
+                            )}
+                          </div>
+                          <span className="emoji-preview-reaction__count">6</span>
+                        </div>
+                      </div>
+                      <div className="emoji-preview-box">
+                        <div className="emoji-preview-tile">
+                          {isGif ? (
+                            <img src={editorFileUrl || ''} alt="preview" />
+                          ) : (
+                            <canvas ref={previewLargeRef} />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="emoji-editor-aside__section">
+                    <TextField label="Emote name *" value={editorName} onChange={(e) => setEditorName(e.target.value)} />
+                  </div>
+                  <div className="emoji-editor-aside__actions">
+                    <Button variant="primary" onClick={finishUploadFromEditor} style={{ width: '100%' }}>Finish</Button>
+                  </div>
+                </div>
+              )}
+            >
+              <div className="emoji-editor-main">
+                {/* Panel header inside main view */}
+                <div className="emoji-editor-main__header">
+                  <button className="emoji-editor-main__close icon-btn" aria-label="Close" onClick={closeEditor}>
+                    <i className="fas fa-times" />
+                  </button>
+                  <h3 className="emoji-editor-main__title">
+                    Add Emote
+                    {isGif && <span className="emoji-editor-gif-badge">GIF</span>}
+                  </h3>
+                  {!isGif && (
+                    <button className="emoji-editor-main__reset icon-btn" title="Reset" onClick={resetTransform}>
+                      <i className="fas fa-undo" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Checkerboard stage with canvas or GIF preview */}
+                <div className="emoji-editor-stage" onMouseDown={!isGif ? startDrag : undefined} onMouseMove={!isGif ? onPointerMove : undefined} onMouseUp={!isGif ? endDrag : undefined} onMouseLeave={!isGif ? endDrag : undefined}>
+                  {isGif ? (
+                    <div className="emoji-editor-gif-preview" style={{ width: FRAME_SIZE, height: FRAME_SIZE }}>
+                      <img src={editorFileUrl || ''} alt="GIF preview" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                    </div>
+                  ) : (
+                    <div className="emoji-editor-canvas-wrapper" style={{ width: CANVAS_SIZE, height: CANVAS_SIZE, position: 'relative' }}>
+                      <canvas ref={canvasRef} width={CANVAS_SIZE} height={CANVAS_SIZE} style={{ width: CANVAS_SIZE, height: CANVAS_SIZE }} />
+                      <div className="emoji-editor-frame" style={{ width: FRAME_SIZE, height: FRAME_SIZE }} aria-hidden />
+                    </div>
+                  )}
+                  <p className="emoji-editor-hint">{isGif ? 'GIF will be uploaded as-is' : 'Drag image to reposition'}</p>
+                </div>
+
+                {/* Bottom controls - hidden for GIFs */}
+                {!isGif && (
+                  <div className="emoji-editor-controls">
+                    <div className="emoji-editor-controls__left">
+                      <button className="icon-btn emoji-editor-text-btn" title="Fill frame" onClick={fillFrame}>Fill</button>
+                      <button className="icon-btn emoji-editor-text-btn" title="Fit to frame" onClick={fitFrame}>Fit</button>
+                    </div>
+                    <div className="emoji-editor-controls__center">
+                      <button className="icon-btn" onClick={() => setZoom(z => Math.max(0.25, z - 0.1))} title="Zoom out"><i className="fas fa-search-minus" /></button>
+                      <Slider
+                        className="emoji-editor-slider"
+                        value={zoom}
+                        min={0.25}
+                        max={3}
+                        step={0.01}
+                        onChange={setZoom}
+                        ariaLabel="Zoom"
+                      />
+                      <button className="icon-btn" onClick={() => setZoom(z => Math.min(3, z + 0.1))} title="Zoom in"><i className="fas fa-search-plus" /></button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </ModalWindowPanel>
+          </div>
+        </div>
+      )}
+
+      {hasEmotes && (
+        <>
+          <div className="emotes-page__list-header">
+            <h3 className="emotes-page__list-title">Emoji</h3>
+            <span className="emotes-page__list-count">{emotes.length} emoji</span>
+          </div>
+          <div className="emotes-page__table">
+            <div className="emotes-page__table-head">
+              <div className="emotes-page__table-col emotes-page__table-col--image">Image</div>
+              <div className="emotes-page__table-col emotes-page__table-col--name">Name</div>
+              <div className="emotes-page__table-col emotes-page__table-col--uploader">Uploaded By</div>
+              <div className="emotes-page__table-col emotes-page__table-col--actions"></div>
+            </div>
+            {loading && <div style={{ padding: 16 }}>Loading…</div>}
+            {emotes.map(e => (
+              <div key={e.name} className="emotes-page__table-row">
+                <div className="emotes-page__table-col emotes-page__table-col--image">
+                  <img src={e.url} alt={e.name} className="emotes-page__emote-img" />
+                </div>
+                <div className="emotes-page__table-col emotes-page__table-col--name">
+                  <span className="emotes-page__emote-name">:{e.name}:</span>
+                </div>
+                <div className="emotes-page__table-col emotes-page__table-col--uploader">
+                  <span className="emotes-page__uploader">{e.uploadedBy || '—'}</span>
+                </div>
+                <div className="emotes-page__table-col emotes-page__table-col--actions">
+                  <button className="emotes-page__row-delete" onClick={() => handleDelete(e.name)} title="Delete">
+                    <i className="fas fa-trash" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 };
@@ -1045,6 +1496,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
       items: [
         { id: 'overview',    label: 'Overview',    icon: 'fas fa-info-circle' },
         { id: 'roles',       label: 'Roles',       icon: 'fas fa-shield-alt'  },
+            { id: 'emotes',      label: 'Emotes',      icon: 'fas fa-smile'       },
         { id: 'permissions', label: 'Permissions', icon: 'fas fa-lock'        },
         { id: 'security',    label: 'Security',    icon: 'fas fa-key'         },
         { id: 'backups',     label: 'Backups',     icon: 'fas fa-archive'     },
@@ -1079,6 +1531,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
     >
       {activeTab === 'overview'    && <OverviewSubPage server={server} onUpdateServerIcon={onUpdateServerIcon} />}
       {activeTab === 'roles'       && <RolesSubPage roles={roles} onCreateRole={onCreateRole} onUpdateRole={onUpdateRole} onDeleteRole={onDeleteRole} />}
+      {activeTab === 'emotes'      && <EmotesSubPage serverId={server.id} serverUrl={server.url} currentUsername={currentUsername} />}
       {activeTab === 'permissions' && (
         <PermissionsSubPage
           server={server}

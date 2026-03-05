@@ -18,6 +18,7 @@ export interface TypedMessage {
   user: string;
   userRole?: string; // Role name of the message sender
   content: string;
+  renderedContent?: string; // Pre-rendered HTML with emotes
   type: string;
   timestamp: Date;
   data?: any;
@@ -101,6 +102,7 @@ export interface RolePermissions {
   viewChannels?: boolean;
   sendMessages?: boolean;
   manageMessages?: boolean;
+  manageEmotes?: boolean;
 }
 
 export interface Role {
@@ -152,7 +154,7 @@ export class Server {
   private whitelist: Set<string> = new Set();
   private blacklist: Set<string> = new Set();
   private pluginManager: SecurePluginManager;
-  private emotes: Map<string, string> = new Map(); // name -> filename
+  private emotes: Map<string, { filename: string; uploadedBy?: string }> = new Map(); // name -> emote data
   private channels: Map<string, Channel> = new Map();
   private sections: Map<string, ChannelSection> = new Map();
   private roles: Map<string, Role> = new Map();
@@ -164,6 +166,10 @@ export class Server {
   private statsInterval: NodeJS.Timeout | null = null;
   private shuttingDown = false;
   private db: Database.Database;
+  private dbPath: string;
+  private dbEncPath: string;
+  private dbEncrypted: boolean = false;
+  private dbPassphrase?: string;
   private e2eeEnabled = false;
   private backupManager: BackupManager;
   private botAccountManager: BotAccountManager;
@@ -176,13 +182,35 @@ export class Server {
   constructor(port: number, mode: 'public' | 'private', serverId?: string, adminToken?: string, initialConfig?: InitialServerConfig, initialConfigPath?: string) {
     this.port = port;
     this.mode = mode;
-    this.serverId = serverId || uuidv4();
+
+    // Determine data root first to locate persisted server-id
+    this.dataRoot = process.env.KIAMA_DATA_DIR || path.join(__dirname, 'data');
+
+    // Persist/restore server ID so ownership survives across restarts
+    const serverIdPath = path.join(this.dataRoot, 'server-id');
+    if (serverId) {
+      this.serverId = serverId;
+    } else if (fs.existsSync(serverIdPath)) {
+      const storedId = fs.readFileSync(serverIdPath, 'utf-8').trim();
+      this.serverId = storedId || uuidv4();
+      console.log(`Restored serverId from ${serverIdPath}: ${this.serverId}`);
+    } else {
+      this.serverId = uuidv4();
+      console.log(`Generated new serverId: ${this.serverId}`);
+    }
+    // Ensure server-id file exists so future restarts reuse the same ID
+    try {
+      if (!fs.existsSync(this.dataRoot)) fs.mkdirSync(this.dataRoot, { recursive: true });
+      fs.writeFileSync(serverIdPath, this.serverId, 'utf-8');
+    } catch (err) {
+      console.warn('Failed to persist server-id file:', err);
+    }
+
     this.serverName = initialConfig?.name || 'KIAMA Server';
     this.ownerUsername = initialConfig?.ownerUsername ?? '';
     this.ownerAccountId = initialConfig?.ownerAccountId ?? '';
     this.allowClaimOwnership = initialConfig?.allowClaimOwnership ?? true;
     this.adminToken = (adminToken || process.env.KIAMA_ADMIN_TOKEN || '').toString().trim();
-    this.dataRoot = process.env.KIAMA_DATA_DIR || path.join(__dirname, 'data');
     this.configFilePath = process.env.KIAMA_CONFIG_PATH || path.join(this.dataRoot, 'configs', `${this.serverId}.json`);
     this.initialConfigPath = initialConfigPath;
 
@@ -238,8 +266,35 @@ export class Server {
     }, undefined, [path.join(__dirname, '../../server/plugins'), path.join(this.dataRoot, 'plugins')]);
 
     this.ensureDataLayout();
-    this.db = new Database(path.join(this.dataRoot, 'kiama.db'));
+    this.dbPath = path.join(this.dataRoot, 'kiama.db');
+    this.dbEncPath = path.join(this.dataRoot, 'kiama.db.enc');
+
+    // If an encrypted DB exists, prefer it. Decrypt using environment-provided key
+    // or fail startup so admin can supply the passphrase. If no encrypted DB
+    // exists, open the plain DB.
+    const envKey = process.env.KIAMA_DB_KEY;
+    if (fs.existsSync(this.dbEncPath) && !fs.existsSync(this.dbPath)) {
+      if (!envKey) {
+        throw new Error('Encrypted database detected but KIAMA_DB_KEY is not set. Set KIAMA_DB_KEY or remove the encrypted DB.');
+      }
+      try {
+        this.decryptFile(this.dbEncPath, this.dbPath, envKey);
+        this.dbEncrypted = true;
+        this.dbPassphrase = envKey;
+      } catch (e) {
+        console.error('Failed to decrypt DB with provided KIAMA_DB_KEY:', e);
+        throw e;
+      }
+    }
+
+    this.db = new Database(this.dbPath);
     this.initializeDatabase();
+    // Load persisted layout from DB if present (migrates from JSON to DB storage)
+    try {
+      this.loadStateFromDB();
+    } catch (e) {
+      console.warn('Failed to load state from DB:', e);
+    }
     this.ensureEmotesDir();
     this.backupManager = new BackupManager(this.dataRoot, this.serverName || 'KIAMA_Server');
     this.botAccountManager = new BotAccountManager(this.dataRoot);
@@ -272,7 +327,7 @@ export class Server {
   }
 
   private ensureEmotesDir() {
-    const emotesDir = path.join(__dirname, '../emotes');
+    const emotesDir = path.join(this.dataRoot, 'emotes');
     if (!fs.existsSync(emotesDir)) {
       fs.mkdirSync(emotesDir, { recursive: true });
     }
@@ -286,7 +341,8 @@ export class Server {
       path.join(this.dataRoot, 'uploads'),
       path.join(this.dataRoot, 'logs'),
       path.join(this.dataRoot, 'secrets'),
-      path.join(this.dataRoot, 'media')
+      path.join(this.dataRoot, 'media'),
+      path.join(this.dataRoot, 'emotes')
     ];
 
     dirs.forEach(dir => {
@@ -355,9 +411,344 @@ export class Server {
         name TEXT,
         color TEXT,
         permissions TEXT,
+        createdAt TEXT,
+        updatedAt TEXT,
         PRIMARY KEY (serverId, roleId)
       );
     `);
+
+    // Ensure older roles table has createdAt/updatedAt columns
+    try {
+      const cols: any[] = this.db.prepare(`PRAGMA table_info('roles')`).all();
+      const names = new Set(cols.map(c => c.name));
+      if (!names.has('createdAt')) {
+        try {
+          this.db.exec(`ALTER TABLE roles ADD COLUMN createdAt TEXT`);
+          console.log('Added createdAt column to roles table');
+        } catch (e) {
+          console.warn('Failed to add createdAt to roles table:', e);
+        }
+      }
+      if (!names.has('updatedAt')) {
+        try {
+          this.db.exec(`ALTER TABLE roles ADD COLUMN updatedAt TEXT`);
+          console.log('Added updatedAt column to roles table');
+        } catch (e) {
+          console.warn('Failed to add updatedAt to roles table:', e);
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Servers table: stores server-level metadata including owner info
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS servers (
+        serverId TEXT PRIMARY KEY,
+        name TEXT,
+        mode TEXT,
+        dataRoot TEXT,
+        configPath TEXT,
+        adminTokenHash TEXT,
+        ownerUsername TEXT,
+        ownerAccountId TEXT,
+        allowClaimOwnership INTEGER DEFAULT 1,
+        dbEncrypted INTEGER DEFAULT 0,
+        createdAt TEXT,
+        updatedAt TEXT
+      );
+    `);
+
+    // Ensure older servers table gets dbEncrypted column if missing
+    try {
+      const cols: any[] = this.db.prepare(`PRAGMA table_info('servers')`).all();
+      const names = new Set(cols.map(c => c.name));
+      if (!names.has('dbEncrypted')) {
+        try {
+          this.db.exec(`ALTER TABLE servers ADD COLUMN dbEncrypted INTEGER DEFAULT 0`);
+          console.log('Added dbEncrypted column to servers table');
+        } catch (e) {
+          console.warn('Failed to add dbEncrypted column to servers table:', e);
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Sections table: channel sections
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS sections (
+        serverId TEXT,
+        sectionId TEXT,
+        name TEXT,
+        position INTEGER,
+        permissions TEXT,
+        createdAt TEXT,
+        updatedAt TEXT,
+        PRIMARY KEY (serverId, sectionId)
+      );
+    `);
+
+    // Channels table: stores channel definitions (permissions/settings as JSON)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS channels (
+        serverId TEXT,
+        channelId TEXT,
+        name TEXT,
+        type TEXT,
+        sectionId TEXT,
+        position INTEGER,
+        permissions TEXT,
+        settings TEXT,
+        createdAt TEXT,
+        updatedAt TEXT,
+        PRIMARY KEY (serverId, channelId)
+      );
+    `);
+
+    // Emotes table: stores server-specific emotes mapping name -> filename
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS emotes (
+        serverId TEXT,
+        name TEXT,
+        filename TEXT,
+        uploadedBy TEXT,
+        createdAt TEXT,
+        updatedAt TEXT,
+        PRIMARY KEY (serverId, name)
+      );
+    `);
+    // Add uploadedBy column if it doesn't exist (migration)
+    try {
+      this.db.exec(`ALTER TABLE emotes ADD COLUMN uploadedBy TEXT`);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+  }
+
+  // Load persisted roles, sections, channels and server metadata from DB
+  private loadStateFromDB() {
+    try {
+      const srv = this.db.prepare('SELECT * FROM servers WHERE serverId = ?').get(this.serverId) as any;
+      if (srv) {
+        this.serverName = srv.name || this.serverName;
+        this.mode = (srv.mode as 'public' | 'private') || this.mode;
+        this.ownerUsername = srv.ownerUsername || this.ownerUsername;
+        this.ownerAccountId = srv.ownerAccountId || this.ownerAccountId;
+        this.allowClaimOwnership = srv.allowClaimOwnership === 0 ? false : true;
+        this.dbEncrypted = srv.dbEncrypted === 1 ? true : false;
+      }
+
+      // Load roles
+      const roleRows = this.db.prepare('SELECT * FROM roles WHERE serverId = ?').all(this.serverId) as any[];
+      if (roleRows && roleRows.length > 0) {
+        this.roles.clear();
+        for (const r of roleRows) {
+          try {
+            const perms = r.permissions ? JSON.parse(r.permissions) : {};
+            const role: Role = {
+              id: r.roleId,
+              name: r.name,
+              color: r.color,
+              permissions: perms,
+              createdAt: r.createdAt ? new Date(r.createdAt) : new Date(),
+              updatedAt: r.updatedAt ? new Date(r.updatedAt) : new Date(),
+            };
+            this.roles.set(role.id, role);
+          } catch (e) {
+            console.warn('Failed to parse role permissions for', r.roleId, e);
+          }
+        }
+      }
+
+      // Load sections
+      const secRows = this.db.prepare('SELECT * FROM sections WHERE serverId = ?').all(this.serverId) as any[];
+      if (secRows && secRows.length > 0) {
+        this.sections.clear();
+        for (const s of secRows) {
+          try {
+            const perms = s.permissions ? JSON.parse(s.permissions) : undefined;
+            const section: ChannelSection = {
+              id: s.sectionId,
+              name: s.name,
+              position: s.position ?? 0,
+              permissions: perms,
+              createdAt: s.createdAt ? new Date(s.createdAt) : new Date(),
+              updatedAt: s.updatedAt ? new Date(s.updatedAt) : new Date(),
+            };
+            this.sections.set(section.id, section);
+          } catch (e) {
+            console.warn('Failed to parse section permissions for', s.sectionId, e);
+          }
+        }
+      }
+
+      // Load channels
+      const chRows = this.db.prepare('SELECT * FROM channels WHERE serverId = ?').all(this.serverId) as any[];
+      if (chRows && chRows.length > 0) {
+        this.channels.clear();
+        for (const c of chRows) {
+          try {
+            const perms = c.permissions ? JSON.parse(c.permissions) : undefined;
+            const settings = c.settings ? JSON.parse(c.settings) : undefined;
+            const channel: Channel = {
+              id: c.channelId,
+              name: c.name,
+              type: (c.type as any) || 'text',
+              sectionId: c.sectionId || undefined,
+              position: c.position ?? 0,
+              permissions: perms,
+              settings: settings,
+              createdAt: c.createdAt ? new Date(c.createdAt) : new Date(),
+              updatedAt: c.updatedAt ? new Date(c.updatedAt) : new Date(),
+            };
+            this.channels.set(channel.id, channel);
+            this.messages.set(channel.id, []);
+          } catch (e) {
+            console.warn('Failed to parse channel permissions/settings for', c.channelId, e);
+          }
+        }
+      }
+
+      // Load emotes
+      try {
+        const emRows = this.db.prepare('SELECT * FROM emotes WHERE serverId = ?').all(this.serverId) as any[];
+        console.log('[loadStateFromDB] Loading emotes for serverId:', this.serverId, '- found:', emRows?.length || 0, 'rows');
+        if (emRows && emRows.length > 0) {
+          this.emotes.clear();
+          for (const er of emRows) {
+            console.log('[loadStateFromDB] Loaded emote:', er.name, '->', er.filename);
+            this.emotes.set(er.name, { filename: er.filename, uploadedBy: er.uploadedBy || undefined });
+          }
+        }
+        console.log('[loadStateFromDB] Final emotes map size:', this.emotes.size);
+      } catch (e) {
+        console.warn('Failed to load emotes from DB:', e);
+      }
+    } catch (e) {
+      console.warn('loadStateFromDB failed:', e);
+    }
+  }
+
+  // Persist current roles, sections, channels and server metadata into DB
+  private persistStateToDB() {
+    try {
+      const upsertServer = this.db.prepare(`
+        INSERT INTO servers (serverId, name, mode, dataRoot, configPath, adminTokenHash, ownerUsername, ownerAccountId, allowClaimOwnership, dbEncrypted, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(serverId) DO UPDATE SET
+          name=excluded.name,
+          mode=excluded.mode,
+          dataRoot=excluded.dataRoot,
+          configPath=excluded.configPath,
+          adminTokenHash=excluded.adminTokenHash,
+          ownerUsername=excluded.ownerUsername,
+          ownerAccountId=excluded.ownerAccountId,
+          allowClaimOwnership=excluded.allowClaimOwnership,
+          dbEncrypted=excluded.dbEncrypted,
+          updatedAt=excluded.updatedAt
+      `);
+      const now = new Date().toISOString();
+      upsertServer.run(this.serverId, this.serverName, this.mode, this.dataRoot, this.configFilePath, this.adminToken ? this.hashAdminToken(this.adminToken) : null, this.ownerUsername || null, this.ownerAccountId || null, this.allowClaimOwnership ? 1 : 0, this.dbEncrypted ? 1 : 0, now, now);
+
+      const insertRole = this.db.prepare(`
+        INSERT INTO roles (serverId, roleId, name, color, permissions, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(serverId, roleId) DO UPDATE SET
+          name=excluded.name,
+          color=excluded.color,
+          permissions=excluded.permissions,
+          updatedAt=excluded.updatedAt
+      `);
+      const deleteRoles = this.db.prepare(`DELETE FROM roles WHERE serverId = ?`);
+      deleteRoles.run(this.serverId);
+      for (const r of this.roles.values()) {
+        insertRole.run(this.serverId, r.id, r.name, r.color || null, JSON.stringify(r.permissions || {}), r.createdAt.toISOString(), r.updatedAt.toISOString());
+      }
+
+      const insertSection = this.db.prepare(`
+        INSERT INTO sections (serverId, sectionId, name, position, permissions, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(serverId, sectionId) DO UPDATE SET
+          name=excluded.name,
+          position=excluded.position,
+          permissions=excluded.permissions,
+          updatedAt=excluded.updatedAt
+      `);
+      const deleteSections = this.db.prepare(`DELETE FROM sections WHERE serverId = ?`);
+      deleteSections.run(this.serverId);
+      for (const s of this.sections.values()) {
+        insertSection.run(this.serverId, s.id, s.name, s.position ?? 0, s.permissions ? JSON.stringify(s.permissions) : null, s.createdAt.toISOString(), s.updatedAt.toISOString());
+      }
+
+      const insertChannel = this.db.prepare(`
+        INSERT INTO channels (serverId, channelId, name, type, sectionId, position, permissions, settings, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(serverId, channelId) DO UPDATE SET
+          name=excluded.name,
+          type=excluded.type,
+          sectionId=excluded.sectionId,
+          position=excluded.position,
+          permissions=excluded.permissions,
+          settings=excluded.settings,
+          updatedAt=excluded.updatedAt
+      `);
+      const deleteChannels = this.db.prepare(`DELETE FROM channels WHERE serverId = ?`);
+      deleteChannels.run(this.serverId);
+      for (const c of this.channels.values()) {
+        insertChannel.run(this.serverId, c.id, c.name, c.type, c.sectionId || null, c.position ?? 0, c.permissions ? JSON.stringify(c.permissions) : null, c.settings ? JSON.stringify(c.settings) : null, c.createdAt.toISOString(), c.updatedAt.toISOString());
+      }
+
+      // Persist emotes table for this server
+      try {
+        const deleteEmotes = this.db.prepare(`DELETE FROM emotes WHERE serverId = ?`);
+        deleteEmotes.run(this.serverId);
+        const insertEmote = this.db.prepare(`INSERT INTO emotes (serverId, name, filename, uploadedBy, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)`);
+        const nowIso = new Date().toISOString();
+        for (const [name, data] of this.emotes.entries()) {
+          insertEmote.run(this.serverId, name, data.filename, data.uploadedBy || null, nowIso, nowIso);
+        }
+      } catch (e) {
+        console.warn('Failed to persist emotes to DB:', e);
+      }
+    } catch (e) {
+      console.error('Failed to persist state to DB:', e);
+    }
+  }
+
+  // Encrypt a file (AES-256-GCM) using a passphrase-derived key and write
+  // out a small header followed by ciphertext+tag.
+  private encryptFile(plainPath: string, destPath: string, passphrase: string) {
+    const salt = crypto.randomBytes(16);
+    const iv = crypto.randomBytes(12);
+    const key = crypto.pbkdf2Sync(passphrase, salt, 200_000, 32, 'sha256');
+    const data = fs.readFileSync(plainPath);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const ciphertext = Buffer.concat([cipher.update(data), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    const header = JSON.stringify({ salt: salt.toString('hex'), iv: iv.toString('hex'), taglen: tag.length });
+    const headerBuf = Buffer.from(header, 'utf8');
+    const hdrLen = Buffer.allocUnsafe(4);
+    hdrLen.writeUInt32BE(headerBuf.length, 0);
+    const out = Buffer.concat([hdrLen, headerBuf, ciphertext, tag]);
+    fs.writeFileSync(destPath, out, { mode: 0o600 });
+  }
+
+  private decryptFile(encPath: string, destPath: string, passphrase: string) {
+    const raw = fs.readFileSync(encPath);
+    const hdrLen = raw.readUInt32BE(0);
+    const headerBuf = raw.slice(4, 4 + hdrLen);
+    const header = JSON.parse(headerBuf.toString('utf8')) as any;
+    const salt = Buffer.from(header.salt, 'hex');
+    const iv = Buffer.from(header.iv, 'hex');
+    const tagLen = header.taglen || 16;
+    const ciphertext = raw.slice(4 + hdrLen, raw.length - tagLen);
+    const tag = raw.slice(raw.length - tagLen);
+    const key = crypto.pbkdf2Sync(passphrase, salt, 200_000, 32, 'sha256');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    fs.writeFileSync(destPath, plain, { mode: 0o600 });
   }
 
   private storeMessage(message: TypedMessage) {
@@ -411,12 +802,14 @@ export class Server {
     const stmt = this.db.prepare('SELECT * FROM messages ORDER BY timestamp ASC');
     const rows = stmt.all() as any[];
     for (const row of rows) {
+      const parsedContent = this.parseEmotes(row.content);
       const message: TypedMessage = {
         id: row.id,
         channelId: row.channelId,
         user: row.user,
         userRole: row.userRole,
         content: row.content,
+        renderedContent: parsedContent !== row.content ? parsedContent : undefined,
         type: row.type,
         timestamp: new Date(row.timestamp),
         data: row.data ? JSON.parse(row.data) : undefined,
@@ -514,7 +907,12 @@ export class Server {
       }
     }
     if (config) {
-      this.applyInitialConfig(config);
+      // Only apply initial JSON config when no DB-backed state exists
+      if (this.channels.size === 0 && this.roles.size === 0 && this.sections.size === 0) {
+        this.applyInitialConfig(config);
+      } else {
+        console.log('Skipping initial JSON config because DB-backed state was loaded');
+      }
     } else {
       // Ensure roles exist before creating channels so default channel
       // permission gates can reference the member role id.
@@ -528,10 +926,11 @@ export class Server {
   }
 
   private isOwnerMatch(username?: string, accountId?: string): boolean {
-    if (this.ownerAccountId && this.ownerAccountId.trim()) {
-      if (!accountId) return false;
+    // If accountId provided and matches, it's the owner
+    if (this.ownerAccountId && this.ownerAccountId.trim() && accountId) {
       return accountId === this.ownerAccountId;
     }
+    // Fallback to username matching (even if ownerAccountId is set)
     return !!(this.ownerUsername && username && username.toLowerCase() === this.ownerUsername.toLowerCase());
   }
 
@@ -560,6 +959,12 @@ export class Server {
 
       fs.writeFileSync(this.configFilePath, JSON.stringify(payload, null, 2), { mode: 0o600 });
       fs.chmodSync(this.configFilePath, 0o600);
+      // Also persist the canonical server/roles/sections/channels into the DB
+      try {
+        this.persistStateToDB();
+      } catch (e) {
+        console.warn('Failed to persist state to DB during persistConfigFile:', e);
+      }
     } catch (error) {
       console.error('Failed to persist server config:', error);
     }
@@ -578,6 +983,8 @@ export class Server {
       // sections/channels/roles back to it in InitialServerConfig format.
       if (this.initialConfigPath) {
         const snap = this.getConfigSnapshot();
+        // Build a sanitized initial config for the external JSON file.
+        // Sensitive fields (owner/account IDs and user->role mappings) are omitted.
         const initialCfg: InitialServerConfig = {
           name: this.serverName,
           sections: snap.sections.map(s => ({
@@ -601,9 +1008,8 @@ export class Server {
             color: r.color,
             permissions: r.permissions,
           })),
-          ownerUsername: this.ownerUsername || undefined,
-          ownerAccountId: this.ownerAccountId || undefined,
-          userRoles: this.userRoles.size > 0 ? Object.fromEntries(this.userRoles.entries()) : undefined,
+          // Do NOT include ownerUsername, ownerAccountId or userRoles here —
+          // those are considered sensitive and are persisted only in the DB.
         };
         const cfgDir = path.dirname(this.initialConfigPath);
         if (!fs.existsSync(cfgDir)) fs.mkdirSync(cfgDir, { recursive: true });
@@ -653,7 +1059,8 @@ export class Server {
         manageRoles: true,
         viewChannels: true,
         sendMessages: true,
-        manageMessages: true
+        manageMessages: true,
+        manageEmotes: true
       },
       createdAt: new Date(),
       updatedAt: new Date()
@@ -669,7 +1076,8 @@ export class Server {
         manageRoles: false,
         viewChannels: true,
         sendMessages: true,
-        manageMessages: false
+        manageMessages: false,
+        manageEmotes: false
       },
       createdAt: new Date(),
       updatedAt: new Date()
@@ -828,6 +1236,16 @@ export class Server {
     return null;
   }
 
+  private userHasPermission(username: string | undefined, permission: keyof RolePermissions): boolean {
+    if (!username) return false;
+    // Owner always has permissions
+    if (this.isOwnerMatch(username, undefined)) return true;
+    const userRoleName = this.userRoles.get(username) || '';
+    const roleObj = Array.from(this.roles.values()).find(r => (r.name || '').toLowerCase() === (userRoleName || '').toLowerCase() || (r.id || '').toLowerCase() === (userRoleName || '').toLowerCase());
+    if (!roleObj) return false;
+    return !!(roleObj.permissions && (roleObj.permissions as any)[permission]);
+  }
+
   private applyInitialConfig(config: InitialServerConfig) {
     if (config.ownerUsername) this.ownerUsername = config.ownerUsername;
     if (config.ownerAccountId) this.ownerAccountId = config.ownerAccountId;
@@ -919,29 +1337,102 @@ export class Server {
   private setupRoutes() {
     // Allow larger JSON payloads for image uploads (data URIs can be large).
     this.app.use(express.json({ limit: '10mb' }));
-    this.app.use('/emotes', express.static(path.join(__dirname, '../emotes')));
+    this.app.use('/emotes', express.static(path.join(this.dataRoot, 'emotes')));
 
-    const upload = multer({ dest: path.join(__dirname, '../emotes') });
+    const upload = multer({ dest: path.join(this.dataRoot, 'emotes') });
 
     this.app.post('/upload-emote', upload.single('emote'), (req, res) => {
+      // Permission check: allow if admin token, owner, or role has manageEmotes
+      const tokenHeader = req.headers['x-admin-token'];
+      const token = typeof tokenHeader === 'string' ? tokenHeader : Array.isArray(tokenHeader) ? tokenHeader[0] : undefined;
+      const userHeader = req.headers['x-username'];
+      const username = typeof userHeader === 'string' ? userHeader : Array.isArray(userHeader) ? userHeader[0] : (req.body?.username as string) || (req.query.username as string);
+
+      if (!( (token && this.adminToken && token === this.adminToken) || this.userHasPermission(username, 'manageEmotes') )) {
+        // Clean up multer temp file on permission failure
+        if (req.file?.path) {
+          try { fs.unlinkSync(req.file.path); } catch (e) { /* ignore */ }
+        }
+        return res.status(403).json({ error: 'Insufficient permission to upload emotes' });
+      }
+
       if (!req.file) {
         return res.status(400).send('No file uploaded');
       }
       const name = req.body.name || path.parse(req.file.originalname).name;
-      const ext = path.extname(req.file.originalname);
+      // Get extension from originalname, or infer from mimetype if missing
+      let ext = path.extname(req.file.originalname);
+      if (!ext && req.file.mimetype) {
+        const mimeToExt: Record<string, string> = {
+          'image/png': '.png',
+          'image/jpeg': '.jpg',
+          'image/gif': '.gif',
+          'image/webp': '.webp',
+        };
+        ext = mimeToExt[req.file.mimetype] || '.png';
+      }
+      if (!ext) ext = '.png'; // fallback
       const filename = `${name}${ext}`;
-      const filepath = path.join(__dirname, '../emotes', filename);
-      fs.renameSync(req.file.path, filepath);
-      this.emotes.set(name, filename);
-      res.send({ name, url: `/emotes/${filename}` });
+      const filepath = path.join(this.dataRoot, 'emotes', filename);
+      try {
+        fs.renameSync(req.file.path, filepath);
+      } catch (renameErr) {
+        // Try copy + unlink as fallback (cross-device moves)
+        try {
+          fs.copyFileSync(req.file.path, filepath);
+          fs.unlinkSync(req.file.path);
+        } catch (copyErr) {
+          console.error('Failed to save emote file:', copyErr);
+          return res.status(500).json({ error: 'Failed to save emote file' });
+        }
+      }
+      this.emotes.set(name, { filename, uploadedBy: username });
+      try {
+        const now = new Date().toISOString();
+        const insert = this.db.prepare(`INSERT OR REPLACE INTO emotes (serverId, name, filename, uploadedBy, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)`);
+        insert.run(this.serverId, name, filename, username || null, now, now);
+      } catch (e) {
+        console.warn('Failed to persist emote to DB:', e);
+      }
+      res.send({ name, url: `/emotes/${filename}`, uploadedBy: username || null });
     });
 
     this.app.get('/emotes-list', (req, res) => {
-      const list = Array.from(this.emotes.entries()).map(([name, filename]) => ({
+      const list = Array.from(this.emotes.entries()).map(([name, data]) => ({
         name,
-        url: `/emotes/${filename}`
+        url: `/emotes/${data.filename}`,
+        uploadedBy: data.uploadedBy || null
       }));
       res.send(list);
+    });
+
+    this.app.delete('/emotes/:name', (req, res) => {
+      const tokenHeader = req.headers['x-admin-token'];
+      const token = typeof tokenHeader === 'string' ? tokenHeader : Array.isArray(tokenHeader) ? tokenHeader[0] : undefined;
+      const userHeader = req.headers['x-username'];
+      const username = typeof userHeader === 'string' ? userHeader : Array.isArray(userHeader) ? userHeader[0] : (req.query.username as string) || (req.body?.username as string);
+
+      if (!( (token && this.adminToken && token === this.adminToken) || this.userHasPermission(username, 'manageEmotes') )) {
+        return res.status(403).json({ error: 'Insufficient permission to delete emotes' });
+      }
+
+      const { name } = req.params;
+      if (!name || !this.emotes.has(name)) return res.status(404).json({ error: 'Emote not found' });
+      const emoteData = this.emotes.get(name)!;
+      const filepath = path.join(this.dataRoot, 'emotes', emoteData.filename);
+      try {
+        if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+      } catch (e) {
+        console.warn('Failed to unlink emote file:', e);
+      }
+      try {
+        const del = this.db.prepare('DELETE FROM emotes WHERE serverId = ? AND name = ?');
+        del.run(this.serverId, name);
+      } catch (e) {
+        console.warn('Failed to delete emote from DB:', e);
+      }
+      this.emotes.delete(name);
+      res.json({ success: true });
     });
 
     const mediaUpload = multer({ dest: path.join(this.dataRoot, 'media') });
@@ -1208,11 +1699,12 @@ export class Server {
         id: uuidv4(),
         name: name.trim(),
         color,
-        permissions: permissions || { manageServer: false, manageChannels: false, manageRoles: false, viewChannels: true, sendMessages: true, manageMessages: false },
+        permissions: permissions || { manageServer: false, manageChannels: false, manageRoles: false, viewChannels: true, sendMessages: true, manageMessages: false, manageEmotes: false },
         createdAt: new Date(),
         updatedAt: new Date()
       };
       this.roles.set(role.id, role);
+      this.saveToDisk();
       // Notify connected clients that roles changed
       this.io.emit('roles_updated', { roles: Array.from(this.roles.values()) });
       res.json(role);
@@ -1233,6 +1725,7 @@ export class Server {
         updatedAt: new Date()
       };
       this.roles.set(roleId, updated);
+      this.saveToDisk();
       // Notify connected clients that roles changed
       this.io.emit('roles_updated', { roles: Array.from(this.roles.values()) });
       res.json(updated);
@@ -1573,10 +2066,12 @@ export class Server {
         channelMap.set(username, now);
       }
 
+      const parsedContent = this.parseEmotes(content);
       const message: TypedMessage = {
         id: uuidv4(),
         user,
-        content: this.parseEmotes(content),
+        content,
+        renderedContent: parsedContent !== content ? parsedContent : undefined,
         type,
         timestamp: new Date(),
         data,
@@ -1646,6 +2141,52 @@ export class Server {
     this.app.post('/admin/enable-e2ee', this.requireAdmin((req, res) => {
       this.e2eeEnabled = true;
       res.json({ success: true, message: 'E2EE enabled' });
+    }));
+
+    // Enable DB encryption: create encrypted copy of current DB. Does not
+    // remove the plain DB by default; pass `removePlain: true` to delete it.
+    this.app.post('/admin/db/encryption/enable', this.requireAdmin((req, res) => {
+      const { passphrase, removePlain } = req.body || {};
+      if (!passphrase || typeof passphrase !== 'string' || passphrase.length === 0) {
+        return res.status(400).json({ error: 'passphrase is required' });
+      }
+      try {
+        if (!fs.existsSync(this.dbPath)) return res.status(400).json({ error: 'Plain DB file not found' });
+        if (fs.existsSync(this.dbEncPath)) return res.status(400).json({ error: 'Encrypted DB already exists' });
+        this.encryptFile(this.dbPath, this.dbEncPath, passphrase);
+        this.dbEncrypted = true;
+        // Persist flag so future restarts know DB is encrypted
+        this.persistStateToDB();
+        if (removePlain) {
+          try { fs.unlinkSync(this.dbPath); } catch (e) { /* ignore */ }
+        }
+        res.json({ success: true, encryptedPath: this.dbEncPath });
+      } catch (e) {
+        console.error('Failed to enable DB encryption:', e);
+        res.status(500).json({ error: 'Failed to enable DB encryption', detail: String(e) });
+      }
+    }));
+
+    // Disable DB encryption: decrypt encrypted DB back to plain file. Does
+    // not remove the encrypted file by default; pass `removeEnc: true` to delete it.
+    this.app.post('/admin/db/encryption/disable', this.requireAdmin((req, res) => {
+      const { passphrase, removeEnc } = req.body || {};
+      if (!passphrase || typeof passphrase !== 'string' || passphrase.length === 0) {
+        return res.status(400).json({ error: 'passphrase is required' });
+      }
+      try {
+        if (!fs.existsSync(this.dbEncPath)) return res.status(400).json({ error: 'Encrypted DB not found' });
+        this.decryptFile(this.dbEncPath, this.dbPath, passphrase);
+        this.dbEncrypted = false;
+        this.persistStateToDB();
+        if (removeEnc) {
+          try { fs.unlinkSync(this.dbEncPath); } catch (e) { /* ignore */ }
+        }
+        res.json({ success: true, dbPath: this.dbPath });
+      } catch (e) {
+        console.error('Failed to disable DB encryption:', e);
+        res.status(500).json({ error: 'Failed to disable DB encryption', detail: String(e) });
+      }
     }));
 
     // Download and reload plugins from a remote URL into the server plugins folder
@@ -2086,7 +2627,10 @@ export class Server {
 
         // Parse emotes in content for text messages
         if (message.type === 'text') {
-          message.content = this.parseEmotes(message.content);
+          const parsedContent = this.parseEmotes(message.content);
+          if (parsedContent !== message.content) {
+            message.renderedContent = parsedContent;
+          }
         }
 
         // Store message
@@ -2198,10 +2742,16 @@ export class Server {
 
   private parseEmotes(content: string): string {
     let parsed = content;
-    for (const [name, filename] of this.emotes) {
+    console.log('[parseEmotes] emotes count:', this.emotes.size, 'content:', content);
+    for (const [name, data] of this.emotes) {
       const regex = new RegExp(`:${name}:`, 'g');
-      parsed = parsed.replace(regex, `<img src="/emotes/${filename}" alt="${name}" class="emote">`);
+      const replacement = `<img src="/emotes/${data.filename}" alt="${name}" class="emote">`;
+      if (regex.test(content)) {
+        console.log('[parseEmotes] Found emote:', name, '-> replacing with', replacement);
+      }
+      parsed = parsed.replace(regex, replacement);
     }
+    console.log('[parseEmotes] result:', parsed);
     return parsed;
   }
 

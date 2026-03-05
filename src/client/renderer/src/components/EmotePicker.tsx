@@ -109,7 +109,7 @@ const EmotePicker: React.FC<EmotePickerProps> = ({ onSelect, onClose, servers, a
 
   useEffect(() => {
     fetchEmotes();
-  }, [selectedServer]);
+  }, [selectedServer, servers]);
 
   // Retrieve emote catalogs from configured servers and merge with built-ins.
   const fetchEmotes = async () => {
@@ -123,9 +123,12 @@ const EmotePicker: React.FC<EmotePickerProps> = ({ onSelect, onClose, servers, a
         return;
       }
 
+      // Filter out 'home' since it's the dashboard, not a real server
+      const realServers = servers.filter(s => s.id !== 'home');
+
       if (selectedServer === 'all') {
         // Fetch from all servers
-        for (const server of servers) {
+        for (const server of realServers) {
           try {
             const response = await fetch(`${server.url}/emotes-list`);
             if (response.ok) {
@@ -141,24 +144,28 @@ const EmotePicker: React.FC<EmotePickerProps> = ({ onSelect, onClose, servers, a
             console.error(`Failed to fetch emotes from ${server.name}:`, error);
           }
         }
+        setEmotes(allEmotes);
       } else {
-        // Fetch from specific server
-        const server = servers.find(s => s.id === selectedServer);
+        // Fetch from specific server — only show that server's emotes
+        const server = realServers.find(s => s.id === selectedServer);
         if (server) {
           const response = await fetch(`${server.url}/emotes-list`);
           if (response.ok) {
             const serverEmotes = await response.json();
-            allEmotes.push(...serverEmotes.map((e: any) => ({
+            setEmotes(serverEmotes.map((e: any) => ({
               ...e,
               serverId: server.id,
               serverName: server.name,
               url: `${server.url}${e.url}`
             })));
+          } else {
+            setEmotes([]);
           }
+        } else {
+          setEmotes([]);
         }
+        return;
       }
-
-      setEmotes(allEmotes);
     } catch (error) {
       console.error('Failed to fetch emotes:', error);
     } finally {
@@ -194,7 +201,7 @@ const EmotePicker: React.FC<EmotePickerProps> = ({ onSelect, onClose, servers, a
         >
           Emoji
         </button>
-        {servers.map(server => (
+        {servers.filter(s => s.id !== 'home').map(server => (
           <button
             key={server.id}
             className={selectedServer === server.id ? 'active' : ''}

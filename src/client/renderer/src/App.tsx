@@ -507,6 +507,20 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     setShowServerMenu(false);
   }, [currentServerId]);
 
+  // Scroll to bottom when switching channels to show latest messages
+  useEffect(() => {
+    if (!currentChannelId) return;
+    // Use double requestAnimationFrame to ensure DOM has updated
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = messageListRef.current;
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
+    });
+  }, [currentChannelId]);
+
   const toggleServerMenu = () => setShowServerMenu(prev => !prev);
   const closeServerMenu = () => setShowServerMenu(false);
 
@@ -535,8 +549,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       .replace(/'/g, '&#39;');
 
   // Prefer plugin-rendered markup, otherwise sanitize raw content.
-  const toSafeHtml = (msg: Message) =>
-    msg.renderedContent ? msg.renderedContent : escapeHtml(msg.content).replace(/\n/g, '<br>');
+  // Fix relative emote URLs by prepending the appropriate server URL
+  const toSafeHtml = (msg: Message) => {
+    if (msg.renderedContent) {
+      // Find the server URL for this message's serverId
+      const server = servers.find(s => s.id === msg.serverId);
+      const serverUrl = server?.url || SERVER_URL;
+      // Replace relative /emotes/ URLs with full server URLs
+      return msg.renderedContent.replace(/src="\/emotes\//g, `src="${serverUrl}/emotes/`);
+    }
+    return escapeHtml(msg.content).replace(/\n/g, '<br>');
+  };
 
   // Initialize a single PluginManager instance bound to this renderer.
   const [pluginManager] = useState(() => new PluginManager({
@@ -651,6 +674,14 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         const newMessages = new Map(prev);
         newMessages.set(data.channelId, processedMessages);
         return newMessages;
+      });
+
+      // Scroll to bottom to show latest messages when loading channel history
+      requestAnimationFrame(() => {
+        const el = messageListRef.current;
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+        }
       });
     });
 
@@ -2610,6 +2641,11 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
     const isReplyToMe = !!(processedMessage.replyTo && (processedMessage.replyTo.user === localUsername));
 
+    // Detect emote-only messages (only contains emote shortcodes and whitespace)
+    const isEmoteOnly = processedMessage.renderedContent 
+      ? /^(<img[^>]+class="emote"[^>]*>\s*)+$/.test(processedMessage.renderedContent.trim())
+      : /^(:[a-zA-Z0-9_]+:\s*)+$/.test(processedMessage.content.trim());
+
     // (reply detection runs here)
 
     // Helper: jump to the referenced message element and animate it
@@ -2655,7 +2691,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         key={processedMessage.id}
         data-message-id={processedMessage.id}
         tabIndex={-1}
-        className={`message${isGroupStart ? ' message--group-start' : ''}${isReplyToMe ? ' message--reply-target' : ''}`}
+        className={`message${isGroupStart ? ' message--group-start' : ''}${isReplyToMe ? ' message--reply-target' : ''}${isEmoteOnly ? ' emote-only' : ''}`}
         onContextMenu={(e) => {
           if (processedMessage.user === 'You') {
             e.preventDefault();

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Command } from 'commander';
-import { Server, InitialServerConfig } from './server';
+import { Server, InitialServerConfig, PersistedServerConfig } from './server';
 
 // CLI entry point for starting the KIAMA server and querying stats.
 const program = new Command();
@@ -177,8 +177,8 @@ program
         { id: 'staff-chat', name: 'staff-chat', type: 'text', sectionId: 'staff', position: 0, permissions: { read: true, write: true, manage: true, roles: ['owner'] } }
       ],
       roles: [
-        { id: 'owner', name: 'Server Owner', color: '#e5533d', permissions: { manageServer: true, manageChannels: true, manageRoles: true, viewChannels: true, sendMessages: true, manageMessages: true } },
-        { id: 'member', name: 'Member', color: '#4a90e2', permissions: { manageServer: false, manageChannels: false, manageRoles: false, viewChannels: true, sendMessages: true, manageMessages: false } }
+        { id: 'owner', name: 'Server Owner', color: '#e5533d', permissions: { manageServer: true, manageChannels: true, manageRoles: true, viewChannels: true, sendMessages: true, manageMessages: true, manageEmotes: true } },
+        { id: 'member', name: 'Member', color: '#4a90e2', permissions: { manageServer: false, manageChannels: false, manageRoles: false, viewChannels: true, sendMessages: true, manageMessages: false, manageEmotes: false } }
       ]
     };
 
@@ -250,6 +250,74 @@ function loadConfig(configPath: string): InitialServerConfig | undefined {
     return undefined;
   }
 }
+
+program
+  .command('db-encrypt')
+  .description('Enable database encryption (creates data/kiama.db.enc)')
+  .requiredOption('--passphrase <passphrase>', 'Passphrase to encrypt the DB')
+  .option('--remove-plain', 'Remove the plain kiama.db after encrypting')
+  .option('-p, --port <port>', 'Server port to query', '3000')
+  .option('-H, --host <host>', 'Server host', 'http://localhost')
+  .option('-t, --token <token>', 'Admin token (falls back to KIAMA_ADMIN_TOKEN env)')
+  .action(async (options) => {
+    const token = resolveAdminToken(options.token);
+    await callAdminEndpoint({
+      host: options.host,
+      port: options.port,
+      token,
+      path: '/admin/db/encryption/enable',
+      body: { passphrase: options.passphrase, removePlain: !!options.removePlain }
+    });
+  });
+
+program
+  .command('db-decrypt')
+  .description('Disable database encryption (decrypts data/kiama.db.enc)')
+  .requiredOption('--passphrase <passphrase>', 'Passphrase to decrypt the DB')
+  .option('--remove-enc', 'Remove the encrypted kiama.db.enc after decrypting')
+  .option('-p, --port <port>', 'Server port to query', '3000')
+  .option('-H, --host <host>', 'Server host', 'http://localhost')
+  .option('-t, --token <token>', 'Admin token (falls back to KIAMA_ADMIN_TOKEN env)')
+  .action(async (options) => {
+    const token = resolveAdminToken(options.token);
+    await callAdminEndpoint({
+      host: options.host,
+      port: options.port,
+      token,
+      path: '/admin/db/encryption/disable',
+      body: { passphrase: options.passphrase, removeEnc: !!options.removeEnc }
+    });
+  });
+
+program
+  .command('db-status')
+  .description('Show DB encryption status (queries management config)')
+  .option('-p, --port <port>', 'Server port to query', '3000')
+  .option('-H, --host <host>', 'Server host', 'http://localhost')
+  .option('-t, --token <token>', 'Admin token (falls back to KIAMA_ADMIN_TOKEN env)')
+  .action(async (options) => {
+    const token = resolveAdminToken(options.token);
+    if (!token) {
+      console.error('Admin token is required for this command. Provide --token or set KIAMA_ADMIN_TOKEN.');
+      return;
+    }
+    const url = `${options.host}:${options.port}/admin/config`;
+    try {
+      const response = await fetch(url, { headers: { 'x-admin-token': token } });
+      if (!response.ok) {
+        console.error(`Failed to fetch admin config: ${response.status} ${response.statusText}`);
+        return;
+      }
+      const cfg = await response.json() as PersistedServerConfig;
+      console.log('Server config snapshot:');
+      console.log(JSON.stringify(cfg, null, 2));
+      if (cfg && cfg.serverId) {
+        console.log('Note: DB encryption flag is stored in the server DB; check servers table for dbEncrypted.');
+      }
+    } catch (e) {
+      console.error('Failed to reach server:', e instanceof Error ? e.message : String(e));
+    }
+  });
 
 function resolveAdminToken(optionToken?: string) {
   return optionToken || process.env.KIAMA_ADMIN_TOKEN || '';

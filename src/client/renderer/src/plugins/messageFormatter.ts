@@ -3,7 +3,7 @@ import { ClientPlugin, TypedMessage } from '../types/plugin';
 const allowedTags = new Set(['STRONG', 'EM', 'CODE', 'PRE', 'BR', 'A', 'IMG', 'UL', 'OL', 'LI', 'P', 'SPAN']);
 const allowedAttributes: Record<string, Set<string>> = {
   A: new Set(['href', 'title', 'target', 'rel']),
-  IMG: new Set(['src', 'alt', 'title'])
+  IMG: new Set(['src', 'alt', 'title', 'class'])
 };
 
 const escapeCode = (value: string) => value.replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -83,8 +83,12 @@ const messageFormatterPlugin: ClientPlugin = {
     console.log('Message Formatter plugin initialized');
 
     // Convert basic markup to sanitized HTML for display
+    // If the server already provided renderedContent (e.g., with emotes), format that instead
     api.addMessageHandler((message: TypedMessage) => {
-      const formatted = formatMarkup(message.content || '');
+      // If server already rendered content (emotes, etc), apply formatting to that
+      // Otherwise format the raw content
+      const baseContent = message.renderedContent || message.content || '';
+      const formatted = formatMarkup(baseContent);
       return {
         ...message,
         renderedContent: formatted

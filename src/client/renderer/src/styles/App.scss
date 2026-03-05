@@ -65,6 +65,8 @@
   --sidebar-width: 240px;
   --server-list-width: 72px;
   --top-bar-height: 64px;
+  /* Panel background token used for cards / asides */
+  --panel-bg: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.03));
   /* App font stack used throughout the UI */
   --app-font: 'Space Grotesk', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
@@ -399,6 +401,72 @@ html, body {
     border-color: var(--accent);
   }
 
+  /* Ensure split layout children have distinct backgrounds so the aside
+     and main areas are visually separated even when nested in transparent
+     modal wrappers. */
+  &__body {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  &__main {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: transparent; /* inherit parent card background by default */
+    padding: 0;
+  }
+
+  &__aside {
+    background: var(--primary-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    box-shadow: none;
+    min-width: 220px;
+    max-width: 40%;
+    box-sizing: border-box;
+  }
+
+
+/* Window-style modal used by the emoji editor and other split-layout modals */
+.modal-window-panel {
+  background: var(--surface-card-bg, var(--secondary-bg));
+  border: 1px solid var(--surface-border, var(--border));
+  border-radius: 14px;
+  box-shadow: var(--surface-card-shadow, 0 10px 30px rgba(0,0,0,0.28));
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text-primary);
+
+  h3 { margin: 0; font-size: 20px; font-weight: 700; }
+
+  &__header { display: flex; align-items: center; gap: 12px; }
+
+  &__body { display:flex; gap: 12px; align-items: flex-start; }
+
+  &__main { flex: 1 1 auto; min-width: 0; }
+
+  &__aside {
+    background: var(--primary-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    min-width: 220px;
+    max-width: 40%;
+    box-sizing: border-box;
+  }
+
+  &__close { position: absolute; right: 16px; top: 16px; }
+}
+
+/* Ensure modal panels have a consistent elevated card surface */
+.modal-panel, .modal-window-panel {
+  background: var(--surface-card-bg, var(--secondary-bg));
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
   .modal-panel__header {
     display: flex;
     align-items: center;
@@ -442,10 +510,864 @@ html, body {
     }
   }
 
+  // Split (editor) variant: main + aside columns
+  .modal-panel--split {
+    .modal-panel__body {
+      display: grid;
+      grid-template-columns: 1fr 2fr; // inspector 1fr, editor 2fr (default aside at left)
+      gap: 18px;
+      align-items: stretch;
+    }
+    .modal-panel__main {
+      grid-column: 2;
+      min-width: 360px;
+      max-height: 680px;
+      overflow: visible !important;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 12px;
+      background: transparent;
+    }
+    .modal-panel__aside {
+      grid-column: 1;
+      box-sizing: border-box;
+      width: 100%;
+      background: var(--surface-card-bg);
+      border-radius: 10px;
+      padding: 18px;
+      box-shadow: none;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: stretch;
+    }
+    &.modal-panel--aside-left {
+      .modal-panel__body { grid-template-columns: 1fr 2fr; }
+      .modal-panel__main { grid-column: 2; }
+      .modal-panel__aside { grid-column: 1; }
+    }
+    &.modal-panel--aside-right {
+      .modal-panel__body { grid-template-columns: 2fr 1fr; }
+      .modal-panel__main { grid-column: 1; }
+      .modal-panel__aside { grid-column: 2; }
+    }
+  }
+
+  // Editor-specific styles
+  .emoji-editor-checker {
+    background-color: transparent;
+    background-image: linear-gradient(45deg, rgba(255,255,255,0.04) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.04) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(0,0,0,0.04) 75%), linear-gradient(-45deg, transparent 75%, rgba(0,0,0,0.04) 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    display: inline-block;
+    box-shadow: inset 0 8px 28px rgba(0,0,0,0.5);
+  }
+
+  .emoji-editor-frame {
+    position: absolute;
+    width: 320px;
+    height: 320px;
+    border: 3px solid rgba(255,255,255,0.96);
+    box-shadow: 0 14px 40px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.02);
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    border-radius: 8px;
+  }
+
+  .emoji-editor-controls {
+    align-items: center;
+  }
+
+  .emoji-editor-controls__right .button,
+  .emoji-editor-controls__left .button { padding: 8px; border-radius: 8px; }
+
+  /* Floating rotate group near the right of the editor for quick access */
+  .emoji-editor-actions-topright {
+    right: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  // Center the modal header title for editor-style modals
+  .modal-panel--header-centered {
+    .modal-panel__header {
+      justify-content: center;
+      text-align: center;
+    }
+    .modal-panel__header .modal-panel__icon { display: none; }
+    .modal-panel__header p { display: none; }
+    .modal-panel__header .modal-panel__titles { width: 100%; }
+  }
+
+  .emoji-editor-actions-topright {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 8px;
+  }
+
+  .icon-btn {
+    background: rgba(0,0,0,0.25);
+    border: none;
+    color: white;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+
   .modal-panel__footer {
     display: flex;
     justify-content: flex-end;
     gap: 10px;
+  }
+
+  .modal-panel__close {
+    position: absolute;
+    right: 12px;
+    top: 12px;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 5;
+  }
+
+  // New editor-style modal panel with split view
+  .modal-window-panel {
+    position: relative;
+    background: var(--secondary-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 22px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    color: var(--text-primary);
+    width: min(920px, 96vw);
+    max-height: 84vh;
+    overflow: hidden;
+  }
+  .modal-window-panel__header {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .modal-window-panel__titles h3 { margin: 0; font-size: 20px; font-weight: 700; }
+  .modal-window-panel__body {
+    display: grid;
+    grid-template-columns: 2fr 320px; // main (editor) 2/3, inspector 1/3 (default: aside right)
+    gap: 18px;
+    align-items: start;
+    min-height: 420px;
+  }
+  .modal-window-panel__aside {
+    background: var(--panel-bg);
+    border-radius: 10px;
+    padding: 18px;
+    box-shadow: none;
+    border: 1px solid rgba(255,255,255,0.03);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .modal-window-panel__main {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    background: transparent;
+  }
+
+  /* Emoji editor modal variant: checkerboard main view and centered stage */
+  .modal-window-panel.emoji-editor-modal {
+    .modal-window-panel__main {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: transparent;
+      padding: 28px 12px;
+    }
+
+    /* fill the main area with a subtle checkerboard behind the editor stage */
+    .modal-window-panel__main::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 10px;
+      background-image: linear-gradient(45deg, rgba(255,255,255,0.02) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.02) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(0,0,0,0.03) 75%), linear-gradient(-45deg, transparent 75%, rgba(0,0,0,0.03) 75%);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+      z-index: 0;
+    }
+
+    /* make sure the editor stage and controls sit above the background */
+    .emoji-editor-checker,
+    canvas,
+    .emoji-editor-frame,
+    .emoji-editor-actions-topright {
+      position: relative;
+      z-index: 2;
+    }
+  }
+
+  /* Editor header inside the main image view (overlay) */
+  .modal-window-panel__main .editor-panel-header {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none; /* let clicks pass through except for interactive children */
+    z-index: 8;
+  }
+
+  .modal-window-panel__main .editor-panel-header .editor-panel-titles {
+    pointer-events: auto; /* enable interaction with inputs inside header if needed */
+    background: rgba(0,0,0,0.28);
+    padding: 8px 14px;
+    border-radius: 10px;
+    color: white;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  }
+
+  .modal-window-panel__main .editor-panel-header h3 { margin: 0; font-size: 18px; font-weight: 700; color: #fff; }
+  .modal-window-panel__main .editor-panel-header p { margin: 0; font-size: 12px; color: rgba(255,255,255,0.8); }
+  .modal-window-panel__footer {
+    margin-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  /* aside-left: inspector first, main second */
+  .modal-window-panel--aside-left .modal-window-panel__body { grid-template-columns: 320px 2fr; }
+  .modal-window-panel--aside-left .modal-window-panel__aside { grid-column: 1; grid-row: 1; }
+  .modal-window-panel--aside-left .modal-window-panel__main { grid-column: 2; grid-row: 1; }
+  /* aside-right: default layout (main then aside) — ensure explicit rule for clarity */
+  .modal-window-panel--aside-right .modal-window-panel__body { grid-template-columns: 2fr 320px; }
+  .modal-window-panel--aside-right .modal-window-panel__aside { grid-column: 2; grid-row: 1; }
+  .modal-window-panel--aside-right .modal-window-panel__main { grid-column: 1; grid-row: 1; }
+  .modal-window-panel__close {
+    position: absolute;
+    left: 18px;
+    top: 18px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 6;
+  }
+
+  /* Ensure the Save/Finish button spans full width in the inspector */
+  .modal-window-panel__aside .primary-btn,
+  .modal-window-panel__aside .primary {
+    width: 100%;
+  }
+
+  /* Keep aside actions grouped at bottom */
+  .modal-window-panel__aside > div:last-child { margin-top: auto; }
+}
+
+/* ============================================================
+   Emoji Editor Split-View Modal (matches Discord-style design)
+   ============================================================ */
+.emoji-editor-modal--splitview.modal-window-panel {
+  padding: 0 !important;
+  overflow: hidden;
+  width: min(780px, 94vw);
+  border-radius: 12px;
+}
+
+.emoji-editor-modal--splitview .modal-window-panel__body {
+  display: grid !important;
+  grid-template-columns: 1fr 280px !important;
+  gap: 0 !important;
+  min-height: 480px;
+  align-items: stretch;
+}
+
+.emoji-editor-modal--splitview .modal-window-panel__main {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  padding: 0;
+  background: var(--primary-bg);
+  border-radius: 12px 0 0 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.emoji-editor-modal--splitview .modal-window-panel__aside {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  border-radius: 0 12px 12px 0;
+  background: var(--secondary-bg);
+  border: none;
+  border-left: 1px solid var(--border);
+  padding: 0;
+  width: 280px !important;
+  min-width: 280px;
+  max-width: 280px;
+}
+
+/* Main editor area */
+.emoji-editor-main {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 480px;
+  position: relative;
+  
+  /* Full checkerboard background on main area */
+  background-color: #2c2c30;
+  background-image: 
+    linear-gradient(45deg, #222225 25%, transparent 25%),
+    linear-gradient(-45deg, #222225 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #222225 75%),
+    linear-gradient(-45deg, transparent 75%, #222225 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+}
+
+.emoji-editor-main__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  position: relative;
+  z-index: 10;
+  background: linear-gradient(to bottom, #1a1a1d 0%, #1a1a1d 40%, transparent 100%);
+  border-bottom: none;
+}
+
+.emoji-editor-main__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.emoji-editor-gif-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #7b5cff 0%, #ff5cf4 100%);
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.emoji-editor-gif-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: 
+    linear-gradient(45deg, #2c2c30 25%, transparent 25%),
+    linear-gradient(-45deg, #2c2c30 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2c2c30 75%),
+    linear-gradient(-45deg, transparent 75%, #2c2c30 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+  background-color: #222225;
+  border-radius: 8px;
+  box-shadow: 0 0 0 4px rgba(0,0,0,0.3);
+}
+
+.emoji-editor-main__close,
+.emoji-editor-main__reset {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: var(--button-secondary-hover-bg, rgba(255,255,255,0.08));
+    color: var(--text-primary);
+  }
+}
+
+/* Checkerboard stage */
+.emoji-editor-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  cursor: grab;
+  
+  /* Inherit checkerboard from parent */
+  background: transparent;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+.emoji-editor-checker {
+  position: relative;
+  border-radius: 8px;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  canvas {
+    display: block;
+    border-radius: 4px;
+  }
+}
+
+/* Canvas wrapper for showing full image */
+.emoji-editor-canvas-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  canvas {
+    display: block;
+  }
+}
+
+.emoji-editor-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+}
+
+.emoji-editor-hint {
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* Bottom controls */
+.emoji-editor-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  padding: 12px 18px;
+  position: relative;
+  z-index: 10;
+  background: linear-gradient(to top, #1a1a1d 0%, #1a1a1d 40%, transparent 100%);
+  border-top: none;
+  overflow: hidden;
+}
+
+.emoji-editor-controls__left,
+.emoji-editor-controls__center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.emoji-editor-controls__left {
+  flex-shrink: 0;
+}
+
+.emoji-editor-controls__center {
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+  max-width: 300px;
+  margin: 0 auto;
+}
+
+.emoji-editor-controls .icon-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  flex-shrink: 0;
+  padding: 0;
+  background: var(--button-secondary-bg, rgba(255,255,255,0.06));
+  border: none;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: var(--button-secondary-hover-bg, rgba(255,255,255,0.12));
+    color: var(--text-primary);
+  }
+}
+
+/* Text buttons (Fill/Fit) in emoji editor */
+.emoji-editor-text-btn {
+  width: auto !important;
+  min-width: 42px !important;
+  padding: 0 12px !important;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Slider in emoji editor */
+.emoji-editor-slider {
+  flex: 1;
+  min-width: 100px;
+  max-width: 180px;
+}
+
+/* Aside panel */
+.emoji-editor-aside {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 18px;
+  box-sizing: border-box;
+}
+
+.emoji-editor-aside__section {
+  margin-bottom: 16px;
+}
+
+.emoji-editor-aside__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+
+  .required {
+    color: #ed4245;
+  }
+}
+
+.emoji-editor-aside__previews {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* Preview box - dark rounded container */
+.emoji-preview-box {
+  aspect-ratio: 1;
+  border-radius: 12px;
+  background: var(--tertiary-bg, #2b2d31);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+
+/* Tile preview - shows the larger emote */
+.emoji-preview-tile {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  img, canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+  }
+}
+
+/* Reaction chip preview - matches message .reaction-chip styling */
+.emoji-preview-reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: rgba(88, 101, 242, 0.18);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.emoji-preview-reaction__icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  img, canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+}
+
+.emoji-preview-reaction__count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.emoji-editor-aside__actions {
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+/* Server select dropdown styling */
+.emoji-editor-server-select {
+  .ui-select select,
+  select {
+    background: var(--tertiary-bg);
+    padding: 10px 12px;
+    padding-right: 36px;
+    border-radius: 8px;
+    width: 100%;
+  }
+}
+
+/* ============================================================
+   Emotes Settings Page (Discord-style layout)
+   ============================================================ */
+.emotes-page {
+  padding: 40px;
+  max-width: 740px;
+}
+
+.emotes-page__header {
+  margin-bottom: 0;
+}
+
+.emotes-page__header-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.emotes-page__title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.emotes-page__description {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.emotes-page__upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 8px;
+  width: fit-content;
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--accent-hover, #4752c4);
+  }
+}
+
+.emotes-page__hint {
+  font-size: 12px;
+  color: var(--text-muted, #72767d);
+  margin: 4px 0 0;
+  line-height: 1.4;
+}
+
+.emotes-page__divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 24px 0;
+}
+
+.emotes-page__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  text-align: center;
+}
+
+.emotes-page__empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+.emotes-page__empty-text {
+  font-size: 14px;
+  color: var(--text-muted, #72767d);
+  margin: 8px 0 0;
+}
+
+/* Emotes list header */
+.emotes-page__list-header {
+  margin-bottom: 8px;
+}
+
+.emotes-page__list-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.emotes-page__list-count {
+  font-size: 12px;
+  color: var(--text-muted, #72767d);
+}
+
+/* Emotes table */
+.emotes-page__table {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.emotes-page__table-head {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--tertiary-bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted, #72767d);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.emotes-page__table-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--hover);
+
+    .emotes-page__row-delete {
+      opacity: 1;
+    }
+  }
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.emotes-page__table-col {
+  display: flex;
+  align-items: center;
+}
+
+.emotes-page__table-col--image {
+  width: 64px;
+  flex-shrink: 0;
+}
+
+.emotes-page__table-col--name {
+  flex: 1;
+  min-width: 0;
+}
+
+.emotes-page__table-col--uploader {
+  width: 140px;
+  flex-shrink: 0;
+}
+
+.emotes-page__uploader {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.emotes-page__table-col--actions {
+  width: 40px;
+  flex-shrink: 0;
+  justify-content: flex-end;
+}
+
+.emotes-page__emote-img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.emotes-page__emote-name {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.emotes-page__row-delete {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted, #72767d);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    color: #ed4245;
+    background: rgba(237, 66, 69, 0.1);
+  }
+
+  i {
+    font-size: 14px;
   }
 }
 
@@ -604,7 +1526,7 @@ html, body {
         .avatar-initials { font-size: 12px; }
       }
 
-      .message-content img {
+      .message-content img:not(.emote) {
         max-width: 100%;
         max-height: 220px;
       }
@@ -2472,7 +3394,8 @@ html, body {
         color: var(--text-primary);
         word-break: break-word;
 
-        img {
+        // Regular images (not emotes)
+        img:not(.emote) {
           max-width: 400px;
           max-height: 300px;
           border-radius: 8px;
@@ -2483,6 +3406,18 @@ html, body {
           &:hover { opacity: 0.85; }
         }
 
+        // Inline emotes (Discord-style)
+        img.emote {
+          display: inline-block;
+          vertical-align: middle;
+          width: 20px;
+          height: 20px;
+          object-fit: contain;
+          margin: 0 2px;
+          border-radius: 0;
+          cursor: default;
+        }
+
         .message-type-tag {
           font-size: 11px;
           color: var(--text-secondary);
@@ -2490,6 +3425,12 @@ html, body {
           font-style: italic;
           opacity: 0.7;
         }
+      }
+
+      // Emote-only message (larger emotes when no text)
+      &.emote-only .message-content img.emote {
+        width: 42px;
+        height: 42px;
       }
 
       // ── Reactions row ──────────────────────────────────────────────

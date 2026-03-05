@@ -423,6 +423,11 @@
   .login-delete-container {
     width: min(420px, 100%);
 
+    &.modal-wide {
+      width: min(880px, 100%);
+      max-width: 98vw;
+    }
+
     .modal-panel { border-radius: 16px; }
 
     .field span {

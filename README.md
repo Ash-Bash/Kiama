@@ -41,57 +41,16 @@ A decentralized Discord-like chat application built with modern web technologies
 - **Styling**: SCSS with modular component styles
 - **Desktop App**: Electron
 - **State Management**: React hooks
-- **Real-time Communication**: Socket.IO client
-
-**Backend (Server):**
-- **Runtime**: Node.js with TypeScript
-- **Web Framework**: Express.js
-- **Real-time Engine**: Socket.IO
-- **File Upload**: Multer
-- **CLI Framework**: Commander.js
-- **Database**: File-based (extensible to databases)
-
-**Shared:**
-- **Language**: TypeScript
-- **Build System**: npm scripts
-- **Code Quality**: ESLint (implied)
-
-## 📺 Channel System
-
-KIAMA organizes chat channels into collapsible sections (categories), similar to Discord:
-
-### Channel Types
-- **Text Channels** (`#`): Regular text-based chat rooms
-- **Voice Channels** (`🔊`): Voice communication rooms
-- **Announcement Channels** (`📢`): Read-only broadcast channels
-
-### Section Organization
-```
 Server Name
 ├── 📁 General
 │   ├── # general
 │   └── 📢 announcements
 ├── 📁 Gaming
 │   ├── # gaming-chat
-│   └── 🔊 voice-lounge
-└── 📁 Development
-    ├── # coding-help
-    └── # project-showcase
-```
-
 ### Channel & Section Visibility
-
-New channels and sections default to **managed-roles-only** visibility — only roles with `manageChannels: true` (or the server owner) see them until you explicitly open access.
-
-Permissions are edited via:
-- **Channel Settings page** → Permissions tab ("Can view (visibility)" and "Can write" columns)
-- **Section Settings page** → Permissions tab ("Can view" and "Can manage" columns)
 
 The sidebar automatically hides channels/sections the current user's role cannot see.
 
-### Section Deletion Behaviour
-
-When a section is deleted, any channels it contained are automatically moved to the next remaining section (lowest position) rather than being orphaned or hidden.
 
 ### Channel Management
 - **Create Channels**: Via API or client UI
@@ -103,12 +62,10 @@ When a section is deleted, any channels it contained are automatically moved to 
 - **Mobile drawers**: Server, channel, and member lists slide in on ≤768px; backdrop closes all.
 - **Coordinated close**: Closing the channel drawer on mobile also hides the server list to prevent overlap.
 - **Add controls**: “Add Section” now lives in each section’s plus menu; the bottom bar button was removed.
-- **Visibility helpers**: Mobile nav buttons appear at ≤1100px for opening drawers.
 
-### Page Layout
-- **Page wrapper**: `Page` component handles header/body split, optional padding/scroll, and masks rounded corners via inherited radius.
-- **Pages directory**: Place page-level views in `src/client/renderer/src/pages` (e.g., `HomePage`, `ServerPage`) and wire them through `App.tsx`.
-- **Server Settings**: Full-width view (no sidebar) with the same darker gradient background as Account/App Settings; covers access control (read/write role toggles per channel), role management (create/edit roles with color + permissions), and join-password status.
+## DB Encryption
+
+See [docs/db-encryption.md](docs/db-encryption.md) for information about optional database-at-rest encryption (how to enable, admin endpoints, and key management recommendations).
 - **Role colors in chat**: Each message carries `userRole` (sender's role id at send-time); `MessageList` looks up the role color and applies it to the username badge so colors survive reconnects and role renames.
 
 ### Project Structure
