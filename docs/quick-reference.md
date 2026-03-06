@@ -242,6 +242,46 @@ curl -X DELETE http://localhost:3000/admin/accounts/bots/poll-bot \
 - `user_joined` - User joined channel
 - `user_left` - User left channel
 
+## Emotes
+
+### Server API
+
+```bash
+# List all emotes
+curl http://localhost:3000/emotes-list
+
+# Upload emote (multipart form)
+curl -X POST http://localhost:3000/emotes \
+  -H "x-username: alice" \
+  -F "emote=@smile.png" \
+  -F "name=smile"
+
+# Delete emote
+curl -X DELETE http://localhost:3000/emotes/smile \
+  -H "x-username: alice"
+```
+
+### Chat Syntax
+
+Use `:emoteName:` in messages to render emotes:
+```
+Hello :smile: how are you?
+```
+
+### Emote Sizing
+
+- **Inline (with text):** 20×20px
+- **Standalone (emote-only messages):** 42×42px
+
+### Key Files
+
+| Purpose | File |
+|---------|------|
+| Emote Picker | `src/client/renderer/src/components/EmotePicker.tsx` |
+| Emote Editor | `src/client/renderer/src/pages/ServerSettingsPage.tsx` (EmotesSubPage) |
+| Server API | `src/server/src/server.ts` (emotes routes) |
+| Styles | `src/client/renderer/src/styles/App.scss` (.emote, .emote-only) |
+
 ## Plugin APIs
 
 ### Client Plugin API

@@ -743,6 +743,107 @@ userRole?: string;  // role id stamped at send time; drives username colour badg
 - Server icon is stored server-side at `<data-root>/server-icon.{ext}` and served at `GET /server/icon`; the client switches the displayed icon to this URL after a successful upload so all clients share the same icon.
 - `SectionSettingsPage` mirrors `ChannelSettingsPage` — overview (rename) + permissions (viewRoles/manageRoles) tabs. Opened from the section context menu.
 
+## Emote System
+
+KIAMA supports server-specific custom emotes and built-in Unicode emoji, similar to Discord.
+
+### Data Storage
+
+Emotes are stored in the server's SQLite database (`kiama.db`) with the following schema:
+
+```sql
+CREATE TABLE emotes (
+  serverId TEXT,
+  name TEXT,
+  filename TEXT,
+  createdAt TEXT,
+  updatedAt TEXT,
+  uploadedBy TEXT,
+  PRIMARY KEY (serverId, name)
+);
+```
+
+Emote image files are stored in `<data-root>/emotes/` with unique filenames.
+
+### Server API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/emotes-list` | List all emotes for the server (returns array of `{ name, url }`) |
+| `POST` | `/emotes` | Upload a new emote (multipart form: `emote` file, `name` field) |
+| `DELETE` | `/emotes/:name` | Delete an emote by name |
+
+### Emote Upload (Server)
+
+- Accepts images up to 256KB
+- Supports PNG, GIF, JPEG, and WebP formats
+- GIF files are stored directly to preserve animation
+- PNG files are processed with Canvas and resized to 320×320px
+- Filename extension is inferred from MIME type if not provided
+- `uploadedBy` is extracted from `x-username` header
+
+### Client: EmotePicker
+
+`EmotePicker.tsx` provides a unified picker for both custom server emotes and built-in Unicode emoji.
+
+**Features:**
+- Tab-based navigation: "All", "Emoji" (built-in), and per-server tabs
+- Fetches emotes from all connected servers
+- Displays Unicode emoji inline using native font rendering
+- Custom emotes rendered as `<img>` tags
+
+**Props:**
+```tsx
+<EmotePicker
+  onSelect={(emote) => handleEmoteSelect(emote)}
+  onClose={() => setShowPicker(false)}
+  servers={servers}  // { id, name, url }[]
+  anchorRect={buttonRect}  // optional popover positioning
+/>
+```
+
+### Emote Rendering in Chat
+
+Emotes are parsed and rendered on the server side to ensure consistent display across clients.
+
+**Server-side parsing:**
+- `parseEmotes(content, serverId)` replaces `:emoteName:` patterns with `<img class="emote" src="/emotes/filename" alt=":emoteName:">`
+- The rendered HTML is stored in `message.renderedContent`
+- Both new messages and loaded history include `renderedContent`
+
+**Client-side display:**
+- The `messageFormatter` plugin preserves server's `renderedContent`
+- `App.tsx` prepends the server URL to relative emote paths
+- Emote-only messages (containing only emotes) are rendered larger (42×42px vs 20×20px inline)
+
+### Emote Sizing CSS
+
+```scss
+// Inline emotes (mixed with text)
+img.emote {
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
+}
+
+// Standalone emote messages
+.emote-only .message-content img.emote {
+  width: 42px;
+  height: 42px;
+}
+```
+
+### Server Settings: Emotes Tab
+
+The Emotes subpage in Server Settings provides:
+- Split-view editor: emote list on left, preview/upload on right
+- Table with Image, Name, and "Uploaded By" columns
+- Upload area with drag-and-drop support
+- Real-time preview with checkered background
+- Zoom slider for preview (0.5×–2×)
+
+---
+
 ## Theming System
 
 KIAMA includes a comprehensive JSON-based theming system that allows customization of the application's appearance.
@@ -927,6 +1028,13 @@ npm install <package>
 - [ ] Server Settings → Ownership tab shows current owner badge
 - [ ] Claiming ownership via the Ownership tab works (no token required on first claim if no token configured)
 - [ ] Server icon uploaded from one client is visible to another client after reconnect
+- [ ] Emote upload works (Server Settings → Emotes)
+- [ ] Emotes appear in EmotePicker
+- [ ] Emotes render in chat messages with `:emoteName:` syntax
+- [ ] Emote-only messages display larger (42px)
+- [ ] GIF emotes animate properly
+- [ ] Built-in emoji tab shows Unicode emoji
+- [ ] Chat scrolls to bottom when opening a channel
 
 **Integration:**
 - [ ] Client connects to server
