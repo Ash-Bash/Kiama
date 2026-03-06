@@ -10,21 +10,23 @@ import { ModalProvider, useModal } from './components/Modal';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { SurfaceProvider } from './utils/SurfaceContext';
 import AddServerPanel from './panels/AddServerPanel';
+import ClaimOwnerPanel from './panels/ClaimOwnerPanel';
+import CreateChannelPanel from './panels/CreateChannelPanel';
+import CreateSectionPanel from './panels/CreateSectionPanel';
+import RenameSectionPanel from './panels/RenameSectionPanel';
 import LoadingScreen from './components/LoadingScreen';
 import Login from './components/Login';
 import TitleBar from './components/TitleBar';
 import HomePage from './pages/HomePage';
 import ServerPage from './pages/ServerPage';
-import PinnedMessagesPanel from './components/PinnedMessagesPanel';
+import PinnedMessagesPanel from './panels/PinnedMessagesPanel';
 import SettingsPage from './pages/SettingsPage';
 import ServerSettingsPage from './pages/ServerSettingsPage';
 import ChannelSettingsPage from './pages/ChannelSettingsPage';
 import SectionSettingsPage from './pages/SectionSettingsPage';
 import ServerUserSettingsPage from './pages/ServerUserSettingsPage';
-import Select from './components/Select';
 import Button from './components/Button';
 import TextField from './components/TextField';
-import ModalPanel from './components/ModalPanel';
 import NsfwSplash from './components/NsfwSplash';
 import ContextMenu, { ContextMenuItemDef } from './components/ContextMenu';
 import './styles/App.scss';
@@ -1068,54 +1070,14 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
       // If no owner is set and the server allows claiming, prompt the first joining user
       if (!info.ownerUsername && info.allowClaimOwnership !== false && user?.username) {
-        const ClaimOwnerModal = () => {
-          const [ownerInput, setOwnerInput] = useState(user.username || '');
-          const [tokenInput, setTokenInput] = useState('');
-          const [showToken, setShowToken] = useState(false);
-          const [busy, setBusy] = useState(false);
-          const [needsToken, setNeedsToken] = useState(false);
-          const [msg, setMsg] = useState<string | null>(null);
-
-          const submit = async () => {
-            if (!ownerInput.trim()) return;
-            setBusy(true);
-            const result = await claimOwner(ownerInput.trim(), tokenInput || undefined, server.id);
-            setBusy(false);
-            if (result.success) {
-              closeModal();
-            } else {
-              if (result.requiresToken) setNeedsToken(true);
-              setMsg(result.error || 'Failed to claim ownership.');
-            }
-          };
-
-          const footer = (
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <Button variant="secondary" onClick={() => { closeModal(); setActiveView('home'); setCurrentServerId('home'); }} disabled={busy}>Cancel</Button>
-              <Button variant="primary" onClick={submit} disabled={busy} iconLeft={<i className={busy ? 'fas fa-spinner fa-spin' : 'fas fa-crown'} />}>{busy ? 'Claiming…' : 'Claim Ownership'}</Button>
-            </div>
-          );
-
-          return (
-            <ModalPanel title="Claim Server Ownership" description="This server has no owner yet. Claim ownership to finish setup and receive admin privileges." footer={footer}>
-              <p style={{ marginTop: 0, marginBottom: 8, color: 'var(--text-primary)' }}>You will be set as the server owner: <strong style={{ color: 'var(--text-primary)' }}>{user.username}</strong></p>
-              <TextField
-                containerClassName="field--grow field--with-icon"
-                label={needsToken ? 'Admin token (required)' : 'Admin token (optional)'}
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                type={showToken ? 'text' : 'password'}
-                disabled={busy}
-                suffix={(
-                  <Button className="icon-button" variant="ghost" onClick={() => setShowToken(v => !v)} iconLeft={<i className={showToken ? 'fas fa-eye-slash' : 'fas fa-eye'} />} />
-                )}
-              />
-              {msg && <p style={{ color: 'var(--text-primary)', marginTop: 8, fontWeight: 600 }}>{msg}</p>}
-              {/* Claim-owner modal: no fetched/active server debug shown in production UI. */}
-            </ModalPanel>
-          );
-        };
-        openModal(<ClaimOwnerModal />, { size: 'small', closable: false });
+        openModal(
+          <ClaimOwnerPanel
+            username={user.username}
+            onClaim={(username, token) => claimOwner(username, token, server.id)}
+            onCancel={() => { closeModal(); setActiveView('home'); setCurrentServerId('home'); }}
+          />,
+          { size: 'small', closable: false }
+        );
       }
     } catch (e) {
       // Server may not have the /info endpoint yet — silently ignore.
@@ -1929,117 +1891,32 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
   // Render a ModalPanel-based prompt to create a channel in an optional section.
   const openCreateChannelModal = (sectionId?: string) => {
-    const CreateChannelModal = () => {
-      const [name, setName] = React.useState('');
-      const [type, setType] = React.useState<'text' | 'voice' | 'announcement'>('text');
-      const [busy, setBusy] = React.useState(false);
-
-      const submit = async () => {
-        if (!name.trim()) return;
-        setBusy(true);
-        await createChannel(name.trim(), type, sectionId);
-        closeModal();
-        loadChannelsAndSections();
-      };
-
-      return (
-        <ModalPanel
-          title="Create Channel"
-          description="Add a new channel to this server."
-          icon={<i className="fas fa-hashtag" />}
-          tone="accent"
-          footer={
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <Button variant="secondary" onClick={closeModal} disabled={busy}>Cancel</Button>
-              <Button
-                variant="primary"
-                onClick={submit}
-                disabled={busy || !name.trim()}
-                iconLeft={<i className={busy ? 'fas fa-spinner fa-spin' : 'fas fa-plus'} />}
-              >
-                {busy ? 'Creating…' : 'Create Channel'}
-              </Button>
-            </div>
-          }
-        >
-          <div className="channel-create-modal">
-            <TextField
-              label="Channel name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="new-channel"
-              autoFocus
-              disabled={busy}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
-            />
-            <label className="field">
-              <span>Channel type</span>
-              <Select
-                value={type}
-                onChange={(e) => setType(e.target.value as 'text' | 'voice' | 'announcement')}
-                disabled={busy}
-              >
-                <option value="text">Text Channel</option>
-                <option value="voice">Voice Channel</option>
-                <option value="announcement">Announcement Channel</option>
-              </Select>
-            </label>
-          </div>
-        </ModalPanel>
-      );
-    };
-    openModal(<CreateChannelModal />, { size: 'small', closable: true });
+    openModal(
+      <CreateChannelPanel
+        onCreate={async (name, type) => {
+          await createChannel(name, type, sectionId);
+          closeModal();
+          loadChannelsAndSections();
+        }}
+        onCancel={closeModal}
+      />,
+      { size: 'small', closable: true }
+    );
   };
 
   // Render a ModalPanel-based prompt to create a new section.
   const openCreateSectionModal = () => {
-    const CreateSectionModal = () => {
-      const [name, setName] = React.useState('');
-      const [busy, setBusy] = React.useState(false);
-
-      const submit = async () => {
-        if (!name.trim()) return;
-        setBusy(true);
-        await createSection(name.trim());
-        closeModal();
-        loadChannelsAndSections();
-      };
-
-      return (
-        <ModalPanel
-          title="Create Section"
-          description="Sections group related channels together."
-          icon={<i className="fas fa-folder-plus" />}
-          tone="accent"
-          footer={
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <Button variant="secondary" onClick={closeModal} disabled={busy}>Cancel</Button>
-              <Button
-                variant="primary"
-                onClick={submit}
-                disabled={busy || !name.trim()}
-                iconLeft={<i className={busy ? 'fas fa-spinner fa-spin' : 'fas fa-plus'} />}
-              >
-                {busy ? 'Creating…' : 'Create Section'}
-              </Button>
-            </div>
-          }
-        >
-          <div className="section-create-modal">
-            <TextField
-              label="Section name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="New Section"
-              autoFocus
-              disabled={busy}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
-            />
-          </div>
-        </ModalPanel>
-      );
-    };
-    openModal(<CreateSectionModal />, { size: 'small', closable: true });
+    openModal(
+      <CreateSectionPanel
+        onCreate={async (name) => {
+          await createSection(name);
+          closeModal();
+          loadChannelsAndSections();
+        }}
+        onCancel={closeModal}
+      />,
+      { size: 'small', closable: true }
+    );
   };
 
   // Persist a new channel on the server and rely on socket events to refresh state.
@@ -2434,53 +2311,17 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
   // Open a ModalPanel-based prompt to rename a section.
   const openRenameSectionModal = (section: ChannelSection) => {
-    let nameValue = section.name;
-    const handleConfirm = async () => {
-      if (nameValue.trim()) {
-        await renameSection(section.id, nameValue.trim());
-        closeModal();
-      }
-    };
-    const ModalContent = () => {
-      const [val, setVal] = React.useState(section.name);
-      nameValue = val; // keep outer ref for confirm handler
-      return (
-        <ModalPanel
-          title="Rename Section"
-          description="Enter a new name for this section."
-          icon={<i className="fas fa-folder-open" />}
-          footer={
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <Button variant="secondary" onClick={closeModal}>Cancel</Button>
-              <Button
-                variant="primary"
-                disabled={!val.trim()}
-                onClick={async () => {
-                  if (val.trim()) {
-                    await renameSection(section.id, val.trim());
-                    closeModal();
-                  }
-                }}
-              >
-                Rename
-              </Button>
-            </div>
-          }
-        >
-          <div className="rename-modal">
-            <TextField
-              label="Section name"
-              value={val}
-              onChange={(e) => setVal(e.target.value)}
-              placeholder={section.name}
-              autoFocus
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (val.trim()) { renameSection(section.id, val.trim()); closeModal(); } } }}
-            />
-          </div>
-        </ModalPanel>
-      );
-    };
-    openModal(<ModalContent />, { size: 'small', closable: true });
+    openModal(
+      <RenameSectionPanel
+        sectionName={section.name}
+        onRename={async (name) => {
+          await renameSection(section.id, name);
+          closeModal();
+        }}
+        onCancel={closeModal}
+      />,
+      { size: 'small', closable: true }
+    );
   };
 
   // Toggle a reaction emoji for the current user on a specific message.

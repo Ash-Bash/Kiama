@@ -2363,6 +2363,33 @@ export class Server {
       }
       res.json({ success: true });
     }));
+
+    // Update a bot account (reset password and/or change type)
+    this.app.patch('/admin/accounts/bots/:username', this.requireAdmin((req, res) => {
+      const { username } = req.params;
+      const { password, botType } = req.body || {};
+      const account = this.botAccountManager.load(username);
+      if (!account) {
+        return res.status(404).json({ error: `Bot account "${username}" not found` });
+      }
+      if (password !== undefined) {
+        if (typeof password !== 'string' || password.length < 6) {
+          return res.status(400).json({ error: 'password must be at least 6 characters' });
+        }
+        account.passwordHash = crypto
+          .pbkdf2Sync(password, this.serverId, 100_000, 32, 'sha256')
+          .toString('hex');
+      }
+      if (botType !== undefined) {
+        const validTypes = ['chat', 'moderator', 'custom'];
+        if (!validTypes.includes(botType)) {
+          return res.status(400).json({ error: `botType must be one of: ${validTypes.join(', ')}` });
+        }
+        account.botType = botType;
+      }
+      this.botAccountManager.save(account);
+      res.json({ success: true, account: { id: account.id, username: account.username, botType: account.botType } });
+    }));
   }
 
   private getNextChannelPosition(sectionId?: string): number {

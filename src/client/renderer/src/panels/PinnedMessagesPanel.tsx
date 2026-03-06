@@ -1,7 +1,7 @@
 import React from 'react';
-import PopoverPanel, { PopoverAnchorRect } from './PopoverPanel';
+import PopoverPanel, { PopoverAnchorRect } from '../components/PopoverPanel';
 import { TypedMessage } from '../types/plugin';
-import Button from './Button';
+import Button from '../components/Button';
 
 interface Props {
   title?: string;
