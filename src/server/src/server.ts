@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import * as unzipper from 'unzipper';
 import Database from 'better-sqlite3';
 import SecurePluginManager from './utils/PluginManager';
 import { ClientPluginMetadata } from './types/plugin';
@@ -264,7 +265,7 @@ export class Server {
         // Emit update to clients
         this.io.emit('message-update', { messageId, modifiedMessage });
       }
-    }, undefined, [path.join(__dirname, '../../server/plugins'), path.join(this.dataRoot, 'plugins')]);
+    }, undefined, [path.join(__dirname, 'plugins'), path.join(this.dataRoot, 'plugins')]);
 
     this.ensureDataLayout();
     this.dbPath = path.join(this.dataRoot, 'kiama.db');
@@ -1519,9 +1520,52 @@ export class Server {
     // Get plugin status
     this.app.get('/plugins/status', (req, res) => {
       res.json({
-        serverPlugins: this.pluginManager.getEnabledPlugins().map(p => ({ name: p.name, enabled: p.enabled !== false })),
-        clientPlugins: this.pluginManager.getEnabledClientPlugins().map(p => ({ name: p.name, enabled: p.enabled !== false }))
+        serverPlugins: this.pluginManager.getAllPlugins().map(p => ({
+          name: p.name,
+          version: p.version,
+          description: p.description || null,
+          author: p.author || null,
+          enabled: p.enabled !== false,
+          hasSettings: !!this.pluginManager.getPluginSettingsSchema(p.name),
+        })),
+        clientPlugins: this.pluginManager.getAllClientPlugins().map(p => ({
+          name: p.name,
+          version: p.version,
+          description: p.description || null,
+          author: p.author || null,
+          enabled: p.enabled !== false,
+          hasSettings: false,
+        }))
       });
+    });
+
+    // Get settings schema + current values for a plugin
+    this.app.get('/plugins/:pluginName/settings', (req, res) => {
+      const { pluginName } = req.params;
+      const schema = this.pluginManager.getPluginSettingsSchema(pluginName);
+      if (!schema) {
+        return res.status(404).json({ error: 'Plugin has no settings or was not found' });
+      }
+      const values = this.pluginManager.getPluginSettings(pluginName);
+      res.json({ schema, values });
+    });
+
+    // Save settings for a plugin
+    this.app.put('/plugins/:pluginName/settings', express.json(), (req, res) => {
+      const { pluginName } = req.params;
+      const schema = this.pluginManager.getPluginSettingsSchema(pluginName);
+      if (!schema) {
+        return res.status(404).json({ error: 'Plugin has no settings or was not found' });
+      }
+      const values = req.body;
+      if (!values || typeof values !== 'object') {
+        return res.status(400).json({ error: 'Request body must be a JSON object of setting values' });
+      }
+      const success = this.pluginManager.setPluginSettings(pluginName, values);
+      if (!success) {
+        return res.status(500).json({ error: 'Failed to save settings' });
+      }
+      res.json({ success: true });
     });
 
     // Emergency plugin shutdown (kill switch)
@@ -2253,34 +2297,99 @@ export class Server {
       }
     }));
 
-    // Download and reload plugins from a remote URL into the server plugins folder
-    this.app.post('/admin/plugins/install', this.requireAdmin(async (req, res) => {
-      const { url } = req.body || {};
-      if (!url || typeof url !== 'string') {
-        return res.status(400).json({ error: 'url is required' });
+    // Upload and install a plugin from a zip file containing a plugin folder
+    const pluginUpload = multer({ dest: path.join(os.tmpdir(), 'kiama-plugin-uploads') });
+    this.app.post('/admin/plugins/install', pluginUpload.single('plugin'), this.requireAdmin(async (req, res) => {
+      const file = (req as any).file;
+      if (!file) {
+        return res.status(400).json({ error: 'A plugin zip file is required' });
       }
 
       try {
         const pluginDir = path.join(this.dataRoot, 'plugins');
-        const urlPath = new URL(url);
-        const filename = path.basename(urlPath.pathname) || `plugin-${Date.now()}.js`;
-        const destPath = path.join(pluginDir, filename);
 
-        const response = await fetch(url);
-        if (!response.ok) {
-          return res.status(400).json({ error: `Failed to download plugin: ${response.status} ${response.statusText}` });
+        // Extract zip to a temporary directory first for validation
+        const tmpExtract = path.join(os.tmpdir(), `kiama-plugin-${Date.now()}`);
+        fs.mkdirSync(tmpExtract, { recursive: true });
+
+        await fs.createReadStream(file.path)
+          .pipe(unzipper.Extract({ path: tmpExtract }))
+          .promise();
+
+        // Determine the actual plugin root: either tmpExtract itself or a single
+        // subdirectory inside it (zip files typically wrap everything in one folder).
+        let pluginRoot = tmpExtract;
+        const topEntries = fs.readdirSync(tmpExtract);
+        if (topEntries.length === 1) {
+          const single = path.join(tmpExtract, topEntries[0]);
+          if (fs.statSync(single).isDirectory()) {
+            pluginRoot = single;
+          }
         }
 
-        const buffer = Buffer.from(await response.arrayBuffer());
-        fs.writeFileSync(destPath, buffer, { mode: 0o600 });
+        // Validate: must contain plugin.manifest.json
+        const manifestPath = path.join(pluginRoot, 'plugin.manifest.json');
+        if (!fs.existsSync(manifestPath)) {
+          // Clean up
+          fs.rmSync(tmpExtract, { recursive: true, force: true });
+          fs.unlinkSync(file.path);
+          return res.status(400).json({ error: 'Invalid plugin: missing plugin.manifest.json' });
+        }
 
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        if (!manifest.name || !manifest.main) {
+          fs.rmSync(tmpExtract, { recursive: true, force: true });
+          fs.unlinkSync(file.path);
+          return res.status(400).json({ error: 'Invalid manifest: name and main fields are required' });
+        }
+
+        // Sanitize the folder name to the manifest name
+        const safeName = manifest.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const destDir = path.join(pluginDir, safeName);
+
+        // Remove previous version if it exists
+        if (fs.existsSync(destDir)) {
+          fs.rmSync(destDir, { recursive: true, force: true });
+        }
+
+        // Move plugin root to the final destination
+        fs.renameSync(pluginRoot, destDir);
+
+        // Clean up temp files
+        if (fs.existsSync(tmpExtract)) fs.rmSync(tmpExtract, { recursive: true, force: true });
+        fs.unlinkSync(file.path);
+
+        // Reload plugins so the new one gets picked up
         this.pluginManager.reloadExternalPlugins(pluginDir);
 
-        res.json({ success: true, savedAs: destPath });
+        res.json({ success: true, name: manifest.name, version: manifest.version });
       } catch (error) {
-        console.error('Plugin download failed:', error);
-        res.status(500).json({ error: 'Failed to download or load plugin' });
+        console.error('Plugin install failed:', error);
+        try { fs.unlinkSync(file.path); } catch (_) {}
+        res.status(500).json({ error: 'Failed to install plugin' });
       }
+    }));
+
+    // Uninstall a plugin (remove from memory and delete from disk)
+    this.app.delete('/admin/plugins/:pluginName', this.requireAdmin((req, res) => {
+      const { pluginName } = req.params;
+
+      // Remove from in-memory registries
+      const removedServer = this.pluginManager.removePlugin(pluginName);
+      const removedClient = this.pluginManager.removeClientPlugin(pluginName);
+
+      if (!removedServer && !removedClient) {
+        return res.status(404).json({ error: `Plugin not found: ${pluginName}` });
+      }
+
+      // Delete the plugin folder from disk if it exists
+      const safeName = pluginName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const pluginDir = path.join(this.dataRoot, 'plugins', safeName);
+      if (fs.existsSync(pluginDir) && fs.statSync(pluginDir).isDirectory()) {
+        fs.rmSync(pluginDir, { recursive: true, force: true });
+      }
+
+      res.json({ success: true, message: `Uninstalled plugin: ${pluginName}` });
     }));
 
     // Reload plugins from the data plugins directory without downloading

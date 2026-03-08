@@ -1,0 +1,36 @@
+{
+  "name": "message-logger",
+  "version": "1.0.0",
+  "description": "Logs all messages to the console for debugging",
+  "author": "Kiama Team",
+  "main": "index.js",
+  "type": "server",
+  "permissions": ["messageHandler"],
+  "settings": [
+    {
+      "key": "logLevel",
+      "type": "select",
+      "label": "Log Level",
+      "description": "Controls how much detail is included in each log entry.",
+      "default": "basic",
+      "options": [
+        { "label": "Basic", "value": "basic" },
+        { "label": "Verbose", "value": "verbose" }
+      ]
+    },
+    {
+      "key": "logTimestamp",
+      "type": "toggle",
+      "label": "Include Timestamp",
+      "description": "Prepend an ISO-8601 timestamp to every log line.",
+      "default": true
+    },
+    {
+      "key": "channelFilter",
+      "type": "text",
+      "label": "Channel Filter",
+      "description": "Only log messages from this channel ID. Leave blank to log all channels.",
+      "placeholder": "e.g. general"
+    }
+  ]
+}

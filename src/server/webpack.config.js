@@ -12,6 +12,16 @@ const entries = {
 
 // Add server plugins as separate entries
 const pluginsDir = path.resolve(__dirname, 'src/plugins');
+
+// 1. Folder-based plugins: each sub-folder with an index.ts becomes an entry
+const pluginDirs = fs.readdirSync(pluginsDir, { withFileTypes: true })
+  .filter(d => d.isDirectory() && fs.existsSync(path.join(pluginsDir, d.name, 'index.ts')));
+
+pluginDirs.forEach(d => {
+  entries[`plugins/${d.name}/index`] = `./src/plugins/${d.name}/index.ts`;
+});
+
+// 2. Legacy loose .ts files (not inside a subfolder)
 const pluginFiles = fs.readdirSync(pluginsDir).filter(file =>
   file.endsWith('.ts') && !file.includes('-client') && file !== 'types'
 );
@@ -80,6 +90,16 @@ module.exports = {
             }
             return content;
           }
+        }
+        ,
+        // Copy plugin.manifest.json files for folder-based bundled plugins
+        {
+          from: path.resolve(__dirname, 'src/plugins/*/plugin.manifest.json'),
+          to: ({ absoluteFilename }) => {
+            const pluginFolder = path.basename(path.dirname(absoluteFilename));
+            return path.resolve(__dirname, `../../dist/server/plugins/${pluginFolder}/[name][ext]`);
+          },
+          noErrorOnMissing: true
         }
         ,
         // Copy the top-level install script into the built server folder so it's available

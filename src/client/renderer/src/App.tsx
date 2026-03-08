@@ -3156,7 +3156,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         <div className={`server-list ${isMobile ? 'mobile-drawer' : ''} ${showMobileServerList ? 'mobile-open' : ''}`}>
           <div className="server-items">
             <div
-              className={`server-item home ${currentServerId === 'home' ? 'active' : ''}`}
+              className={`server-item home ${currentServerId === 'home' && !isSettingsView ? 'active' : ''}`}
               onClick={() => switchServer('home')}
               title="Home"
             >
@@ -3170,7 +3170,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
             {nonHomeServers.map(server => (
               <div
                 key={server.id}
-                className={`server-item ${server.id === currentServerId ? 'active' : ''}`}
+                className={`server-item ${server.id === currentServerId && !isSettingsView ? 'active' : ''}`}
                 onClick={() => switchServer(server.id)}
                 title={server.name}
               >
@@ -3187,7 +3187,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
             <div className="add-server" onClick={addServer} title="Add Server">
               <span className="add-server-icon">+</span>
             </div>
-            <div className="account-btn" onClick={openAccountSettings} title="Account">
+            <div className={`account-btn ${isSettingsView ? 'active' : ''}`} onClick={openAccountSettings} title="Account">
               <i className="fas fa-user"></i>
             </div>
           </div>

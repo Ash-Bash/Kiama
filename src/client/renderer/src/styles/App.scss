@@ -1523,6 +1523,419 @@ html, body {
 }
 
 /* ============================================================
+   Server Plugins Settings Page
+   ============================================================ */
+.plugins-page {
+  padding: 40px;
+  max-width: 740px;
+}
+
+.plugins-page__header {
+  margin-bottom: 0;
+}
+
+.plugins-page__header-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plugins-page__title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.plugins-page__description {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.plugins-page__upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 8px;
+  width: fit-content;
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--accent-hover, #4752c4);
+  }
+}
+
+.plugins-page__hint {
+  font-size: 12px;
+  color: var(--text-muted, #72767d);
+  margin: 4px 0 0;
+  line-height: 1.4;
+
+  code {
+    background: var(--tertiary-bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+}
+
+.plugins-page__error {
+  font-size: 13px;
+  color: #ed4245;
+  margin: 4px 0 0;
+}
+
+.plugins-page__divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 24px 0;
+}
+
+.plugins-page__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  text-align: center;
+}
+
+.plugins-page__empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+.plugins-page__empty-text {
+  font-size: 14px;
+  color: var(--text-muted, #72767d);
+  margin: 8px 0 0;
+}
+
+.plugins-page__list-header {
+  margin-bottom: 8px;
+}
+
+.plugins-page__list-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.plugins-page__list-count {
+  font-size: 12px;
+  color: var(--text-muted, #72767d);
+}
+
+.plugins-page__table {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.plugins-page__table-head {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  gap: 12px;
+  background: var(--tertiary-bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted, #72767d);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.plugins-page__table-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--hover);
+
+    .plugins-page__row-delete {
+      opacity: 1;
+    }
+    .plugins-page__row-settings {
+      opacity: 1;
+    }
+  }
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &--disabled {
+    opacity: 0.55;
+  }
+}
+
+.plugins-page__table-col {
+  display: flex;
+  align-items: center;
+}
+
+.plugins-page__table-col--status {
+  width: 56px;
+  flex-shrink: 0;
+}
+
+.plugins-page__table-col--name {
+  flex: 1;
+  min-width: 0;
+}
+
+.plugins-page__table-col--type {
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.plugins-page__table-col--version {
+  width: 72px;
+  flex-shrink: 0;
+}
+
+.plugins-page__table-col--author {
+  width: 120px;
+  flex-shrink: 0;
+}
+
+.plugins-page__table-col--actions {
+  width: 120px;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.plugins-page__row-delete {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted, #72767d);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    color: #ed4245;
+    background: rgba(237, 66, 69, 0.1);
+  }
+
+  i {
+    font-size: 14px;
+  }
+}
+
+.plugins-page__row-settings {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted, #72767d);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    color: var(--text-primary);
+    background: var(--hover);
+  }
+
+  i {
+    font-size: 14px;
+  }
+}
+
+.plugins-page__status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted, #72767d);
+  transition: background 0.2s;
+
+  &--active {
+    background: #43b581;
+  }
+}
+
+.plugins-page__plugin-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.plugins-page__plugin-desc {
+  font-size: 12px;
+  color: var(--text-muted, #72767d);
+  margin: 2px 0 0;
+  line-height: 1.3;
+}
+
+.plugins-page__type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 6px;
+  border-radius: 4px;
+
+  &--server {
+    background: rgba(88, 101, 242, 0.15);
+    color: #5865f2;
+  }
+
+  &--client {
+    background: rgba(67, 181, 129, 0.15);
+    color: #43b581;
+  }
+}
+
+.plugins-page__version {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.plugins-page__author {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Plugin Settings Modal */
+.plugin-settings-modal {
+  width: 480px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface-card-bg, var(--secondary-bg));
+  border: 1px solid var(--surface-border, var(--border));
+  box-shadow: var(--surface-card-shadow, 0 10px 24px rgba(0, 0, 0, 0.24));
+}
+
+.plugin-settings-modal__header {
+  padding: 20px 24px 12px;
+  position: relative;
+}
+
+.plugin-settings-modal__title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.plugin-settings-modal__subtitle {
+  font-size: 13px;
+  color: var(--text-muted, #72767d);
+  margin: 4px 0 0;
+}
+
+.plugin-settings-modal__close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted, #72767d);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+
+  &:hover {
+    color: var(--text-primary);
+    background: var(--hover);
+  }
+}
+
+.plugin-settings-modal__body {
+  padding: 8px 24px 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.plugin-settings-modal__field {
+  margin-bottom: 16px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.plugin-settings-modal__label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.plugin-settings-modal__desc {
+  font-size: 12px;
+  color: var(--text-muted, #72767d);
+  margin: 0 0 6px;
+  line-height: 1.3;
+}
+
+.plugin-settings-modal__control {
+  input, select {
+    width: 100%;
+  }
+}
+
+.plugin-settings-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+}
+
+.plugin-settings-modal__error {
+  font-size: 13px;
+  color: #ed4245;
+}
+
+/* ============================================================
    Server Accounts Settings Page
    ============================================================ */
 .accounts-page {
@@ -2476,6 +2889,10 @@ html, body {
   --surface-card-shadow: 0 6px 14px rgba(0, 0, 0, 0.12);
   --surface-chip-bg: rgba(255, 255, 255, 0.05);
   --surface-cta-shadow: 0 6px 14px rgba(0, 0, 0, 0.16);
+
+  @media (max-width: 768px) {
+    border-top-left-radius: 0;
+  }
 }
 
 .app {
@@ -2494,6 +2911,10 @@ html, body {
   overflow: hidden;
   position: relative;
   box-shadow: -10px 8px 18px rgba(0, 0, 0, 0.12);
+
+  @media (max-width: 768px) {
+    border-top-left-radius: 0;
+  }
 }
 
 .page-surface {
@@ -2984,21 +3405,38 @@ html, body {
       cursor: pointer;
       @include flex-center;
       position: relative;
-      overflow: hidden;
       transition: background-color 0.2s;
+
+      // Left pill indicator (servers only, not home)
+      &:not(.home)::before {
+        content: '';
+        position: absolute;
+        left: -12px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 4px;
+        height: 0;
+        border-radius: 0 4px 4px 0;
+        background-color: var(--text-primary, #fff);
+        transition: height 0.15s ease;
+      }
+
+      &:not(.home):hover::before {
+        height: 20px;
+      }
 
       &:hover {
         background-color: var(--server-item-bg-hover, var(--hover));
       }
 
-      &.active {
-        background-color: var(--accent);
-
-        &:hover {
-          background-color: var(--accent-hover);
+      // Server items (not home): pill only, no background fill
+      &.active:not(.home) {
+        &::before {
+          height: 36px;
         }
       }
 
+      // Home: filled background like the original
       &.home {
         background-color: var(--secondary-bg);
 
@@ -3008,6 +3446,10 @@ html, body {
 
         &.active {
           background-color: var(--accent);
+
+          &:hover {
+            background-color: var(--accent-hover);
+          }
         }
       }
 
@@ -3018,6 +3460,8 @@ html, body {
       .server-icon {
         width: 100%;
         height: 100%;
+        border-radius: inherit;
+        overflow: hidden;
         @include flex-center;
         color: white;
         font-weight: 600;
@@ -3034,7 +3478,6 @@ html, body {
           width: 100%;
           height: 100%;
           object-fit: cover;
-          border-radius: 50%;
         }
       }
     }
@@ -3098,6 +3541,16 @@ html, body {
       &:hover {
         background-color: var(--accent-hover);
         border-color: var(--accent-hover);
+      }
+
+      &.active {
+        background-color: var(--accent);
+        border-color: var(--accent);
+
+        &:hover {
+          background-color: var(--accent-hover);
+          border-color: var(--accent-hover);
+        }
       }
 
       i {
@@ -3696,6 +4149,10 @@ html, body {
   overflow: hidden;
   position: relative;
   box-shadow: none;
+
+  @media (max-width: 768px) {
+    border-top-left-radius: 0;
+  }
 
   .server-header {
     position: sticky;

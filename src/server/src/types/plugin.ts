@@ -12,6 +12,61 @@ export interface ServerPlugin {
   cleanup?: () => void;          // Optional cleanup function
 }
 
+/**
+ * Manifest file (plugin.manifest.json) that lives in each plugin's folder.
+ * Modelled after npm's package.json so the format feels familiar.
+ */
+export interface PluginManifest {
+  name: string;
+  version: string;
+  description?: string;
+  author?: string;
+  main: string;                  // Entry-point file relative to the plugin folder (e.g. "index.js")
+  type?: 'server' | 'client';   // Defaults to 'server'
+  permissions?: string[];
+  ui?: PluginUIConfig;
+  settings?: PluginSettingField[];  // Configurable settings exposed by this plugin
+}
+
+/** Describes a single configurable setting a plugin exposes to the admin UI. */
+export type PluginSettingField =
+  | PluginSettingText
+  | PluginSettingNumber
+  | PluginSettingToggle
+  | PluginSettingSelect;
+
+interface PluginSettingBase {
+  key: string;                    // Unique key used to store the value
+  label: string;                  // Human-readable label
+  description?: string;           // Help text shown below the field
+  required?: boolean;
+}
+
+export interface PluginSettingText extends PluginSettingBase {
+  type: 'text';
+  default?: string;
+  placeholder?: string;
+}
+
+export interface PluginSettingNumber extends PluginSettingBase {
+  type: 'number';
+  default?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+export interface PluginSettingToggle extends PluginSettingBase {
+  type: 'toggle';
+  default?: boolean;
+}
+
+export interface PluginSettingSelect extends PluginSettingBase {
+  type: 'select';
+  default?: string;
+  options: { label: string; value: string }[];
+}
+
 export interface ServerPluginAPI {
   addMessageHandler: (handler: (message: any) => any) => void;
   addRoute: (path: string, handler: any) => void;

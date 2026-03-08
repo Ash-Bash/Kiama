@@ -68,6 +68,7 @@ const AddServerAccountPanel: React.FC<AddServerAccountPanelProps> = ({ onCreate,
           placeholder="Min. 6 characters"
           disabled={creating}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+          hint={newPassword.length > 0 && newPassword.length < 6 ? `${newPassword.length}/6 characters minimum` : undefined}
           suffix={(
             <Button className="icon-button" variant="ghost" onClick={() => setShowPassword(v => !v)} iconLeft={<i className={showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'} />} title={showPassword ? 'Hide password' : 'Show password'} />
           )}

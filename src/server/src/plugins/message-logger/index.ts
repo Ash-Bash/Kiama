@@ -1,4 +1,4 @@
-import { ServerPlugin } from '../types/plugin';
+import { ServerPlugin } from '../../types/plugin';
 
 // Server plugin that streams every received message to the server logs for debugging.
 const messageLoggerPlugin: ServerPlugin = {

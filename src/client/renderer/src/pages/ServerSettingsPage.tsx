@@ -75,7 +75,7 @@ interface ServerSettingsPageProps {
   onPasswordUpdated?: (required: boolean) => void;
 }
 
-type ServerTab = 'overview' | 'roles' | 'permissions' | 'security' | 'backups' | 'ownership' | 'emotes' | 'accounts';
+type ServerTab = 'overview' | 'roles' | 'permissions' | 'security' | 'backups' | 'ownership' | 'emotes' | 'accounts' | 'plugins';
 
 const defaultRolePermissions: RolePermissions = {
   manageServer: false,
@@ -754,6 +754,10 @@ const BackupsSubPage: React.FC<BackupsSubPageProps> = ({ serverUrl, adminToken: 
   }, [serverUrl, token, authHeaders]);
 
   useEffect(() => {
+    if (ownerIsCurrent && !tokenSaved) setTokenSaved(true);
+  }, [ownerIsCurrent]);
+
+  useEffect(() => {
     if (tokenSaved && (token || ownerIsCurrent)) fetchBackups();
   }, [tokenSaved, fetchBackups, token, ownerIsCurrent]);
 
@@ -1385,6 +1389,12 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
     }
   }, [serverUrl, token, ownerIsCurrent, authHeaders]);
 
+  // If the owner status resolves after mount (e.g. server info cache updates),
+  // automatically unlock the token gate so the owner isn't stuck.
+  useEffect(() => {
+    if (ownerIsCurrent && !tokenSaved) setTokenSaved(true);
+  }, [ownerIsCurrent]);
+
   useEffect(() => {
     if (tokenSaved) fetchAccounts();
   }, [tokenSaved, fetchAccounts]);
@@ -1618,6 +1628,351 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
   );
 };
 
+// == Plugins sub-page ==========================================================
+
+interface PluginEntry {
+  name: string;
+  version: string;
+  description: string | null;
+  author: string | null;
+  enabled: boolean;
+  type: 'server' | 'client';
+  hasSettings: boolean;
+}
+
+interface PluginSettingField {
+  key: string;
+  label: string;
+  description?: string;
+  type: 'text' | 'number' | 'toggle' | 'select';
+  default?: any;
+  placeholder?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: { label: string; value: string }[];
+  required?: boolean;
+}
+
+// ── Plugin Settings Modal ─────────────────────────────────────────────────────
+
+const PluginSettingsModal: React.FC<{
+  plugin: PluginEntry;
+  serverUrl: string;
+  onClose: () => void;
+}> = ({ plugin, serverUrl, onClose }) => {
+  const [schema, setSchema] = useState<PluginSettingField[]>([]);
+  const [values, setValues] = useState<Record<string, any>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${serverUrl}/plugins/${encodeURIComponent(plugin.name)}/settings`);
+        if (!res.ok) throw new Error('Failed to load settings');
+        const data = await res.json();
+        setSchema(data.schema || []);
+        setValues(data.values || {});
+      } catch (e) { console.error(e); }
+      finally { setLoading(false); }
+    })();
+  }, [serverUrl, plugin.name]);
+
+  const handleChange = (key: string, value: any) => {
+    setValues(prev => ({ ...prev, [key]: value }));
+    setSaveStatus('idle');
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveStatus('idle');
+    try {
+      const res = await fetch(`${serverUrl}/plugins/${encodeURIComponent(plugin.name)}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+      if (!res.ok) throw new Error('Save failed');
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (e) {
+      console.error(e);
+      setSaveStatus('error');
+    } finally { setSaving(false); }
+  };
+
+  const renderField = (field: PluginSettingField) => {
+    const val = values[field.key] ?? field.default ?? (field.type === 'toggle' ? false : field.type === 'number' ? 0 : '');
+    switch (field.type) {
+      case 'text':
+        return (
+          <TextField
+            value={val as string}
+            placeholder={field.placeholder}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange(field.key, e.target.value)}
+          />
+        );
+      case 'number':
+        return (
+          <TextField
+            type="number"
+            value={String(val)}
+            min={field.min}
+            max={field.max}
+            step={field.step}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange(field.key, Number(e.target.value))}
+          />
+        );
+      case 'toggle':
+        return (
+          <Toggle
+            checked={!!val}
+            onChange={(next: boolean) => handleChange(field.key, next)}
+          />
+        );
+      case 'select':
+        return (
+          <Select
+            value={val as string}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleChange(field.key, e.target.value)}
+            options={(field.options || []).map(o => ({ value: o.value, label: o.label }))}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="login-delete-overlay" onClick={onClose} style={{ zIndex: 9999 }}>
+      <div className="login-delete-container plugin-settings-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="plugin-settings-modal__header">
+          <h2 className="plugin-settings-modal__title">{plugin.name}</h2>
+          <p className="plugin-settings-modal__subtitle">Plugin Settings</p>
+          <button className="plugin-settings-modal__close" onClick={onClose} title="Close">
+            <i className="fas fa-times" />
+          </button>
+        </div>
+
+        <div className="plugin-settings-modal__body">
+          {loading && <div style={{ padding: 16 }}>Loading…</div>}
+          {!loading && schema.length === 0 && (
+            <p style={{ color: 'var(--text-muted)', padding: 16 }}>This plugin has no configurable settings.</p>
+          )}
+          {!loading && schema.map(field => (
+            <div key={field.key} className="plugin-settings-modal__field">
+              <label className="plugin-settings-modal__label">{field.label}</label>
+              {field.description && <p className="plugin-settings-modal__desc">{field.description}</p>}
+              <div className="plugin-settings-modal__control">
+                {renderField(field)}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {!loading && schema.length > 0 && (
+          <div className="plugin-settings-modal__footer">
+            <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" size="sm" onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : saveStatus === 'saved' ? 'Saved!' : 'Save'}
+            </Button>
+            {saveStatus === 'error' && <span className="plugin-settings-modal__error">Failed to save</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── Plugin list table ─────────────────────────────────────────────────────────
+
+const PluginsSubPage: React.FC<{ serverUrl: string; currentUsername?: string }> = ({ serverUrl, currentUsername }) => {
+  const [plugins, setPlugins] = useState<PluginEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [toggling, setToggling] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [settingsPlugin, setSettingsPlugin] = useState<PluginEntry | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${serverUrl}/plugins/status`);
+      if (!res.ok) throw new Error('Failed to load plugins');
+      const data = await res.json();
+      const all: PluginEntry[] = [
+        ...(data.serverPlugins || []).map((p: any) => ({ ...p, type: 'server' as const })),
+        ...(data.clientPlugins || []).map((p: any) => ({ ...p, type: 'client' as const })),
+      ];
+      setPlugins(all);
+    } catch (e) {
+      console.error(e);
+    } finally { setLoading(false); }
+  }, [serverUrl]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleToggle = async (plugin: PluginEntry) => {
+    const action = plugin.enabled ? 'disable' : 'enable';
+    setToggling(plugin.name);
+    // Optimistic update so the row stays visible
+    setPlugins(prev => prev.map(p =>
+      p.name === plugin.name && p.type === plugin.type ? { ...p, enabled: !p.enabled } : p
+    ));
+    try {
+      const res = await fetch(`${serverUrl}/plugins/${plugin.type}/${encodeURIComponent(plugin.name)}/${action}`, { method: 'POST' });
+      if (!res.ok) {
+        // Revert on failure
+        setPlugins(prev => prev.map(p =>
+          p.name === plugin.name && p.type === plugin.type ? { ...p, enabled: plugin.enabled } : p
+        ));
+      }
+    } catch (e) {
+      console.error(e);
+      // Revert on error
+      setPlugins(prev => prev.map(p =>
+        p.name === plugin.name && p.type === plugin.type ? { ...p, enabled: plugin.enabled } : p
+      ));
+    } finally { setToggling(null); }
+  };
+
+  const handleUninstall = async (plugin: PluginEntry) => {
+    if (!confirm(`Uninstall plugin "${plugin.name}"? This will remove the plugin files from the server.`)) return;
+    try {
+      const headers: Record<string, string> = {};
+      if (currentUsername) headers['x-username'] = currentUsername;
+      const res = await fetch(`${serverUrl}/admin/plugins/${encodeURIComponent(plugin.name)}`, { method: 'DELETE', headers });
+      if (!res.ok) throw new Error('Uninstall failed');
+      setPlugins(prev => prev.filter(p => !(p.name === plugin.name && p.type === plugin.type)));
+    } catch (e) { console.error(e); }
+  };
+
+  const handleInstall = async (file: File) => {
+    setInstalling(true);
+    setInstallError(null);
+    try {
+      const form = new FormData();
+      form.append('plugin', file);
+      const headers: Record<string, string> = {};
+      if (currentUsername) headers['x-username'] = currentUsername;
+      const res = await fetch(`${serverUrl}/admin/plugins/install`, { method: 'POST', body: form, headers });
+      const data = await res.json();
+      if (!res.ok) {
+        setInstallError(data.error || 'Install failed');
+        return;
+      }
+      await load();
+    } catch (e) {
+      console.error(e);
+      setInstallError('Failed to upload plugin');
+    } finally { setInstalling(false); }
+  };
+
+  const hasPlugins = plugins.length > 0;
+
+  return (
+    <div className="settings-sub-page plugins-page">
+      <div className="plugins-page__header">
+        <div className="plugins-page__header-content">
+          <h2 className="plugins-page__title">Plugins</h2>
+          <p className="plugins-page__description">
+            Manage server-side and client plugins. Enable or disable plugins to control what functionality is available on this server.
+          </p>
+          <label className="button button--primary plugins-page__upload-btn">
+            <input
+              aria-label="Upload plugin"
+              type="file"
+              accept=".zip"
+              style={{ display: 'none' }}
+              disabled={installing}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleInstall(f); e.currentTarget.value = ''; }}
+            />
+            {installing ? 'Installing…' : 'Add Plugin'}
+          </label>
+          <p className="plugins-page__hint">
+            Upload a .zip file containing a plugin folder with a <code>plugin.manifest.json</code>.
+          </p>
+          {installError && <p className="plugins-page__error">{installError}</p>}
+        </div>
+      </div>
+
+      <hr className="plugins-page__divider" />
+
+      {loading && <div style={{ padding: 16 }}>Loading…</div>}
+
+      {!loading && !hasPlugins && (
+        <div className="plugins-page__empty">
+          <h3 className="plugins-page__empty-title">NO PLUGINS</h3>
+          <p className="plugins-page__empty-text">No plugins are installed or available on this server.</p>
+        </div>
+      )}
+
+      {hasPlugins && (
+        <>
+          <div className="plugins-page__list-header">
+            <h3 className="plugins-page__list-title">Installed Plugins</h3>
+            <span className="plugins-page__list-count">{plugins.length} plugin{plugins.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div className="plugins-page__table">
+            <div className="plugins-page__table-head">
+              <div className="plugins-page__table-col plugins-page__table-col--status">Status</div>
+              <div className="plugins-page__table-col plugins-page__table-col--name">Name</div>
+              <div className="plugins-page__table-col plugins-page__table-col--type">Type</div>
+              <div className="plugins-page__table-col plugins-page__table-col--version">Version</div>
+              <div className="plugins-page__table-col plugins-page__table-col--author">Author</div>
+              <div className="plugins-page__table-col plugins-page__table-col--actions"></div>
+            </div>
+            {plugins.map(p => (
+              <div key={`${p.type}-${p.name}`} className={`plugins-page__table-row${!p.enabled ? ' plugins-page__table-row--disabled' : ''}`}>
+                <div className="plugins-page__table-col plugins-page__table-col--status">
+                  <span className={`plugins-page__status-dot${p.enabled ? ' plugins-page__status-dot--active' : ''}`} title={p.enabled ? 'Enabled' : 'Disabled'} />
+                </div>
+                <div className="plugins-page__table-col plugins-page__table-col--name">
+                  <div>
+                    <span className="plugins-page__plugin-name">{p.name}</span>
+                    {p.description && <p className="plugins-page__plugin-desc">{p.description}</p>}
+                  </div>
+                </div>
+                <div className="plugins-page__table-col plugins-page__table-col--type">
+                  <span className={`plugins-page__type-badge plugins-page__type-badge--${p.type}`}>{p.type}</span>
+                </div>
+                <div className="plugins-page__table-col plugins-page__table-col--version">
+                  <span className="plugins-page__version">{p.version}</span>
+                </div>
+                <div className="plugins-page__table-col plugins-page__table-col--author">
+                  <span className="plugins-page__author">{p.author || '—'}</span>
+                </div>
+                <div className="plugins-page__table-col plugins-page__table-col--actions">
+                  {p.hasSettings && (
+                    <button className="plugins-page__row-settings" onClick={() => setSettingsPlugin(p)} title="Settings">
+                      <i className="fas fa-cog" />
+                    </button>
+                  )}
+                  <Toggle checked={p.enabled} onChange={() => handleToggle(p)} disabled={toggling === p.name} />
+                  <button className="plugins-page__row-delete" onClick={() => handleUninstall(p)} title="Uninstall">
+                    <i className="fas fa-trash" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Plugin Settings Modal */}
+      {settingsPlugin && (
+        <PluginSettingsModal
+          plugin={settingsPlugin}
+          serverUrl={serverUrl}
+          onClose={() => setSettingsPlugin(null)}
+        />
+      )}
+    </div>
+  );
+};
+
 // == Main component ============================================================
 
 const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
@@ -1652,6 +2007,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
         { id: 'roles',       label: 'Roles',       icon: 'fas fa-shield-alt'  },
         { id: 'emotes',      label: 'Emotes',      icon: 'fas fa-smile'       },
         { id: 'accounts',    label: 'Server Accounts', icon: 'fas fa-robot'   },
+        { id: 'plugins',     label: 'Plugins',     icon: 'fas fa-puzzle-piece' },
         { id: 'permissions', label: 'Permissions', icon: 'fas fa-lock'        },
         { id: 'security',    label: 'Security',    icon: 'fas fa-key'         },
         { id: 'backups',     label: 'Backups',     icon: 'fas fa-archive'     },
@@ -1687,6 +2043,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
       {activeTab === 'overview'    && <OverviewSubPage server={server} onUpdateServerIcon={onUpdateServerIcon} />}
       {activeTab === 'roles'       && <RolesSubPage roles={roles} onCreateRole={onCreateRole} onUpdateRole={onUpdateRole} onDeleteRole={onDeleteRole} />}
       {activeTab === 'emotes'      && <EmotesSubPage serverId={server.id} serverUrl={server.url} currentUsername={currentUsername} />}
+      {activeTab === 'plugins'     && <PluginsSubPage serverUrl={server.url} currentUsername={currentUsername} />}
       {activeTab === 'permissions' && (
         <PermissionsSubPage
           server={server}
