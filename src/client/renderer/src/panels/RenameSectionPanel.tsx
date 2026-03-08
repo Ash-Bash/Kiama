@@ -24,7 +24,7 @@ const RenameSectionPanel: React.FC<RenameSectionPanelProps> = ({ sectionName, on
       description="Enter a new name for this section."
       icon={<i className="fas fa-folder-open" />}
       footer={
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <>
           <Button variant="secondary" onClick={onCancel}>Cancel</Button>
           <Button
             variant="primary"
@@ -33,7 +33,7 @@ const RenameSectionPanel: React.FC<RenameSectionPanelProps> = ({ sectionName, on
           >
             Rename
           </Button>
-        </div>
+        </>
       }
     >
       <div className="rename-modal">

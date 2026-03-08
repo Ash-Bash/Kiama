@@ -77,7 +77,7 @@ export const ModalProvider: React.FC<ModalProviderProps> = ({ children }) => {
               <div className="modal-header">
                 <h2>{modalOptions.title}</h2>
                 {modalOptions.closable !== false && (
-                  <button className="modal-close" onClick={closeModal}>×</button>
+                  <button className="modal-close" onClick={closeModal} title="Close">×</button>
                 )}
               </div>
             )}

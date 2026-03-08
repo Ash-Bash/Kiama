@@ -31,15 +31,15 @@ const ClaimOwnerPanel: React.FC<ClaimOwnerPanelProps> = ({ username, onClaim, on
   };
 
   const footer = (
-    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+    <>
       <Button variant="secondary" onClick={onCancel} disabled={busy}>Cancel</Button>
       <Button variant="primary" onClick={submit} disabled={busy} iconLeft={<i className={busy ? 'fas fa-spinner fa-spin' : 'fas fa-crown'} />}>{busy ? 'Claiming…' : 'Claim Ownership'}</Button>
-    </div>
+    </>
   );
 
   return (
     <ModalPanel title="Claim Server Ownership" description="This server has no owner yet. Claim ownership to finish setup and receive admin privileges." footer={footer}>
-      <p style={{ marginTop: 0, marginBottom: 8, color: 'var(--text-primary)' }}>You will be set as the server owner: <strong style={{ color: 'var(--text-primary)' }}>{username}</strong></p>
+      <p className="modal-panel__hint">You will be set as the server owner: <strong>{username}</strong></p>
       <TextField
         containerClassName="field--grow field--with-icon"
         label={needsToken ? 'Admin token (required)' : 'Admin token (optional)'}
@@ -48,10 +48,10 @@ const ClaimOwnerPanel: React.FC<ClaimOwnerPanelProps> = ({ username, onClaim, on
         type={showToken ? 'text' : 'password'}
         disabled={busy}
         suffix={(
-          <Button className="icon-button" variant="ghost" onClick={() => setShowToken(v => !v)} iconLeft={<i className={showToken ? 'fas fa-eye-slash' : 'fas fa-eye'} />} />
+          <Button className="icon-button" variant="ghost" onClick={() => setShowToken(v => !v)} iconLeft={<i className={showToken ? 'fas fa-eye-slash' : 'fas fa-eye'} />} title={showToken ? 'Hide token' : 'Show token'} />
         )}
       />
-      {msg && <p style={{ color: 'var(--text-primary)', marginTop: 8, fontWeight: 600 }}>{msg}</p>}
+      {msg && <p className="modal-panel__error"><i className="fas fa-exclamation-triangle" /> {msg}</p>}
     </ModalPanel>
   );
 };

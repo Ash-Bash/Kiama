@@ -373,144 +373,6 @@
     box-shadow: 0 8px 20px rgba(34, 197, 94, 0.25);
   }
 
-  // ── Backup styles ─────────────────────────────────────────────────────────
-
-  .backup-config-row {
-    display: flex;
-    gap: 16px;
-    flex-wrap: wrap;
-    align-items: flex-end;
-  }
-
-  .backup-status-msg {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    border-radius: 10px;
-    font-size: 13px;
-    background: rgba(34, 197, 94, 0.12);
-    border: 1px solid rgba(34, 197, 94, 0.3);
-    color: #22c55e;
-    margin-bottom: 4px;
-
-    &--error {
-      background: rgba(239, 68, 68, 0.12);
-      border-color: rgba(239, 68, 68, 0.3);
-      color: #ef4444;
-    }
-  }
-
-  .backup-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .backup-entry {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 12px 14px;
-    background: var(--secondary-bg);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    transition: border-color 0.15s ease, background 0.15s ease;
-
-    &:hover {
-      border-color: var(--accent);
-      background: var(--hover-bg);
-    }
-
-    &__info {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      min-width: 0;
-    }
-
-    &__name {
-      font-size: 13px;
-      font-weight: 600;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: var(--text-primary);
-      font-family: monospace;
-    }
-
-    &__meta {
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
-
-    &__actions {
-      display: flex;
-      gap: 6px;
-      flex-shrink: 0;
-    }
-  }
-
-  .backup-action-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--tertiary-bg);
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-size: 13px;
-    text-decoration: none;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-
-    &:hover {
-      background: var(--hover-bg);
-      color: var(--text-primary);
-      border-color: var(--accent);
-      transform: translateY(-1px);
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    &--danger {
-      &:hover {
-        border-color: #ef4444;
-        color: #ef4444;
-        background: rgba(239, 68, 68, 0.1);
-      }
-    }
-  }
-
-  .backup-refresh-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-size: 13px;
-    padding: 2px 0;
-    transition: color 0.15s ease;
-
-    &:hover {
-      color: var(--text-primary);
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-  }
-
   // Align text fields with the shared settings style (compact height)
   .field {
     display: flex;
@@ -548,5 +410,306 @@
     background: #ff4d4f;
     color: #fff;
     border: none;
+  }
+}
+
+// ── Backup styles (root level – matches emotes/accounts pattern) ────────────
+
+.backups-page__divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 24px 0;
+}
+
+.backup-status-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #22c55e;
+
+  &--error {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+  }
+}
+
+.backup-max-field {
+  width: 80px;
+  min-width: 60px;
+}
+
+// ── Backups table (mirrors emotes / accounts table pattern) ──────────────
+
+.backups-page__list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.backups-page__list-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.backups-page__list-count {
+  font-size: 12px;
+  color: var(--text-muted, #72767d);
+}
+
+.backups-page__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.backups-page__empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+.backups-page__empty-text {
+  font-size: 14px;
+  color: var(--text-muted, #72767d);
+  margin: 8px 0 0;
+}
+
+.backups-page__table {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.backups-page__table-head {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--tertiary-bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted, #72767d);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.backups-page__table-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--hover);
+
+    .backups-page__row-action,
+    .backups-page__row-delete {
+      opacity: 1;
+    }
+  }
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.backups-page__table-col {
+  display: flex;
+  align-items: center;
+}
+
+.backups-page__table-col--name {
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+}
+
+.backups-page__table-col--date {
+  width: 160px;
+  flex-shrink: 0;
+}
+
+.backups-page__table-col--size {
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.backups-page__table-col--actions {
+  width: 96px;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.backups-page__file-icon {
+  color: var(--text-muted, #72767d);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.backups-page__filename {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+}
+
+.backups-page__date {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.backups-page__size {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.backups-page__row-action {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted, #72767d);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    color: var(--accent);
+    background: rgba(88, 101, 242, 0.1);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  i {
+    font-size: 13px;
+  }
+}
+
+.backups-page__row-delete {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted, #72767d);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    color: #ed4245;
+    background: rgba(237, 66, 69, 0.1);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  i {
+    font-size: 14px;
+  }
+}
+
+// ── Ownership page ──────────────────────────────────────────────────────────
+
+.ownership-page__owner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent);
+  color: #fff;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ownership-page__no-owner {
+  font-style: italic;
+}
+
+.ownership-page__token-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+// ── Accounts page extras ────────────────────────────────────────────────────
+
+.accounts-page__create-btn {
+  margin-top: 8px;
+  width: fit-content;
+}
+
+.accounts-page__overlay {
+  z-index: 9999;
+}
+
+.accounts-page__list-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accounts-page__loading {
+  padding: 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.accounts-page__clear-token {
+  margin-top: 8px;
+}
+
+// ── Responsive: mobile ──────────────────────────────────────────────────────
+@media (max-width: 768px) {
+  .server-settings-overview {
+    .settings-avatar-upload {
+      margin: 0 auto;
+    }
+  }
+
+  .emote-settings {
+    .emote-drop-zone {
+      padding: 24px 12px;
+      min-height: 100px;
+    }
+
+    .emote-grid-list {
+      grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)) !important;
+    }
   }
 }

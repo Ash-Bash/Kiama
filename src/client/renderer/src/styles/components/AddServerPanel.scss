@@ -50,3 +50,24 @@
     gap: 8px;
   }
 }
+
+// ── Responsive: mobile ──────────────────────────────────────────────────────
+@media (max-width: 768px) {
+  .modal-body .add-server-panel {
+    padding: 20px 16px;
+
+    .add-server-form input {
+      font-size: 16px; // prevent iOS zoom
+      min-height: 44px;
+    }
+
+    .modal-panel__footer {
+      flex-direction: column;
+
+      button {
+        width: 100%;
+        min-height: 44px;
+      }
+    }
+  }
+}

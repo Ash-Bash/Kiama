@@ -92,6 +92,13 @@ const SettingsLayout: React.FC<SettingsLayoutProps> = ({
 
       {/* ── Content area ──────────────────────────────────────── */}
       <main className="settings-layout__content">
+        {/* Mobile: sticky close header shown only on ≤768px (CSS-controlled) */}
+        <div className="settings-layout__mobile-header">
+          <h3>{sections.flatMap(s => s.items).find(i => i.id === activeId)?.label ?? 'Settings'}</h3>
+          <button className="settings-mobile-close" onClick={onClose} aria-label="Close settings" title="Close settings">
+            <i className="fas fa-times" />
+          </button>
+        </div>
         <div className="settings-layout__content-inner">
           {children}
         </div>

@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import ModalPanel from './ModalPanel';
+import Button from './Button';
 import '../styles/App.scss';
 import { getPortalContainer } from '../utils/portalRoot';
 
@@ -37,13 +38,13 @@ const NsfwSplash: React.FC<Props> = ({ channelName, visible, onConfirm, onCancel
           icon={<span className="nsfw-splash-icon">🔞</span>}
           tone="default"
           footer={(
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
-              <button className="btn btn-primary" onClick={onConfirm}>I am 18+</button>
-            </div>
+            <>
+              <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+              <Button variant="primary" onClick={onConfirm}>I am 18+</Button>
+            </>
           )}
         >
-          <p style={{ margin: 0 }}>By continuing you confirm you are at least 18 years old and agree to view adult content in this channel.</p>
+          <p className="modal-panel__hint">By continuing you confirm you are at least 18 years old and agree to view adult content in this channel.</p>
         </ModalPanel>
       </div>
     </div>

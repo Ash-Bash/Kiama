@@ -110,3 +110,30 @@
     margin-top: 4px;
   }
 }
+
+// ── Responsive: mobile ──────────────────────────────────────────────────────
+@media (max-width: 768px) {
+  .channel-settings__number-input {
+    min-height: 44px;
+    font-size: 16px;
+    width: 100%;
+  }
+
+  .add-section-btn {
+    min-height: 44px;
+    padding: 12px 14px;
+  }
+
+  .channel-create-modal,
+  .section-create-modal,
+  .rename-modal {
+    .modal-actions {
+      flex-direction: column;
+
+      button {
+        width: 100%;
+        min-height: 44px;
+      }
+    }
+  }
+}

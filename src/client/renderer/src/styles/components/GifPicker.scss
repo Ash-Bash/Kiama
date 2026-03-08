@@ -107,4 +107,28 @@
     text-align: center;
     flex-shrink: 0;
   }
+
+  // ── Responsive: mobile / tablet ───────────────────────────────────────────
+  @media (max-width: 768px) {
+    width: calc(100vw - 24px);
+    max-width: 400px;
+    max-height: 50vh;
+
+    &.popover-panel--popover {
+      position: fixed !important;
+      left: 12px !important;
+      right: 12px !important;
+      bottom: 60px !important;
+      bottom: calc(60px + env(safe-area-inset-bottom)) !important;
+      top: auto !important;
+      width: auto !important;
+      max-width: none;
+    }
+
+    .gif-grid {
+      grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+      gap: 4px;
+      padding: 8px;
+    }
+  }
 }

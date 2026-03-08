@@ -96,4 +96,27 @@
       }
     }
   }
+
+  // On mobile in a native wrapper, title bar may be hidden entirely
+  // (controlled by .is-native-mobile in App.scss). For web mobile views
+  // where the title bar is still shown, keep it minimal.
+  @media (max-width: 768px) {
+    height: 32px;
+
+    &.mac {
+      padding-left: 12px;
+
+      .traffic-lights {
+        display: none; // traffic lights not relevant on mobile
+      }
+    }
+
+    .title {
+      font-size: 12px;
+    }
+
+    .window-controls {
+      display: none;
+    }
+  }
 }

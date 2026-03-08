@@ -486,6 +486,48 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }
   }, [viewportWidth]);
 
+  // ── Swipe-to-close gesture for mobile drawers ─────────────────────────────
+  useEffect(() => {
+    if (viewportWidth > 768) return;
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+
+      // Only trigger horizontal swipes (> 60px) that are predominantly horizontal
+      if (absDx < 60 || absDy > absDx * 0.6) return;
+
+      if (dx < 0) {
+        // Swipe left: close left drawers or open user list
+        if (showMobileServerList || showMobileSidebar) {
+          setShowMobileServerList(false);
+          setShowMobileSidebar(false);
+        }
+      } else {
+        // Swipe right: close user list or open nav drawers
+        if (showMobileUserList) {
+          setShowMobileUserList(false);
+        }
+      }
+    };
+
+    document.addEventListener('touchstart', handleTouchStart, { passive: true });
+    document.addEventListener('touchend', handleTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', handleTouchStart);
+      document.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [viewportWidth, showMobileServerList, showMobileSidebar, showMobileUserList]);
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -2434,7 +2476,10 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }
 
     const safeContent = toSafeHtml(processedMessage);
-    const resolvedRole = processedMessage.userRole || userMeta?.role;
+    // Always prefer the user's current role from the live member list so all
+    // messages reflect role changes (e.g. promoted to owner).
+    const currentMember = (serverMembers.get(currentServerId) || []).find(m => m.username === processedMessage.user);
+    const resolvedRole = currentMember?.role || processedMessage.userRole || userMeta?.role;
     const roleColor = getRoleColor(resolvedRole);
     const msgReactions = localReactions.get(processedMessage.id) || [];
     // First message in a channel OR first message from a new author → extra top margin
@@ -2784,6 +2829,18 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   };
 
   const isMobile = viewportWidth <= 768;
+  const isTablet = viewportWidth > 768 && viewportWidth <= 1024;
+  // Detect native mobile shell (Capacitor / Cordova / React Native WebView).
+  // Future native builds will set this on window before the app loads.
+  const isNativeMobile = typeof window !== 'undefined' && !!(
+    (window as any).Capacitor ||
+    (window as any).cordova ||
+    (window as any).__KIAMA_NATIVE__
+  );
+  // Also detect touch-primary devices for UX adjustments
+  const isTouchDevice = typeof window !== 'undefined' && (
+    'ontouchstart' in window || navigator.maxTouchPoints > 0
+  );
   const isHomeView = activeView === 'home';
   const isSettingsView = activeView === 'settings';
   const isServerView = activeView === 'server';
@@ -3077,12 +3134,12 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
   return (
     <SurfaceProvider soft3DEnabled={soft3DEnabled}>
-    <div className={`app-shell ${soft3DEnabled ? 'soft-3d' : 'soft-3d-off'}`}>
+    <div className={`app-shell ${soft3DEnabled ? 'soft-3d' : 'soft-3d-off'}${isNativeMobile ? ' is-native-mobile' : ''}${isTouchDevice ? ' is-touch' : ''}${isMobile ? ' is-mobile' : ''}${isTablet ? ' is-tablet' : ''}`}>
       <TitleBar />
       <div className="app">
       {serverError && (
-        <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-overlay, rgba(0,0,0,0.6))', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--bg-panel, #0f1720)', color: 'var(--text-primary)', padding: 24, borderRadius: 8, width: 560, boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-overlay, rgba(0,0,0,0.6))', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? 16 : 0 }}>
+          <div style={{ background: 'var(--bg-panel, #0f1720)', color: 'var(--text-primary)', padding: isMobile ? 20 : 24, borderRadius: isMobile ? 16 : 8, width: isMobile ? '100%' : 560, maxWidth: '100%', boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}>
             <h2 style={{ marginTop: 0 }}>Cannot reach server</h2>
             <p style={{ marginBottom: 16 }}>{serverError}</p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -3152,6 +3209,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                     setShowMobileServerList(false);
                   }}
                   aria-label="Close channel list"
+                  title="Close channel list"
                 >
                   <i className="fas fa-times"></i>
                 </button>
@@ -3548,6 +3606,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                 currentUsername={user?.username ?? user?.name}
                 currentUserAccountId={user?.id}
                 onClaimOwner={claimOwner}
+                onPasswordUpdated={(required) => setServerPasswordRequired(required)}
               />
             ) : isServerProfileView && settingsServer ? (
               <ServerUserSettingsPage
@@ -3698,6 +3757,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                   className="mobile-close"
                   onClick={() => setShowMobileUserList(false)}
                   aria-label="Close member list"
+                  title="Close member list"
                 >
                   <i className="fas fa-times"></i>
                 </button>

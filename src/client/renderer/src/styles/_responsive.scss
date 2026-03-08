@@ -1,0 +1,118 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Responsive Breakpoints & Mixins
+// Shared across all component stylesheets for consistent responsive behaviour.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Breakpoint map ──────────────────────────────────────────────────────────
+// mobile:       phones (≤ 480px)
+// tablet-sm:    large phones / small tablets (≤ 640px)
+// tablet:       tablets in portrait (≤ 768px)
+// tablet-lg:    tablets in landscape / small laptops (≤ 1024px)
+// desktop-sm:   compact desktops (≤ 1100px) — existing nav-buttons threshold
+// desktop:      standard desktops (≤ 1440px)
+$breakpoints: (
+  'mobile':     480px,
+  'tablet-sm':  640px,
+  'tablet':     768px,
+  'tablet-lg':  1024px,
+  'desktop-sm': 1100px,
+  'desktop':    1440px,
+);
+
+// Max-width (mobile-first down)
+@mixin respond-to($name) {
+  @if map-has-key($breakpoints, $name) {
+    @media (max-width: map-get($breakpoints, $name)) {
+      @content;
+    }
+  } @else {
+    @warn "Unknown breakpoint `#{$name}`.";
+  }
+}
+
+// Min-width (desktop-first up)
+@mixin respond-from($name) {
+  @if map-has-key($breakpoints, $name) {
+    @media (min-width: (map-get($breakpoints, $name) + 1px)) {
+      @content;
+    }
+  }
+}
+
+// Between two breakpoints
+@mixin respond-between($min-name, $max-name) {
+  $min: map-get($breakpoints, $min-name);
+  $max: map-get($breakpoints, $max-name);
+  @if $min and $max {
+    @media (min-width: ($min + 1px)) and (max-width: $max) {
+      @content;
+    }
+  }
+}
+
+// ── Touch-friendly target sizing ────────────────────────────────────────────
+// iOS Human Interface Guidelines recommend 44×44pt minimum.
+@mixin touch-target($size: 44px) {
+  min-width: $size;
+  min-height: $size;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// ── Safe area insets for notched phones ──────────────────────────────────────
+@mixin safe-area-padding($sides: 'all') {
+  @if $sides == 'all' {
+    padding-top: env(safe-area-inset-top);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+  } @else if $sides == 'horizontal' {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  } @else if $sides == 'vertical' {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  } @else if $sides == 'bottom' {
+    padding-bottom: env(safe-area-inset-bottom);
+  } @else if $sides == 'top' {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+// ── Truncate text with ellipsis ─────────────────────────────────────────────
+@mixin truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// ── Hide on mobile / show on mobile ─────────────────────────────────────────
+@mixin hide-on-mobile {
+  @include respond-to('tablet') {
+    display: none !important;
+  }
+}
+
+@mixin show-only-on-mobile {
+  display: none !important;
+  @include respond-to('tablet') {
+    display: flex !important;
+  }
+}
+
+// ── Fluid typography ────────────────────────────────────────────────────────
+// Smoothly scales font-size between two viewport widths.
+@mixin fluid-type($min-size, $max-size, $min-vw: 375px, $max-vw: 1440px) {
+  font-size: $min-size;
+  @media (min-width: $min-vw) {
+    font-size: calc(#{$min-size} + #{strip-unit($max-size - $min-size)} * ((100vw - #{$min-vw}) / #{strip-unit($max-vw - $min-vw)}));
+  }
+  @media (min-width: $max-vw) {
+    font-size: $max-size;
+  }
+}
+
+@function strip-unit($value) {
+  @return $value / ($value * 0 + 1);
+}

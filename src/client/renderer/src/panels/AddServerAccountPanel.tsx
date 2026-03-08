@@ -69,11 +69,11 @@ const AddServerAccountPanel: React.FC<AddServerAccountPanelProps> = ({ onCreate,
           disabled={creating}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
           suffix={(
-            <Button className="icon-button" variant="ghost" onClick={() => setShowPassword(v => !v)} iconLeft={<i className={showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'} />} />
+            <Button className="icon-button" variant="ghost" onClick={() => setShowPassword(v => !v)} iconLeft={<i className={showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'} />} title={showPassword ? 'Hide password' : 'Show password'} />
           )}
         />
         {formError && (
-          <p className="accounts-page__modal-error">
+          <p className="modal-panel__error">
             <i className="fas fa-exclamation-triangle" /> {formError}
           </p>
         )}

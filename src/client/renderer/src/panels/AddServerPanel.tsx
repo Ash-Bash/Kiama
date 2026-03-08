@@ -26,24 +26,87 @@ const normalizeAddress = (value: string): string => {
 // Self-contained panel for adding a new server via URL.
 const AddServerPanel: React.FC<AddServerPanelProps> = ({ onAdd, onClose }) => {
   const [error, setError] = React.useState<string | null>(null);
+  const [needsPassword, setNeedsPassword] = React.useState(false);
+  const [resolvedUrl, setResolvedUrl] = React.useState('');
+  const [displayName, setDisplayName] = React.useState('');
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
     const formData = new FormData(e.currentTarget);
     const address = (formData.get('address') as string || '').trim();
-    const url = normalizeAddress(address);
+    const password = (formData.get('password') as string || '').trim();
+    const url = resolvedUrl || normalizeAddress(address);
     if (!url) return;
-    // Derive a friendly display name from the URL (hostname[:port]) instead
-    // of using the raw URL string so we don't show the protocol in the UI.
-    let displayName = url;
-    try {
-      const parsed = new URL(url);
-      displayName = parsed.hostname + (parsed.port ? `:${parsed.port}` : '');
-    } catch (err) {
-      // keep raw url as fallback
+
+    // Derive a friendly display name
+    let name = displayName;
+    if (!name) {
+      name = url;
+      try {
+        const parsed = new URL(url);
+        name = parsed.hostname + (parsed.port ? `:${parsed.port}` : '');
+      } catch (err) {
+        // keep raw url as fallback
+      }
     }
-    const serverObj: Server = { id: `server-${Date.now()}`, name: displayName, url };
+
+    // If we already know a password is required, verify it first.
+    if (needsPassword) {
+      if (!password) {
+        setError('This server requires a password to join.');
+        return;
+      }
+      try {
+        const res = await fetch(`${url}/server/password/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.valid) {
+            setError('Incorrect server password.');
+            return;
+          }
+        } else {
+          setError('Could not verify password with the server.');
+          return;
+        }
+      } catch {
+        setError('Failed to verify password. Check the address and try again.');
+        return;
+      }
+    }
+
+    // Check if server requires a password (first attempt, no password supplied yet).
+    if (!needsPassword) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const infoRes = await fetch(`${url}/info`, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (infoRes.ok) {
+          const info = await infoRes.json();
+          if (info.passwordRequired) {
+            // Server requires a password — show the password field.
+            setNeedsPassword(true);
+            setResolvedUrl(url);
+            setDisplayName(name);
+            setError('This server requires a password to join.');
+            return;
+          }
+        } else {
+          setError('Unable to reach that server. Please check the address and try again.');
+          return;
+        }
+      } catch {
+        setError('Unable to reach that server. Please check the address and try again.');
+        return;
+      }
+    }
+
+    const serverObj: Server = { id: `server-${Date.now()}`, name, url };
     try {
       const result = await onAdd(serverObj);
       if (result) {
@@ -65,7 +128,7 @@ const AddServerPanel: React.FC<AddServerPanelProps> = ({ onAdd, onClose }) => {
       description="Enter a server address to connect."
       footer={
         <>
-          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" form="add-server-form" variant="primary">Add Server</Button>
         </>
       }
@@ -78,8 +141,20 @@ const AddServerPanel: React.FC<AddServerPanelProps> = ({ onAdd, onClose }) => {
           placeholder="example.com or 192.168.1.42:3000"
           required
           autoFocus
+          defaultValue={resolvedUrl}
         />
-        {error && <div className="add-server-error" style={{ color: 'var(--accent-danger)', marginTop: 8 }}>{error}</div>}
+        {needsPassword && (
+          <TextField
+            id="server-password"
+            name="password"
+            label="Server password"
+            placeholder="Enter the server password"
+            type="password"
+            required
+            autoFocus
+          />
+        )}
+        {error && <div className="modal-panel__error">{error}</div>}
       </form>
     </ModalPanel>
   );

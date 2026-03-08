@@ -158,4 +158,27 @@
       background: var(--bg-popover, #2b2d31);
     }
   }
+
+  // ── Responsive: mobile / tablet ───────────────────────────────────────────
+  @media (max-width: 768px) {
+    // Center as a bottom sheet on mobile
+    position: fixed !important;
+    left: 12px !important;
+    right: 12px !important;
+    bottom: 12px !important;
+    bottom: calc(12px + env(safe-area-inset-bottom)) !important;
+    top: auto !important;
+    width: auto !important;
+    max-width: none;
+    border-radius: 16px;
+
+    &__body {
+      padding: 30px 16px 16px;
+    }
+
+    &__role-select {
+      min-height: 44px;
+      font-size: 16px; // prevent iOS zoom
+    }
+  }
 }

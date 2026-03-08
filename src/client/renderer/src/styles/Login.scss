@@ -325,6 +325,9 @@
 @media (max-width: 640px) {
   .login-shell {
     padding: 28px 18px;
+    // Safe area for notched phones
+    padding-top: calc(28px + env(safe-area-inset-top));
+    padding-bottom: calc(28px + env(safe-area-inset-bottom));
   }
 
   .card,
@@ -335,6 +338,53 @@
 
   .mode-toggle button {
     padding: 10px 8px;
+    min-height: 44px;
+  }
+
+  // Touch-friendly form inputs
+  .field input,
+  .field select {
+    font-size: 16px; // prevent iOS zoom
+    min-height: 44px;
+  }
+
+  .password-field input {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  .primary-btn,
+  .secondary-btn,
+  .outline-btn {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .account-switcher {
+    padding: 0 18px 16px;
+    gap: 6px;
+
+    .account-chip {
+      min-height: 44px;
+      padding: 10px 16px;
+    }
+  }
+}
+
+// ── Tiny phones (≤ 380px) ───────────────────────────────────────────────────
+@media (max-width: 380px) {
+  .login-shell {
+    padding: 16px 10px;
+  }
+
+  .card,
+  .brand-panel {
+    padding: 16px;
+    border-radius: 14px;
+  }
+
+  .card h2 {
+    font-size: 18px;
   }
 }
 

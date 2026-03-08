@@ -1,0 +1,54 @@
+// PinnedMessagesPanel styles
+.pinned-messages-panel {
+  .pinned-messages-body {
+    padding: 12px;
+  }
+
+  .pinned-messages-empty {
+    padding: 24px;
+    text-align: center;
+    color: var(--text-secondary);
+  }
+
+  .pinned-messages-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .pinned-message-row {
+    padding: 8px;
+    border-radius: 6px;
+    background: var(--panel-bg);
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  .pinned-message-content {
+    flex: 1;
+  }
+
+  .pinned-message-meta {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .pinned-message-meta__time {
+    font-weight: 400;
+    color: var(--text-secondary);
+    margin-left: 8px;
+    font-size: 12px;
+  }
+
+  .pinned-message-text {
+    margin-top: 6px;
+    color: var(--text-primary);
+  }
+
+  .pinned-message-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+}

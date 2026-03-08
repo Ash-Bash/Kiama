@@ -41,7 +41,7 @@ const MessageList: React.FC<MessageListProps> = ({ messages, getRoleColor, users
 
         return (
           <div key={i} className="message">
-            <span className="username" style={{ marginBottom: '8px', ...(roleColor ? { color: roleColor } : {}) }}>
+            <span className="username" style={roleColor ? { color: roleColor } : undefined}>
               {msg.user}:
             </span>
             <span dangerouslySetInnerHTML={{ __html: getSafeContent(msg) }} />

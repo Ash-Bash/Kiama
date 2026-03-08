@@ -338,6 +338,15 @@
     color: var(--text-secondary);
     line-height: 1.5;
     margin: 0;
+
+    &--danger {
+      color: var(--danger, #f04747);
+    }
+  }
+
+  &__mono {
+    font-family: monospace;
+    font-size: 13px;
   }
 
   // Actions / footer row
@@ -497,6 +506,45 @@
     gap: 6px;
   }
 
+  &__empty {
+    padding: 14px 12px;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+
+  &__dot--sm {
+    width: 12px;
+    height: 12px;
+  }
+
+  &__perm-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  &__perm-title {
+    margin: 0;
+  }
+
+  &__perm-hint {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  &__lock-icon {
+    color: var(--accent);
+  }
+
+  &__actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
   &__perm-pills {
     display: flex;
     flex-wrap: wrap;
@@ -576,6 +624,16 @@
   transition: opacity 0.15s, outline 0.15s;
   outline: 2px solid transparent;
 
+  &--rounded {
+    border-radius: 8px;
+
+    img { border-radius: 8px; }
+  }
+
+  &__placeholder {
+    font-size: 20px;
+  }
+
   img {
     width: 100%;
     height: 100%;
@@ -644,5 +702,84 @@
     font-size: 13px;
     font-weight: 600;
     text-align: center;
+  }
+}
+
+// ── Mobile close header shown only on small screens ────────────────────────
+.settings-layout__mobile-header {
+  display: none;
+
+  @media (max-width: 768px) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    background: var(--secondary-bg);
+    z-index: 10;
+
+    h3 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .settings-mobile-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-primary);
+      cursor: pointer;
+      font-size: 16px;
+    }
+  }
+}
+
+// ── Responsive: inputs and controls ──────────────────────────────────────────
+@media (max-width: 768px) {
+  .settings-layout {
+    input, select, textarea {
+      font-size: 16px; // prevent iOS zoom
+      min-height: 44px;
+    }
+
+    button {
+      min-height: 44px;
+    }
+  }
+
+  .settings-sub-page__actions {
+    flex-direction: column;
+    padding: 0 16px 16px;
+
+    button {
+      width: 100%;
+    }
+  }
+
+  .settings-change-pw-form {
+    .password-field {
+      flex-direction: column;
+      gap: 8px;
+
+      input {
+        font-size: 16px;
+        min-height: 44px;
+      }
+
+      .ghost-btn {
+        align-self: flex-start;
+        min-height: 44px;
+      }
+    }
   }
 }

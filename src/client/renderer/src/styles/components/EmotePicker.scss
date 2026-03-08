@@ -132,4 +132,39 @@
       }
     }
   }
+
+  // ── Responsive: mobile / tablet ───────────────────────────────────────────
+  @media (max-width: 768px) {
+    width: calc(100vw - 24px);
+    max-width: 360px;
+    max-height: 50vh;
+
+    // Fixed to bottom on small screens for thumb reachability
+    &.popover-panel--popover {
+      position: fixed !important;
+      left: 12px !important;
+      right: 12px !important;
+      bottom: 60px !important;
+      bottom: calc(60px + env(safe-area-inset-bottom)) !important;
+      top: auto !important;
+      width: auto !important;
+      max-width: none;
+    }
+
+    .emote-grid {
+      grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+      gap: 2px;
+      padding: 8px;
+
+      .emote-btn {
+        width: 44px;
+        height: 44px;
+      }
+    }
+
+    .server-tabs {
+      padding: 6px 8px;
+      -webkit-overflow-scrolling: touch;
+    }
+  }
 }

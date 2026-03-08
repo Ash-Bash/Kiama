@@ -2,6 +2,7 @@ import React from 'react';
 import PopoverPanel, { PopoverAnchorRect } from '../components/PopoverPanel';
 import { TypedMessage } from '../types/plugin';
 import Button from '../components/Button';
+import '../styles/components/PinnedMessagesPanel.scss';
 
 interface Props {
   title?: string;
@@ -29,20 +30,20 @@ const PinnedMessagesPanel: React.FC<Props> = ({
       height={420}
       className="pinned-messages-panel"
     >
-      <div style={{ padding: 12 }}>
+      <div className="pinned-messages-body">
         {pinnedMessages.length === 0 ? (
-          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)' }}>
-            There isnt Any Pinned Messages
+          <div className="pinned-messages-empty">
+            There aren't any pinned messages
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="pinned-messages-list">
             {pinnedMessages.map(m => (
-              <div key={m.id} className="pinned-message-row" style={{ padding: 8, borderRadius: 6, background: 'var(--panel-bg)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{m.user} <span style={{ fontWeight: 400, color: 'var(--text-secondary)', marginLeft: 8, fontSize: 12 }}>{new Date(m.timestamp).toLocaleString()}</span></div>
-                  <div style={{ marginTop: 6, color: 'var(--text-primary)' }} dangerouslySetInnerHTML={{ __html: (m.renderedContent ?? m.content) as string }} />
+              <div key={m.id} className="pinned-message-row">
+                <div className="pinned-message-content">
+                  <div className="pinned-message-meta">{m.user} <span className="pinned-message-meta__time">{new Date(m.timestamp).toLocaleString()}</span></div>
+                  <div className="pinned-message-text" dangerouslySetInnerHTML={{ __html: (m.renderedContent ?? m.content) as string }} />
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div className="pinned-message-actions">
                   <Button variant="ghost" size="sm" onClick={() => { onJumpToMessage(m.id); onClose(); }}>Jump</Button>
                   {typeof onUnpin === 'function' && (
                     <Button variant="ghost" size="sm" onClick={() => onUnpin(m.id)} iconLeft={<i className="fas fa-thumbtack" />}>Unpin</Button>

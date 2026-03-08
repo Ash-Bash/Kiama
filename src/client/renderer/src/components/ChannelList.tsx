@@ -22,7 +22,6 @@ const ChannelList: React.FC<ChannelListProps> = ({ channels, currentChannel, onC
           key={channel.id}
           className={`channel-item ${currentChannel === channel.id ? 'active' : ''}`}
           onClick={() => onChannelChange(channel.id)}
-          style={{ borderRadius: '4px' }}
         >
           # {channel.name}
         </div>

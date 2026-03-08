@@ -62,3 +62,19 @@
   width: auto;
   flex: 1;
 }
+
+/* Touch-friendly thumb on mobile */
+@media (max-width: 768px) {
+  .ui-slider {
+    height: 44px;
+  }
+
+  .ui-slider__track {
+    height: 8px;
+  }
+
+  .ui-slider__thumb {
+    width: 24px;
+    height: 24px;
+  }
+}

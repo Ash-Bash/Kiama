@@ -25,7 +25,7 @@ const CreateSectionPanel: React.FC<CreateSectionPanelProps> = ({ onCreate, onCan
       icon={<i className="fas fa-folder-plus" />}
       tone="accent"
       footer={
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <>
           <Button variant="secondary" onClick={onCancel} disabled={busy}>Cancel</Button>
           <Button
             variant="primary"
@@ -35,7 +35,7 @@ const CreateSectionPanel: React.FC<CreateSectionPanelProps> = ({ onCreate, onCan
           >
             {busy ? 'Creating…' : 'Create Section'}
           </Button>
-        </div>
+        </>
       }
     >
       <div className="section-create-modal">

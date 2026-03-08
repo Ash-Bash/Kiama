@@ -178,6 +178,7 @@ export class Server {
   private ownerUsername: string = '';
   private ownerAccountId: string = '';
   private allowClaimOwnership: boolean = true;
+  private serverPasswordHash: string = '';
 
   constructor(port: number, mode: 'public' | 'private', serverId?: string, adminToken?: string, initialConfig?: InitialServerConfig, initialConfigPath?: string) {
     this.port = port;
@@ -471,6 +472,14 @@ export class Server {
           console.warn('Failed to add dbEncrypted column to servers table:', e);
         }
       }
+      if (!names.has('serverPasswordHash')) {
+        try {
+          this.db.exec(`ALTER TABLE servers ADD COLUMN serverPasswordHash TEXT`);
+          console.log('Added serverPasswordHash column to servers table');
+        } catch (e) {
+          console.warn('Failed to add serverPasswordHash column to servers table:', e);
+        }
+      }
     } catch (e) {
       // ignore
     }
@@ -537,6 +546,7 @@ export class Server {
         this.ownerAccountId = srv.ownerAccountId || this.ownerAccountId;
         this.allowClaimOwnership = srv.allowClaimOwnership === 0 ? false : true;
         this.dbEncrypted = srv.dbEncrypted === 1 ? true : false;
+        this.serverPasswordHash = srv.serverPasswordHash || '';
       }
 
       // Load roles
@@ -610,6 +620,20 @@ export class Server {
         }
       }
 
+      // Load user→role mappings from the members table so role assignments survive restarts
+      try {
+        const memberRows = this.db.prepare('SELECT username, role FROM members WHERE serverId = ? AND role IS NOT NULL').all(this.serverId) as any[];
+        if (memberRows && memberRows.length > 0) {
+          for (const m of memberRows) {
+            if (m.username && m.role) {
+              this.userRoles.set(m.username, m.role);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load user roles from members table:', e);
+      }
+
       // Load emotes
       try {
         const emRows = this.db.prepare('SELECT * FROM emotes WHERE serverId = ?').all(this.serverId) as any[];
@@ -634,8 +658,8 @@ export class Server {
   private persistStateToDB() {
     try {
       const upsertServer = this.db.prepare(`
-        INSERT INTO servers (serverId, name, mode, dataRoot, configPath, adminTokenHash, ownerUsername, ownerAccountId, allowClaimOwnership, dbEncrypted, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO servers (serverId, name, mode, dataRoot, configPath, adminTokenHash, ownerUsername, ownerAccountId, allowClaimOwnership, dbEncrypted, serverPasswordHash, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(serverId) DO UPDATE SET
           name=excluded.name,
           mode=excluded.mode,
@@ -646,10 +670,11 @@ export class Server {
           ownerAccountId=excluded.ownerAccountId,
           allowClaimOwnership=excluded.allowClaimOwnership,
           dbEncrypted=excluded.dbEncrypted,
+          serverPasswordHash=excluded.serverPasswordHash,
           updatedAt=excluded.updatedAt
       `);
       const now = new Date().toISOString();
-      upsertServer.run(this.serverId, this.serverName, this.mode, this.dataRoot, this.configFilePath, this.adminToken ? this.hashAdminToken(this.adminToken) : null, this.ownerUsername || null, this.ownerAccountId || null, this.allowClaimOwnership ? 1 : 0, this.dbEncrypted ? 1 : 0, now, now);
+      upsertServer.run(this.serverId, this.serverName, this.mode, this.dataRoot, this.configFilePath, this.adminToken ? this.hashAdminToken(this.adminToken) : null, this.ownerUsername || null, this.ownerAccountId || null, this.allowClaimOwnership ? 1 : 0, this.dbEncrypted ? 1 : 0, this.serverPasswordHash || null, now, now);
 
       const insertRole = this.db.prepare(`
         INSERT INTO roles (serverId, roleId, name, color, permissions, createdAt, updatedAt)
@@ -928,9 +953,9 @@ export class Server {
   private isOwnerMatch(username?: string, accountId?: string): boolean {
     // If accountId provided and matches, it's the owner
     if (this.ownerAccountId && this.ownerAccountId.trim() && accountId) {
-      return accountId === this.ownerAccountId;
+      if (accountId === this.ownerAccountId) return true;
     }
-    // Fallback to username matching (even if ownerAccountId is set)
+    // Fallback to username matching
     return !!(this.ownerUsername && username && username.toLowerCase() === this.ownerUsername.toLowerCase());
   }
 
@@ -1518,6 +1543,7 @@ export class Server {
         ownerAccountId: this.ownerAccountId || null,
         iconUrl: iconPath ? '/server/icon' : null,
         allowClaimOwnership: this.allowClaimOwnership !== false,
+        passwordRequired: !!this.serverPasswordHash,
       });
     });
 
@@ -1607,6 +1633,44 @@ export class Server {
       this.saveToDisk();
       this.io.emit('member_role_updated', { username: this.ownerUsername, role: adminRoleId });
       res.json({ success: true, ownerUsername: this.ownerUsername, ownerAccountId: this.ownerAccountId || null });
+    });
+
+    // ── Server password management ──────────────────────────────────────────
+    // POST /server/password/verify — check if a password is required and/or verify a supplied password.
+    this.app.post('/server/password/verify', (req, res) => {
+      const { password } = req.body;
+      const hasPassword = !!this.serverPasswordHash;
+      if (!hasPassword) {
+        return res.json({ required: false, valid: true });
+      }
+      // A password is set — if none supplied, tell the caller it's required.
+      if (typeof password !== 'string' || password.length === 0) {
+        return res.json({ required: true, valid: false });
+      }
+      const hash = crypto.pbkdf2Sync(password, this.serverId, 100000, 64, 'sha512').toString('hex');
+      const valid = hash === this.serverPasswordHash;
+      return res.json({ required: true, valid });
+    });
+
+    // POST /server/password/set — owner-only: set, change or remove the server join password.
+    this.app.post('/server/password/set', (req, res) => {
+      const { password, username, accountId } = req.body;
+      // Only the server owner (or admin-token holder) may change the password.
+      if (!this.isOwnerMatch(username, accountId)) {
+        const tokenHeader = req.headers['x-admin-token'];
+        const token = typeof tokenHeader === 'string' ? tokenHeader : undefined;
+        if (!token || !this.adminToken || token !== this.adminToken) {
+          return res.status(403).json({ error: 'Only the server owner can change the server password.' });
+        }
+      }
+      if (typeof password === 'string' && password.length > 0) {
+        this.serverPasswordHash = crypto.pbkdf2Sync(password, this.serverId, 100000, 64, 'sha512').toString('hex');
+      } else {
+        // Remove the password
+        this.serverPasswordHash = '';
+      }
+      this.saveToDisk();
+      res.json({ success: true, passwordRequired: !!this.serverPasswordHash });
     });
 
     // GET /members — list all known members with their roles and online status
@@ -2532,8 +2596,16 @@ export class Server {
       socket.on('identify', (data: { username: string; accountId?: string }) => {
         if (!data?.username) return;
         this.connectedUsers.set(socket.id, { username: data.username, accountId: data.accountId });
-        // Also register in userRoles if not present yet (keeps them in the member list)
-        if (!this.userRoles.has(data.username)) {
+
+        // If the connecting user is the server owner, ensure they always have the admin/owner role
+        if (this.isOwnerMatch(data.username, data.accountId)) {
+          const adminRoleId = this.findAdminRoleId();
+          if (adminRoleId && this.userRoles.get(data.username) !== adminRoleId) {
+            this.userRoles.set(data.username, adminRoleId);
+            this.saveToDisk();
+            this.io.emit('member_role_updated', { username: data.username, role: adminRoleId });
+          }
+        } else if (!this.userRoles.has(data.username)) {
           // Assign the default lowest-permission role (e.g., Member) so new joiners get sensible access
           const memberRoleId = this.findMemberRoleId();
           if (memberRoleId) {

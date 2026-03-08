@@ -71,6 +71,8 @@ interface ServerSettingsPageProps {
   currentUserAccountId?: string | null;
   /** Claim or transfer server ownership. */
   onClaimOwner?: (username: string, adminToken?: string) => Promise<{ success: boolean; requiresToken?: boolean; error?: string }>;
+  /** Called when the server password is set or removed. */
+  onPasswordUpdated?: (required: boolean) => void;
 }
 
 type ServerTab = 'overview' | 'roles' | 'permissions' | 'security' | 'backups' | 'ownership' | 'emotes' | 'accounts';
@@ -147,10 +149,10 @@ const OverviewSubPage: React.FC<OverviewSubPageProps> = ({ server, onUpdateServe
                   e.target.value = '';
                 }}
               />
-              <div className="settings-avatar-large" style={{ borderRadius: 8 }}>
+              <div className="settings-avatar-large settings-avatar-large--rounded">
                 {localIcon
                   ? <img src={localIcon} alt="Server icon" />
-                  : <i className="fas fa-server" style={{ fontSize: 20 }} />}
+                  : <i className="fas fa-server settings-avatar-large__placeholder" />}
               </div>
               <span className="settings-avatar-hint">
                 {iconStatus === 'saving' ? 'Saving…' : iconStatus === 'saved' ? 'Saved!' : 'Change'}
@@ -160,7 +162,7 @@ const OverviewSubPage: React.FC<OverviewSubPageProps> = ({ server, onUpdateServe
         </div>
         {iconStatus === 'error' && iconError && (
           <div className="settings-sub-page__row">
-            <p className="settings-sub-page__hint" style={{ color: 'var(--danger)', margin: 0 }}>{iconError}</p>
+            <p className="settings-sub-page__hint settings-sub-page__hint--danger">{iconError}</p>
           </div>
         )}
       </div>
@@ -178,13 +180,13 @@ const OverviewSubPage: React.FC<OverviewSubPageProps> = ({ server, onUpdateServe
         <div className="settings-sub-page__row">
           <div className="settings-sub-page__row-label">
             <strong>Server URL</strong>
-            <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{server.url}</span>
+            <span className="settings-sub-page__mono">{server.url}</span>
           </div>
         </div>
         <div className="settings-sub-page__row">
           <div className="settings-sub-page__row-label">
             <strong>Server ID</strong>
-            <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{server.id}</span>
+            <span className="settings-sub-page__mono">{server.id}</span>
           </div>
         </div>
       </div>
@@ -269,7 +271,7 @@ const RolesSubPage: React.FC<RolesSubPageProps> = ({ roles, onCreateRole, onUpda
       <div className="role-editor">
         <div className="role-editor__list">
           {roles.length === 0 && (
-            <div style={{ padding: '14px 12px', color: 'var(--text-secondary)', fontSize: 13 }}>
+            <div className="role-editor__empty">
               No roles yet.
             </div>
           )}
@@ -290,7 +292,7 @@ const RolesSubPage: React.FC<RolesSubPageProps> = ({ roles, onCreateRole, onUpda
         <div className="role-editor__form">
           <div className="role-editor__form-title">
             {selectedRoleId
-              ? <><span className="role-editor__dot" style={{ background: roleColor || '#9ca3af', width: 12, height: 12 }} />Editing <strong style={{ color: 'var(--text-primary)' }}>{roleName || '...'}</strong></>
+              ? <><span className="role-editor__dot role-editor__dot--sm" style={{ background: roleColor || '#9ca3af' }} />Editing <strong>{roleName || '...'}</strong></>
               : 'New role'
             }
           </div>
@@ -302,11 +304,11 @@ const RolesSubPage: React.FC<RolesSubPageProps> = ({ roles, onCreateRole, onUpda
             disabled={isSubmitting}
           />
           <ColorPicker label="Role colour" value={roleColor} onChange={setRoleColor} disabled={isSubmitting} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <p className="settings-sub-page__section-title" style={{ margin: 0 }}>Permissions</p>
+          <div className="role-editor__perm-section">
+            <p className="settings-sub-page__section-title role-editor__perm-title">Permissions</p>
             {isOwnerRole && (
-              <p className="settings-sub-page__hint" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <i className="fas fa-lock" style={{ color: 'var(--accent)' }} />
+              <p className="settings-sub-page__hint role-editor__perm-hint">
+                <i className="fas fa-lock role-editor__lock-icon" />
                 Owner role always has full permissions and cannot be restricted.
               </p>
             )}
@@ -327,7 +329,7 @@ const RolesSubPage: React.FC<RolesSubPageProps> = ({ roles, onCreateRole, onUpda
               ))}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="role-editor__actions">
             <Button
               variant="primary"
               onClick={submit}
@@ -752,8 +754,8 @@ const BackupsSubPage: React.FC<BackupsSubPageProps> = ({ serverUrl, adminToken: 
   }, [serverUrl, token, authHeaders]);
 
   useEffect(() => {
-    if (tokenSaved && token) fetchBackups();
-  }, [tokenSaved, fetchBackups, token]);
+    if (tokenSaved && (token || ownerIsCurrent)) fetchBackups();
+  }, [tokenSaved, fetchBackups, token, ownerIsCurrent]);
 
   const handleCreateBackup = async () => {
     setCreating(true);
@@ -850,78 +852,22 @@ const BackupsSubPage: React.FC<BackupsSubPageProps> = ({ serverUrl, adminToken: 
                 placeholder="Admin token"
               />
             </div>
-            <Button
-              variant="primary"
-              onClick={() => { if (token.trim()) setTokenSaved(true); }}
-              disabled={!token.trim()}
-              iconLeft={<i className="fas fa-key" />}
-            >
-              Authenticate
-            </Button>
+            <div className="settings-sub-page__actions">
+              <Button
+                variant="primary"
+                onClick={() => { if (token.trim()) setTokenSaved(true); }}
+                disabled={!token.trim()}
+                iconLeft={<i className="fas fa-key" />}
+              >
+                Authenticate
+              </Button>
+            </div>
           </div>
         </div>
       )}
 
       {tokenSaved && (
         <>
-          {/* Schedule config */}
-          <div className="settings-sub-page__section">
-            <p className="settings-sub-page__section-title">Automatic Backup Schedule</p>
-            <div className="settings-sub-page__card">
-              <div className="backup-config-row">
-                <div className="settings-sub-page__field" style={{ flex: 1 }}>
-                  <label className="field">
-                    <span>Backup frequency</span>
-                    <Select
-                      value={pendingSchedule}
-                      onChange={(e) => setPendingSchedule(e.target.value as BackupSchedule)}
-                    >
-                      {scheduleOptions.map(o => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
-                      ))}
-                    </Select>
-                  </label>
-                </div>
-                <div className="settings-sub-page__field" style={{ flex: 1 }}>
-                  <label className="field">
-                    <span>Max backups to keep <span className="settings-sub-page__hint">(0 = unlimited)</span></span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={pendingMax}
-                      onChange={(e) => setPendingMax(Number(e.target.value))}
-                      style={{ background: 'var(--primary-bg)', border: '1px solid var(--border)', borderRadius: 7, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 14, width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </label>
-                </div>
-              </div>
-              {config?.lastBackupAt && (
-                <p className="settings-sub-page__hint" style={{ marginTop: 4 }}>
-                  Last backup: {formatDate(config.lastBackupAt)}
-                </p>
-              )}
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 4 }}>
-                <Button
-                  variant="primary"
-                  onClick={handleSaveConfig}
-                  disabled={savingCfg}
-                  iconLeft={<i className="fas fa-save" />}
-                >
-                  {savingCfg ? 'Saving...' : 'Save schedule'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={handleCreateBackup}
-                  disabled={creating}
-                  iconLeft={<i className={creating ? 'fas fa-spinner fa-spin' : 'fas fa-archive'} />}
-                >
-                  {creating ? 'Creating...' : 'Back up now'}
-                </Button>
-              </div>
-            </div>
-          </div>
-
           {/* Status message */}
           {statusMsg && (
             <div className={`backup-status-msg${statusMsg.ok ? '' : ' backup-status-msg--error'}`}>
@@ -930,75 +876,160 @@ const BackupsSubPage: React.FC<BackupsSubPageProps> = ({ serverUrl, adminToken: 
             </div>
           )}
 
-          {/* Backups list */}
+          {/* Schedule config */}
           <div className="settings-sub-page__section">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <p className="settings-sub-page__section-title" style={{ margin: 0 }}>Backups</p>
-              <button className="backup-refresh-btn" onClick={fetchBackups} title="Refresh" disabled={loading}>
-                <i className={`fas fa-sync-alt${loading ? ' fa-spin' : ''}`} />
-              </button>
+            <p className="settings-sub-page__section-title">Automatic Backup Schedule</p>
+            <div className="settings-sub-page__card">
+              <div className="settings-sub-page__row">
+                <div className="settings-sub-page__row-label">
+                  <strong>Backup frequency</strong>
+                  <span>How often to automatically create backups.</span>
+                </div>
+                <div className="settings-sub-page__row-control">
+                  <Select
+                    value={pendingSchedule}
+                    onChange={(e) => setPendingSchedule(e.target.value as BackupSchedule)}
+                  >
+                    {scheduleOptions.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+              <div className="settings-sub-page__row">
+                <div className="settings-sub-page__row-label">
+                  <strong>Max backups to keep</strong>
+                  <span>Set to 0 for unlimited.</span>
+                </div>
+                <div className="settings-sub-page__row-control">
+                  <TextField
+                    type="number"
+                    value={String(pendingMax)}
+                    onChange={(e) => setPendingMax(Number(e.target.value))}
+                    containerClassName="backup-max-field"
+                  />
+                </div>
+              </div>
+              {config?.lastBackupAt && (
+                <div className="settings-sub-page__row">
+                  <div className="settings-sub-page__row-label">
+                    <strong>Last backup</strong>
+                    <span>{formatDate(config.lastBackupAt)}</span>
+                  </div>
+                </div>
+              )}
+              <div className="settings-sub-page__actions">
+                <Button
+                  variant="primary"
+                  onClick={handleSaveConfig}
+                  disabled={savingCfg}
+                  iconLeft={<i className={savingCfg ? 'fas fa-spinner fa-spin' : 'fas fa-save'} />}
+                >
+                  {savingCfg ? 'Saving…' : 'Save schedule'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={handleCreateBackup}
+                  disabled={creating}
+                  iconLeft={<i className={creating ? 'fas fa-spinner fa-spin' : 'fas fa-archive'} />}
+                >
+                  {creating ? 'Creating…' : 'Back up now'}
+                </Button>
+              </div>
             </div>
-            {loading && <p className="settings-sub-page__hint">Loading...</p>}
-            {!loading && backups.length === 0 && (
-              <p className="settings-sub-page__hint">No backups yet. Click "Back up now" to create one.</p>
-            )}
-            {!loading && backups.length > 0 && (
-              <div className="backup-list">
+          </div>
+
+          <hr className="backups-page__divider" />
+
+          {/* Empty state */}
+          {!loading && backups.length === 0 && (
+            <div className="backups-page__empty">
+              <h3 className="backups-page__empty-title">NO BACKUPS</h3>
+              <p className="backups-page__empty-text">No backups yet. Click "Back up now" to create one.</p>
+            </div>
+          )}
+
+          {/* Backups list */}
+          {loading && <p className="settings-sub-page__hint">Loading…</p>}
+          {!loading && backups.length > 0 && (
+          <div className="settings-sub-page__section">
+            <div className="backups-page__list-header">
+              <h3 className="backups-page__list-title">Backups</h3>
+              <span className="backups-page__list-count">{backups.length} backup{backups.length !== 1 ? 's' : ''}</span>
+            </div>
+              <div className="backups-page__table">
+                <div className="backups-page__table-head">
+                  <div className="backups-page__table-col backups-page__table-col--name">Filename</div>
+                  <div className="backups-page__table-col backups-page__table-col--date">Created</div>
+                  <div className="backups-page__table-col backups-page__table-col--size">Size</div>
+                  <div className="backups-page__table-col backups-page__table-col--actions" />
+                </div>
                 {backups.map(b => (
-                  <div key={b.filename} className="backup-entry">
-                    <div className="backup-entry__info">
-                      <span className="backup-entry__name">{b.filename}</span>
-                      <span className="backup-entry__meta">
-                        {formatDate(b.createdAt)} &middot; {formatBytes(b.sizeBytes)}
-                      </span>
+                  <div key={b.filename} className="backups-page__table-row">
+                    <div className="backups-page__table-col backups-page__table-col--name">
+                      <i className="fas fa-archive backups-page__file-icon" />
+                      <span className="backups-page__filename">{b.filename}</span>
                     </div>
-                    <div className="backup-entry__actions">
-                      <a
-                        className="backup-action-btn"
-                        href={`${serverUrl}/admin/backups/download/${encodeURIComponent(b.filename)}${token ? `?token=${encodeURIComponent(token)}` : ownerIsCurrent && currentUsername ? `?username=${encodeURIComponent(currentUsername)}` : ''}`}
-                        download={b.filename}
+                    <div className="backups-page__table-col backups-page__table-col--date">
+                      <span className="backups-page__date">{formatDate(b.createdAt)}</span>
+                    </div>
+                    <div className="backups-page__table-col backups-page__table-col--size">
+                      <span className="backups-page__size">{formatBytes(b.sizeBytes)}</span>
+                    </div>
+                    <div className="backups-page__table-col backups-page__table-col--actions">
+                      <button
+                        className="backups-page__row-action"
+                        onClick={() => {
+                          const url = `${serverUrl}/admin/backups/download/${encodeURIComponent(b.filename)}${token ? `?token=${encodeURIComponent(token)}` : ownerIsCurrent && currentUsername ? `?username=${encodeURIComponent(currentUsername)}` : ''}`;
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = b.filename;
+                          a.click();
+                        }}
                         title="Download"
                       >
                         <i className="fas fa-download" />
-                      </a>
+                      </button>
                       <button
-                        className="backup-action-btn"
+                        className="backups-page__row-action"
                         onClick={() => handleRestore(b.filename)}
                         disabled={!!restoring}
                         title="Restore from this backup"
                       >
                         {restoring === b.filename
                           ? <i className="fas fa-spinner fa-spin" />
-                          : <i className="fas fa-undo-alt" />
-                        }
+                          : <i className="fas fa-undo-alt" />}
                       </button>
                       <button
-                        className="backup-action-btn backup-action-btn--danger"
+                        className="backups-page__row-delete"
                         onClick={() => handleDelete(b.filename)}
                         disabled={!!deleting}
                         title="Delete backup"
                       >
                         {deleting === b.filename
                           ? <i className="fas fa-spinner fa-spin" />
-                          : <i className="fas fa-trash-alt" />
-                        }
+                          : <i className="fas fa-trash" />}
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
-            )}
           </div>
+          )}
 
-          <div style={{ marginTop: 8 }}>
-            <button
-              className="backup-refresh-btn"
-              style={{ color: 'var(--text-secondary)', fontSize: 12 }}
-              onClick={() => { setTokenSaved(false); setToken(''); }}
-            >
-              <i className="fas fa-sign-out-alt" /> Clear token
-            </button>
-          </div>
+          {/* Clear token / sign-out */}
+          {!ownerIsCurrent && (
+            <div className="settings-sub-page__section">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setTokenSaved(false); setToken(''); }}
+                iconLeft={<i className="fas fa-sign-out-alt" />}
+              >
+                Clear token
+              </Button>
+            </div>
+          )}
         </>
       )}
     </div>
@@ -1007,39 +1038,135 @@ const BackupsSubPage: React.FC<BackupsSubPageProps> = ({ serverUrl, adminToken: 
 
 // == Security sub-page =========================================================
 
-const SecuritySubPage: React.FC<{ passwordRequired: boolean | null }> = ({ passwordRequired }) => (
-  <div className="settings-sub-page">
-    <div className="settings-sub-page__header">
-      <h2>Security</h2>
-      <p>Server access and join requirements.</p>
-    </div>
-    <div className="settings-sub-page__section">
-      <p className="settings-sub-page__section-title">Join Password</p>
-      <div className="settings-sub-page__card">
-        <div className="settings-sub-page__row">
-          <div className="settings-sub-page__row-label">
-            <strong>Password requirement</strong>
-            <span>Whether a password is needed to join this server.</span>
+interface SecuritySubPageProps {
+  passwordRequired: boolean | null;
+  serverUrl: string;
+  currentUsername?: string;
+  currentUserAccountId?: string | null;
+  ownerUsername?: string | null;
+  onPasswordUpdated?: (required: boolean) => void;
+}
+
+const SecuritySubPage: React.FC<SecuritySubPageProps> = ({
+  passwordRequired,
+  serverUrl,
+  currentUsername,
+  currentUserAccountId,
+  ownerUsername,
+  onPasswordUpdated,
+}) => {
+  const [newPassword, setNewPassword] = useState('');
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [statusMsg, setStatusMsg] = useState('');
+
+  const isOwner = !!(
+    currentUsername &&
+    ownerUsername &&
+    currentUsername.toLowerCase() === ownerUsername.toLowerCase()
+  );
+
+  const handleSetPassword = async () => {
+    const passwordValue = newPassword.trim();
+    setStatus('saving');
+    setStatusMsg('');
+    try {
+      const res = await fetch(`${serverUrl}/server/password/set`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          password: passwordValue,
+          username: currentUsername,
+          accountId: currentUserAccountId,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setStatus('saved');
+        setStatusMsg(passwordValue
+          ? 'Server password has been set.'
+          : 'Server password has been removed. The server is now open.');
+        setNewPassword('');
+        onPasswordUpdated?.(!!data.passwordRequired);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setStatus('error');
+        setStatusMsg(data.error || 'Failed to update server password.');
+      }
+    } catch {
+      setStatus('error');
+      setStatusMsg('Network error. Could not reach the server.');
+    }
+  };
+
+  return (
+    <div className="settings-sub-page">
+      <div className="settings-sub-page__header">
+        <h2>Security</h2>
+        <p>Server access and join requirements.</p>
+      </div>
+      <div className="settings-sub-page__section">
+        <p className="settings-sub-page__section-title">Join Password</p>
+        <div className="settings-sub-page__card">
+          <div className="settings-sub-page__row">
+            <div className="settings-sub-page__row-label">
+              <strong>Password requirement</strong>
+              <span>Whether a password is needed to join this server.</span>
+            </div>
+            <div className="settings-sub-page__row-control">
+              {passwordRequired === null
+                ? <span className="settings-sub-page__badge">Unknown</span>
+                : passwordRequired
+                  ? <span className="settings-sub-page__badge settings-sub-page__badge--warning">Required</span>
+                  : <span className="settings-sub-page__badge settings-sub-page__badge--success">Open</span>
+              }
+            </div>
           </div>
-          <div className="settings-sub-page__row-control">
-            {passwordRequired === null
-              ? <span className="settings-sub-page__badge">Unknown</span>
-              : passwordRequired
-                ? <span className="settings-sub-page__badge settings-sub-page__badge--warning">Required</span>
-                : <span className="settings-sub-page__badge settings-sub-page__badge--success">Open</span>
-            }
-          </div>
-        </div>
-        <div className="settings-sub-page__row">
-          <p className="settings-sub-page__hint" style={{ margin: 0 }}>
-            Password configuration is managed on the server host. The client passes
-            the password via the Socket auth payload on connection.
-          </p>
+
+          {isOwner ? (
+            <>
+              <div className="settings-sub-page__row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                <TextField
+                  id="server-password"
+                  label={passwordRequired ? 'Change or remove server password' : 'Set a server password'}
+                  placeholder={passwordRequired ? 'New password (leave blank to remove)' : 'Enter a password'}
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => { setNewPassword(e.target.value); setStatus('idle'); setStatusMsg(''); }}
+                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button
+                    variant="primary"
+                    onClick={handleSetPassword}
+                    disabled={status === 'saving'}
+                  >
+                    {status === 'saving'
+                      ? 'Saving…'
+                      : !newPassword.trim() && passwordRequired
+                        ? 'Remove Password'
+                        : passwordRequired
+                          ? 'Change Password'
+                          : 'Set Password'}
+                  </Button>
+                </div>
+                {statusMsg && (
+                  <p className={`settings-sub-page__hint${status === 'error' ? ' settings-sub-page__hint--error' : ''}`} style={{ margin: 0 }}>
+                    {statusMsg}
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="settings-sub-page__row">
+              <p className="settings-sub-page__hint" style={{ margin: 0 }}>
+                Only the server owner can configure the join password.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 // == Ownership sub-page ========================================================
 
@@ -1100,16 +1227,12 @@ const OwnershipSubPage: React.FC<OwnershipSubPageProps> = ({ ownerUsername, owne
             <div className="settings-sub-page__row-label">
               <strong>Server owner</strong>
               {isOwnerSet
-                ? <span style={{ color: 'var(--text-muted)' }}>{ownerUsername}{isCurrentOwner ? ' (you)' : ''}</span>
-                : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No owner set</span>}
+                ? <span>{ownerUsername}{isCurrentOwner ? ' (you)' : ''}</span>
+                : <span className="ownership-page__no-owner">No owner set</span>}
             </div>
             <div className="settings-sub-page__row-control">
               {isCurrentOwner && (
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  background: 'var(--accent)', color: '#fff',
-                  padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600,
-                }}>
+                <span className="ownership-page__owner-badge">
                   <i className="fas fa-crown" />&nbsp;Owner
                 </span>
               )}
@@ -1124,7 +1247,7 @@ const OwnershipSubPage: React.FC<OwnershipSubPageProps> = ({ ownerUsername, owne
           {isOwnerSet ? 'Transfer Ownership' : 'Claim Ownership'}
         </p>
         <div className="settings-sub-page__card">
-          <div className="settings-sub-page__row settings-sub-page__row--vertical">
+          <div className="settings-sub-page__row settings-sub-page__row--column">
             <div className="settings-sub-page__row-label">
               <strong>Account username</strong>
               <span>The username to assign as server owner.</span>
@@ -1137,7 +1260,7 @@ const OwnershipSubPage: React.FC<OwnershipSubPageProps> = ({ ownerUsername, owne
             />
           </div>
           {(isOwnerSet || needsToken) && (
-            <div className="settings-sub-page__row settings-sub-page__row--vertical" style={{ marginTop: 12 }}>
+            <div className="settings-sub-page__row settings-sub-page__row--column">
               <div className="settings-sub-page__row-label">
                 <strong>Admin token</strong>
                 <span>
@@ -1146,7 +1269,7 @@ const OwnershipSubPage: React.FC<OwnershipSubPageProps> = ({ ownerUsername, owne
                     : 'Required if an admin token is configured on the server.'}
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div className="ownership-page__token-row">
                 <TextField
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
@@ -1158,21 +1281,22 @@ const OwnershipSubPage: React.FC<OwnershipSubPageProps> = ({ ownerUsername, owne
                   variant="ghost"
                   onClick={() => setShowToken(v => !v)}
                   iconLeft={<i className={showToken ? 'fas fa-eye-slash' : 'fas fa-eye'} />}
+                  title={showToken ? 'Hide token' : 'Show token'}
                 />
               </div>
             </div>
           )}
           {status === 'success' && (
-            <p style={{ color: 'var(--green, #4caf50)', marginTop: 10, fontSize: 13 }}>
-              <i className="fas fa-check" /> {statusMsg}
-            </p>
+            <div className="backup-status-msg">
+              <i className="fas fa-check-circle" /> {statusMsg}
+            </div>
           )}
           {status === 'error' && (
-            <p style={{ color: 'var(--red, #f44336)', marginTop: 10, fontSize: 13 }}>
-              <i className="fas fa-exclamation-triangle" /> {statusMsg}
-            </p>
+            <div className="backup-status-msg backup-status-msg--error">
+              <i className="fas fa-exclamation-circle" /> {statusMsg}
+            </div>
           )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+          <div className="settings-sub-page__actions">
             <Button
               variant="primary"
               onClick={handleSubmit}
@@ -1325,7 +1449,7 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
               variant="primary"
               onClick={() => setCreateOpen(true)}
               iconLeft={<i className="fas fa-plus" />}
-              style={{ marginTop: 8, width: 'fit-content' }}
+              className="accounts-page__create-btn"
             >
               Create Account
             </Button>
@@ -1365,7 +1489,7 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
         <>
           {/* Create account modal */}
           {createOpen && (
-            <div className="login-delete-overlay" onClick={closeCreateModal} style={{ zIndex: 9999 }}>
+            <div className="login-delete-overlay accounts-page__overlay" onClick={closeCreateModal}>
               <div className="login-delete-container accounts-page__create-modal" onClick={(e) => e.stopPropagation()}>
                 <AddServerAccountPanel
                   creating={creating}
@@ -1414,7 +1538,7 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
           {(accounts.length > 0 || loading) && (
             <>
               <div className="accounts-page__list-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="accounts-page__list-title-row">
                   <h3 className="accounts-page__list-title">Accounts</h3>
                   <button className="backup-refresh-btn" onClick={fetchAccounts} title="Refresh" disabled={loading}>
                     <i className={`fas fa-sync-alt${loading ? ' fa-spin' : ''}`} />
@@ -1430,7 +1554,7 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
                   <div className="accounts-page__table-col accounts-page__table-col--date">Created</div>
                   <div className="accounts-page__table-col accounts-page__table-col--actions" />
                 </div>
-                {loading && <div style={{ padding: 16, color: 'var(--text-secondary)', fontSize: 13 }}>Loading...</div>}
+                {loading && <div className="accounts-page__loading">Loading...</div>}
                 {accounts.map(a => (
                   <div key={a.id} className="accounts-page__table-row">
                     <div className="accounts-page__table-col accounts-page__table-col--username">
@@ -1476,15 +1600,18 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
             </>
           )}
 
-          <div style={{ marginTop: 8 }}>
-            <button
-              className="backup-refresh-btn"
-              style={{ color: 'var(--text-secondary)', fontSize: 12 }}
+          {!ownerIsCurrent && (
+          <div className="accounts-page__clear-token">
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => { setTokenSaved(false); setToken(''); }}
+              iconLeft={<i className="fas fa-sign-out-alt" />}
             >
-              <i className="fas fa-sign-out-alt" /> Clear token
-            </button>
+              Clear token
+            </Button>
           </div>
+          )}
         </>
       )}
     </div>
@@ -1513,6 +1640,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
   currentUsername,
   currentUserAccountId,
   onClaimOwner,
+  onPasswordUpdated,
 }) => {
   const [activeTab, setActiveTab] = useState<ServerTab>('overview');
 
@@ -1570,7 +1698,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({
           loading={loading}
         />
       )}
-      {activeTab === 'security'    && <SecuritySubPage passwordRequired={passwordRequired} />}
+      {activeTab === 'security'    && <SecuritySubPage passwordRequired={passwordRequired} serverUrl={server.url} currentUsername={currentUsername} currentUserAccountId={currentUserAccountId} ownerUsername={ownerUsername} onPasswordUpdated={onPasswordUpdated} />}
       {activeTab === 'backups'     && <BackupsSubPage serverUrl={server.url} adminToken={adminToken} ownerUsername={ownerUsername} ownerAccountId={ownerAccountId} currentUsername={currentUsername} currentUserAccountId={currentUserAccountId} />}
       {activeTab === 'ownership'   && (
         <OwnershipSubPage

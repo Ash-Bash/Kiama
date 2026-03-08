@@ -49,3 +49,12 @@
     box-shadow: 0 10px 22px rgba(0, 0, 0, 0.18);
   }
 }
+
+// ── Responsive: mobile / tablet ─────────────────────────────────────────────
+@media (max-width: 768px) {
+  .ui-select select {
+    font-size: 16px; // prevent iOS zoom on focus
+    min-height: 44px;
+    padding: 12px 58px 12px 14px;
+  }
+}

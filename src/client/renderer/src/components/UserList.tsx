@@ -24,7 +24,7 @@ const UserList: React.FC<UserListProps> = ({ users, getRoleColor }) => {
         const user = typeof u === 'string' ? { name: u } : u;
         const color = getRoleColor ? getRoleColor(user.role) : undefined;
         return (
-          <div key={user.name} className="user-item" style={{ padding: '4px 0' }}>
+          <div key={user.name} className="user-item">
             <span className="user-name" style={color ? { color } : undefined}>{user.name}</span>
           </div>
         );

@@ -27,7 +27,7 @@ const CreateChannelPanel: React.FC<CreateChannelPanelProps> = ({ onCreate, onCan
       icon={<i className="fas fa-hashtag" />}
       tone="accent"
       footer={
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <>
           <Button variant="secondary" onClick={onCancel} disabled={busy}>Cancel</Button>
           <Button
             variant="primary"
@@ -37,7 +37,7 @@ const CreateChannelPanel: React.FC<CreateChannelPanelProps> = ({ onCreate, onCan
           >
             {busy ? 'Creating…' : 'Create Channel'}
           </Button>
-        </div>
+        </>
       }
     >
       <div className="channel-create-modal">
