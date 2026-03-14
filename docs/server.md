@@ -12,9 +12,10 @@ Overview
 Data layout and important files
 ------------------------------
 
-- `data/` (server data root): stores runtime data, user data, plugin data, and `secrets/`.
+- `data/` (server data root): stores runtime data, user data, plugin data, `secrets/`, and `cached/`.
 - `data/secrets/admin.token` — generated admin token (mode 0o600) if `--token`/`KIAMA_ADMIN_TOKEN` not provided.
 - `data/accounts/` — server-side bot account files: `{username}.json.enc` encrypted via `BotAccountManager`.
+- `data/cached/avatars/` — encrypted profile picture cache. Images uploaded by clients are encrypted with AES-256-GCM and stored as `.enc` files. Metadata lives in the `cached_avatars` SQLite table.
 - `server.config.json` — initial server configuration (if provided) or the file produced by `kiama-server init-config`.
 
 Security & secrets
@@ -28,6 +29,10 @@ Security & secrets
 - Bot accounts and server account encryption:
   - Server-side bot accounts are encrypted via AES-256-CBC and the key is derived from `process.env.KIAMA_ACCOUNT_SECRET` (scrypt).
   - Set `KIAMA_ACCOUNT_SECRET` in production to a strong secret.
+
+- Avatar cache encryption:
+  - Cached profile pictures are encrypted via AES-256-GCM with a key derived from `KIAMA_CACHE_KEY` (falls back to `KIAMA_ACCOUNT_SECRET`) using PBKDF2 (200k iterations).
+  - Avatars are decrypted on the fly when served via `GET /avatar/cached/:username`.
 
 Ownership
 ---------

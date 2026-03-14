@@ -6,8 +6,9 @@ Overview
 --------
 
 - Local accounts are stored and managed by the client application only — they are never transmitted to or stored on remote servers.
-- Local accounts hold your username, password-derived authentication, profile picture, and the local server list.
+- Local accounts hold your username, password-derived authentication, profile picture (global and per-server overrides), and the local server list.
 - Stored account files are encrypted on disk with AES-256-CBC; the encryption key is derived from your password using `scrypt`.
+- Profile pictures are cached on servers you join so other users can see your avatar without direct network access to your machine.
 
 Where accounts live
 -------------------
@@ -62,6 +63,21 @@ Profile pictures & media
 
 - Profile pictures are saved to `{accountsDir}/media/avatar-{username}.{ext}`. The account JSON stores the filename in `profilePic`.
 - Saving a profile picture updates the encrypted account file so the change is persisted.
+- **Per-server avatar overrides**: Users can set a different profile picture for each server (like the per-server nickname system). Per-server filenames are stored in `serverProfilePics` (a `Record<string, string>` mapping server IDs to filenames in `media/`).
+- `getEffectiveProfilePic(username, serverId?)` returns the per-server override if one exists, falling back to the global `profilePic`.
+
+### Server-side avatar caching
+
+When a user connects to a server, the client uploads the user's effective profile picture to the server's `POST /avatar/cache` endpoint. The server:
+
+1. Encrypts the image with AES-256-GCM (key derived from `KIAMA_CACHE_KEY` or `KIAMA_ACCOUNT_SECRET`).
+2. Stores it in `<data-root>/cached/avatars/avatar-{username}.{ext}.enc`.
+3. Records metadata in the `cached_avatars` SQLite table (username, filename, mimeType, SHA-256 hash, uploadedAt).
+4. Uses SHA-256 deduplication — if the hash matches the existing cached file, no re-encryption occurs.
+
+Other clients retrieve avatars via `GET /avatar/cached/:username`, which decrypts on the fly.
+
+When a user permanently leaves a server, cached avatars are deleted unless the server owner has toggled **Retain avatars on leave** (`POST /admin/settings/retainAvatars`).
 
 Security considerations & recommendations
 ---------------------------------------

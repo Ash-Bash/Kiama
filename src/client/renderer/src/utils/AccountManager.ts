@@ -184,6 +184,7 @@ export class AccountManager {
       username,
       passwordHash: await this.hashPassword(password),
       serverNicknames: {},
+      serverProfilePics: {},
       credentials: {},
       serverList: { ...EMPTY_SERVER_LIST, servers: [], folders: [] },
       isBot: false,
@@ -223,6 +224,57 @@ export class AccountManager {
     }
     account.updatedAt = new Date().toISOString();
     await this.saveAccount(account);
+  }
+
+  /**
+   * Return the per-server profile picture filename for `username` on `serverId`, or undefined.
+   */
+  async getServerProfilePic(username: string, serverId: string): Promise<string | undefined> {
+    const account = await this.loadAccount(username);
+    return account.serverProfilePics?.[serverId];
+  }
+
+  /**
+   * Set or clear a per-server profile picture from a data URI.
+   * Returns the absolute file path on set, or undefined on clear.
+   */
+  async setServerProfilePic(username: string, serverId: string, dataUri?: string): Promise<string | undefined> {
+    const account = await this.loadAccount(username);
+    account.serverProfilePics = account.serverProfilePics ?? {};
+
+    if (!dataUri) {
+      const oldFile = account.serverProfilePics[serverId];
+      if (oldFile) {
+        const oldPath = path.join(this.mediaDir, oldFile);
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      }
+      delete account.serverProfilePics[serverId];
+      await this.saveAccount(account);
+      return undefined;
+    }
+
+    const match = dataUri.match(/^data:image\/(\w[\w+.-]*);base64,(.+)$/s);
+    if (!match) throw new Error('Invalid image data URI.');
+    const [, rawExt, base64] = match;
+    const ext = rawExt === 'jpeg' ? 'jpg' : rawExt.toLowerCase().replace(/[+.].*/, '');
+    const filename = `avatar-${username}-${serverId}.${ext}`;
+    const filePath = path.join(this.mediaDir, filename);
+    fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+
+    account.serverProfilePics[serverId] = filename;
+    await this.saveAccount(account);
+    return filePath;
+  }
+
+  /**
+   * Resolve the effective profile picture for a given server context.
+   * Per-server override wins; falls back to the global avatar.
+   * Returns the absolute file path, or undefined if no avatar is set.
+   */
+  async getEffectiveProfilePic(username: string, serverId?: string): Promise<string | undefined> {
+    const account = await this.loadAccount(username);
+    const filename = (serverId && account.serverProfilePics?.[serverId]) || account.profilePic;
+    return filename ? path.join(this.mediaDir, filename) : undefined;
   }
 
   /**
@@ -427,6 +479,16 @@ export class AccountManager {
       const picPath = path.join(this.mediaDir, account.profilePic);
       if (fs.existsSync(picPath)) {
         zip.file(`media/${account.profilePic}`, fs.readFileSync(picPath));
+      }
+    }
+
+    // Per-server profile pictures if present.
+    if (account.serverProfilePics) {
+      for (const filename of Object.values(account.serverProfilePics)) {
+        const picPath = path.join(this.mediaDir, filename);
+        if (fs.existsSync(picPath)) {
+          zip.file(`media/${filename}`, fs.readFileSync(picPath));
+        }
       }
     }
 

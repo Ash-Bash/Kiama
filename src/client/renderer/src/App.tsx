@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import io from 'socket.io-client';
@@ -143,6 +144,7 @@ interface MemberEntry {
   username: string;
   role?: string;
   status: 'online' | 'offline';
+  hasAvatar?: boolean;
 }
 
 type ActiveView = 'home' | 'server' | 'settings' | 'server-settings' | 'server-profile' | 'channel-settings' | 'section-settings';
@@ -675,6 +677,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
       // Announce who we are so the server can track presence
       if (user?.username) {
         socketRef.current.emit('identify', { username: user.username, accountId: user?.id });
+        // Upload avatar to the server cache so other users can see it
+        uploadAvatarToCurrentServer();
       }
     });
 
@@ -1464,6 +1468,13 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     // Announce this client's identity so presence tracking works immediately
     if (socketRef.current && user?.username) {
       socketRef.current.emit('identify', { username: user.username, accountId: user?.id });
+      // Upload avatar to the server cache for the newly selected server
+      const targetServer = servers.find(s => s.id === serverId);
+      if (targetServer && targetServer.id !== 'home' && targetServer.url) {
+        appAccountManager.getEffectiveProfilePic(user.username, serverId).then(avatarPath => {
+          if (avatarPath) uploadAvatarToServer(targetServer.url!, user.username!, avatarPath).then(() => fetchServerMembers(serverId));
+        });
+      }
     }
 
   };
@@ -1836,10 +1847,65 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     try {
       const filePath = await appAccountManager.saveProfilePic(user.name, dataUri);
       setUserAvatar(`file://${filePath}`);
+      // Push updated avatar to every connected server's cache
+      uploadAvatarToAllServers(filePath);
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err?.message ?? 'Failed to update profile picture.' };
     }
+  };
+
+  /**
+   * Upload the local avatar file to a server's /avatar/cache endpoint (multipart).
+   * Silently ignores failures so it never blocks the UI.
+   */
+  const uploadAvatarToServer = async (serverUrl: string, username: string, filePath: string) => {
+    try {
+      const raw = fs.readFileSync(filePath);
+      const ext = path.extname(filePath).replace('.', '').toLowerCase();
+      const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+      const mime = mimeMap[ext] || 'image/png';
+      const blob = new Blob([raw], { type: mime });
+      const form = new FormData();
+      form.append('avatar', blob, path.basename(filePath));
+
+      const res = await fetch(`${serverUrl.replace(/\/$/, '')}/avatar/cache`, {
+        method: 'POST',
+        headers: { 'X-Username': username },
+        body: form,
+      });
+      const body = await res.json().catch(() => ({}));
+      console.debug('[avatar] Upload to', serverUrl, '→', res.status, body);
+    } catch (err) {
+      console.warn('[avatar] Failed to upload avatar to', serverUrl, err);
+    }
+  };
+
+  /** Push the current user's effective avatar to all connected non-home servers. */
+  const uploadAvatarToAllServers = async (filePath?: string) => {
+    const username = user?.username ?? user?.name;
+    if (!username) return;
+    const resolvedPath = filePath ??
+      (await appAccountManager.getEffectiveProfilePic(username, currentServerId))
+    if (!resolvedPath) return;
+
+    for (const srv of servers) {
+      if (srv.id === 'home' || !srv.url) continue;
+      uploadAvatarToServer(srv.url, username, resolvedPath);
+    }
+  };
+
+  /** Upload the effective avatar for the current server only. */
+  const uploadAvatarToCurrentServer = async () => {
+    const username = user?.username ?? user?.name;
+    if (!username) return;
+    const server = servers.find(s => s.id === currentServerId);
+    if (!server || server.id === 'home' || !server.url) return;
+    const resolvedPath = await appAccountManager.getEffectiveProfilePic(username, currentServerId);
+    if (!resolvedPath) return;
+    await uploadAvatarToServer(server.url, username, resolvedPath);
+    // Refresh member list so the avatar shows immediately
+    fetchServerMembers(currentServerId);
   };
 
   const handleUpdateServerIcon = async (
@@ -2481,6 +2547,15 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     const currentMember = (serverMembers.get(currentServerId) || []).find(m => m.username === processedMessage.user);
     const resolvedRole = currentMember?.role || processedMessage.userRole || userMeta?.role;
     const roleColor = getRoleColor(resolvedRole);
+    // Resolve avatar: for the current user, use local file directly.
+    // For other users, use the server avatar cache.
+    const isOwnMessage = processedMessage.user === localUsername;
+    const msgServerUrl = (servers.find(s => s.id === currentServerId) || currentServerObj)?.url || SERVER_URL;
+    const resolvedAvatar = isOwnMessage
+      ? userAvatar
+      : (currentMember?.hasAvatar
+        ? `${msgServerUrl}/avatar/cached/${encodeURIComponent(processedMessage.user)}`
+        : undefined);
     const msgReactions = localReactions.get(processedMessage.id) || [];
     // First message in a channel OR first message from a new author → extra top margin
     const isGroupStart = index == null || index === 0 || !arr || arr[index - 1].user !== processedMessage.user;
@@ -2671,9 +2746,9 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
         {/* Main message row: avatar + content column */}
         <div className="message-row">
           {/* Avatar */}
-          <div className="message-avatar" style={userMeta?.avatar ? undefined : { background: avatarBg }}>
-            {userMeta?.avatar
-              ? <img src={userMeta.avatar} alt={displayNameForMessageAuthor} />
+          <div className="message-avatar" style={resolvedAvatar ? undefined : { background: avatarBg }}>
+            {resolvedAvatar
+              ? <img src={resolvedAvatar} alt={displayNameForMessageAuthor} />
               : <span className="avatar-initials">{avatarInitials}</span>
             }
           </div>
@@ -3033,14 +3108,22 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
 
   // For real servers, use live member data from the /members endpoint.
   // For home/test server, fall back to the mock `users` array.
+  const currentServerUrl = currentServerObj?.url || SERVER_URL;
+  const localUsername = user?.username ?? user?.name;
   const effectiveMembers: User[] = currentServerId === 'home'
     ? users
-    : (Array.isArray(serverMembers.get(currentServerId)) ? serverMembers.get(currentServerId)! : []).map(m => ({
-        id: m.username,
-        name: m.username === (user?.username ?? user?.name) ? (currentUserNicknames.get(currentServerId) ?? m.username) : m.username,
-        status: m.status,
-        role: m.role,
-      }));
+    : (Array.isArray(serverMembers.get(currentServerId)) ? serverMembers.get(currentServerId)! : []).map(m => {
+        const isOwnEntry = m.username === localUsername;
+        return {
+          id: m.username,
+          name: isOwnEntry ? (currentUserNicknames.get(currentServerId) ?? m.username) : m.username,
+          status: m.status,
+          role: m.role,
+          avatar: isOwnEntry
+            ? userAvatar
+            : (m.hasAvatar ? `${currentServerUrl}/avatar/cached/${encodeURIComponent(m.username)}` : undefined),
+        };
+      });
 
   const channelMembers = effectiveMembers.filter(u => {
     if (!currentChannelId) return true;
@@ -3612,6 +3695,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
               <ServerUserSettingsPage
                 server={settingsServer}
                 currentUsername={user?.username ?? user?.name}
+                globalAvatar={userAvatar}
                 onBack={closeServerSettings}
                 onNicknameSaved={(nick) => {
                   setCurrentUserNicknames(prev => {
@@ -3620,6 +3704,16 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
                     else next.delete(settingsServer.id);
                     return next;
                   });
+                }}
+                onServerProfilePicSaved={() => {
+                  // Per-server avatar saved locally — upload to the server cache immediately
+                  if (settingsServer && settingsServer.url && settingsServer.id !== 'home' && user?.username) {
+                    appAccountManager.getEffectiveProfilePic(user.username, settingsServer.id).then(avatarPath => {
+                      if (avatarPath) {
+                        uploadAvatarToServer(settingsServer.url!, user.username!, avatarPath).then(() => fetchServerMembers(settingsServer.id));
+                      }
+                    });
+                  }
                 }}
               />
             ) : isChannelSettingsView && channelSettingsChannel ? (

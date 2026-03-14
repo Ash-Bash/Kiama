@@ -54,6 +54,7 @@ npm run build:client  # Build client only
 ### Key Pages
 - `src/client/renderer/src/pages/SettingsPage.tsx` - Account / app settings (full-width, dark gradient bg)
 - `src/client/renderer/src/pages/ServerSettingsPage.tsx` - Per-server settings: overview, roles, permissions, security, backups, **ownership** (full-width, same dark gradient bg as SettingsPage, **no** channel/member sidebar)
+- `src/client/renderer/src/pages/ServerUserSettingsPage.tsx` - Per-server user profile: nickname and per-server avatar override
 - `src/client/renderer/src/pages/ChannelSettingsPage.tsx` - Per-channel settings: overview (rename, move), permissions ("Can view (visibility)" and "Can write" per role)
 - `src/client/renderer/src/pages/SectionSettingsPage.tsx` - Per-section settings: overview (rename) and permissions (viewRoles/manageRoles per role)
 - `src/client/renderer/src/pages/HomePage.tsx` - Dashboard / home view
@@ -74,10 +75,11 @@ npm run build:client  # Build client only
 - Set `KIAMA_ADMIN_TOKEN` to control admin endpoints; otherwise the server writes a generated token to `<data-root>/secrets/admin.token` (mode 600).
 - Read auto-generated token: `cat dist/server/data/secrets/admin.token`
 - Override data root with `KIAMA_DATA_DIR`; override persisted config path with `KIAMA_CONFIG_PATH`.
-- Default data layout: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/`, `media/`, `Backups/`, **`accounts/`** under the data root.
+- Default data layout: `configs/`, `plugins/`, `uploads/`, `logs/`, `secrets/`, `media/`, `Backups/`, **`accounts/`**, **`cached/avatars/`** under the data root.
 - Server icon file saved at `<data-root>/server-icon.{ext}` and served at `GET /server/icon`.
 - Backup schedule is saved to `<data-root>/backup-config.json`. The `Backups/` folder is always excluded from archive contents.
-- `KIAMA_ACCOUNT_SECRET` — secret used to derive the AES key for server-side bot account files (`BotAccountManager`).
+- `KIAMA_ACCOUNT_SECRET` — secret used to derive the AES key for server-side bot account files (`BotAccountManager`) and avatar cache encryption.
+- `KIAMA_CACHE_KEY` — optional separate key for avatar cache encryption (falls back to `KIAMA_ACCOUNT_SECRET`).
 
 ## Common Components Quick Reference
 

@@ -65,7 +65,7 @@ const MyAccountSubPage: React.FC<MyAccountSubPageProps> = ({
         <div className="settings-sub-page__row">
           <div className="settings-sub-page__row-label">
             <strong>Profile picture</strong>
-            <span>Click the avatar to upload a new image (PNG, JPG, GIF, WebP).</span>
+            <span>Your global avatar. Servers will see this unless you set a per-server override.</span>
           </div>
           <div className="settings-sub-page__row-control">
             <label className="settings-avatar-upload" title="Change profile picture">

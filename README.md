@@ -27,6 +27,7 @@ A decentralized Discord-like chat application built with modern web technologies
 - **CLI Server Management**: Command-line interface for server administration
 - **Backup System**: Scheduled or manual zip backups of all server data; manage, restore, and download backups from the Server Settings panel
 - **Local Account System**: Encrypted local accounts stored on-device — no server required. AES-256-CBC encryption, OS keychain integration, ZIP export/import, and support for multiple saved accounts with quick-switch
+- **Profile Pictures with Server Caching**: Set a global avatar or per-server overrides. Avatars are uploaded to server caches (encrypted at rest with AES-256-GCM) so other users can see them. Cached avatars are cleaned up when a user permanently leaves (configurable).
 - **Bot Accounts**: Server-side bot accounts (linked to plugins or created manually) managed via admin REST endpoints
 - **Friends System**: User relationship management
 - **Custom Emotes**: Server-specific emoji support
@@ -228,6 +229,8 @@ Environment variables:
 - `KIAMA_ADMIN_TOKEN` – admin token for protected endpoints/CLI (if unset, the server generates one and writes it to `data/secrets/admin.token` with mode 600)
 - `KIAMA_DATA_DIR` – root for runtime data (configs, plugins, uploads, logs, secrets). Defaults to `dist/server/data` (or equivalent when running from source).
 - `KIAMA_CONFIG_PATH` – override path to the persisted config JSON (defaults to `<data-root>/configs/<serverId>.json`).
+- `KIAMA_ACCOUNT_SECRET` – secret for server-side bot account encryption and avatar cache key derivation.
+- `KIAMA_CACHE_KEY` – optional separate key for avatar cache encryption (falls back to `KIAMA_ACCOUNT_SECRET`).
 
 Data layout created on startup:
 - `<data-root>/configs/` – persisted server config (includes sections/channels/roles, hashed admin token, and `ownerUsername`)
@@ -235,6 +238,7 @@ Data layout created on startup:
 - `<data-root>/uploads/` – user uploads (emotes, etc.)
 - `<data-root>/logs/` – server logs
 - `<data-root>/media/` – uploaded media files
+- `<data-root>/cached/avatars/` – encrypted profile picture cache (AES-256-GCM, uploaded by clients on connect)
 - `<data-root>/data/` – server icon file (`server-icon.{ext}`) stored here
 - `<data-root>/Backups/` – backup zip archives (`[ServerName]_Backup_[Datetime].zip`)
 - `<data-root>/secrets/admin.token` – generated admin token (mode 600) when no token is supplied

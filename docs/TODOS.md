@@ -17,6 +17,7 @@ This document lists planned work items grouped by area. Each item should be trac
 - Add a Plugin Manager inside Server Settings Page: manage installed plugins, enable/disable, configure, and update.
 - Improve the Backup subpage in Server Settings: show backup status, manual backup/restore, and scheduled backup settings.
 - Display media inline in messages: render images and playable videos inside the message list when users post media.
+- [x] Profile pictures with per-server overrides and server-side encrypted caching.
 - [x] Emote picker with custom server emotes and built-in emoji.
 - [x] Emote Editor in Server Settings (split-view with preview, upload, delete).
 - [x] Chat scrolls to latest message when opening channels.

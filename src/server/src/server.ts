@@ -180,6 +180,7 @@ export class Server {
   private ownerAccountId: string = '';
   private allowClaimOwnership: boolean = true;
   private serverPasswordHash: string = '';
+  private retainAvatarsOnLeave: boolean = false;
 
   constructor(port: number, mode: 'public' | 'private', serverId?: string, adminToken?: string, initialConfig?: InitialServerConfig, initialConfigPath?: string) {
     this.port = port;
@@ -344,7 +345,9 @@ export class Server {
       path.join(this.dataRoot, 'logs'),
       path.join(this.dataRoot, 'secrets'),
       path.join(this.dataRoot, 'media'),
-      path.join(this.dataRoot, 'emotes')
+      path.join(this.dataRoot, 'emotes'),
+      path.join(this.dataRoot, 'cached'),
+      path.join(this.dataRoot, 'cached', 'avatars')
     ];
 
     dirs.forEach(dir => {
@@ -481,6 +484,14 @@ export class Server {
           console.warn('Failed to add serverPasswordHash column to servers table:', e);
         }
       }
+      if (!names.has('retainAvatarsOnLeave')) {
+        try {
+          this.db.exec(`ALTER TABLE servers ADD COLUMN retainAvatarsOnLeave INTEGER DEFAULT 0`);
+          console.log('Added retainAvatarsOnLeave column to servers table');
+        } catch (e) {
+          console.warn('Failed to add retainAvatarsOnLeave column to servers table:', e);
+        }
+      }
     } catch (e) {
       // ignore
     }
@@ -534,6 +545,17 @@ export class Server {
     } catch (e) {
       // Column already exists, ignore
     }
+
+    // Cached avatars table: stores encrypted profile pictures uploaded by clients
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS cached_avatars (
+        username TEXT PRIMARY KEY,
+        filename TEXT,
+        mimeType TEXT,
+        uploadedAt TEXT,
+        hash TEXT
+      );
+    `);
   }
 
   // Load persisted roles, sections, channels and server metadata from DB
@@ -548,6 +570,7 @@ export class Server {
         this.allowClaimOwnership = srv.allowClaimOwnership === 0 ? false : true;
         this.dbEncrypted = srv.dbEncrypted === 1 ? true : false;
         this.serverPasswordHash = srv.serverPasswordHash || '';
+        this.retainAvatarsOnLeave = srv.retainAvatarsOnLeave === 1 ? true : false;
       }
 
       // Load roles
@@ -659,8 +682,8 @@ export class Server {
   private persistStateToDB() {
     try {
       const upsertServer = this.db.prepare(`
-        INSERT INTO servers (serverId, name, mode, dataRoot, configPath, adminTokenHash, ownerUsername, ownerAccountId, allowClaimOwnership, dbEncrypted, serverPasswordHash, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO servers (serverId, name, mode, dataRoot, configPath, adminTokenHash, ownerUsername, ownerAccountId, allowClaimOwnership, dbEncrypted, serverPasswordHash, retainAvatarsOnLeave, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(serverId) DO UPDATE SET
           name=excluded.name,
           mode=excluded.mode,
@@ -672,10 +695,11 @@ export class Server {
           allowClaimOwnership=excluded.allowClaimOwnership,
           dbEncrypted=excluded.dbEncrypted,
           serverPasswordHash=excluded.serverPasswordHash,
+          retainAvatarsOnLeave=excluded.retainAvatarsOnLeave,
           updatedAt=excluded.updatedAt
       `);
       const now = new Date().toISOString();
-      upsertServer.run(this.serverId, this.serverName, this.mode, this.dataRoot, this.configFilePath, this.adminToken ? this.hashAdminToken(this.adminToken) : null, this.ownerUsername || null, this.ownerAccountId || null, this.allowClaimOwnership ? 1 : 0, this.dbEncrypted ? 1 : 0, this.serverPasswordHash || null, now, now);
+      upsertServer.run(this.serverId, this.serverName, this.mode, this.dataRoot, this.configFilePath, this.adminToken ? this.hashAdminToken(this.adminToken) : null, this.ownerUsername || null, this.ownerAccountId || null, this.allowClaimOwnership ? 1 : 0, this.dbEncrypted ? 1 : 0, this.serverPasswordHash || null, this.retainAvatarsOnLeave ? 1 : 0, now, now);
 
       const insertRole = this.db.prepare(`
         INSERT INTO roles (serverId, roleId, name, color, permissions, createdAt, updatedAt)
@@ -775,6 +799,25 @@ export class Server {
     decipher.setAuthTag(tag);
     const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
     fs.writeFileSync(destPath, plain, { mode: 0o600 });
+  }
+
+  /** Derive the passphrase used to encrypt cached avatar files at rest. */
+  private getAvatarCacheKey(): string {
+    return process.env.KIAMA_CACHE_KEY || process.env.KIAMA_ACCOUNT_SECRET || 'kiama-default-cache-key';
+  }
+
+  /** Remove a user's cached avatar from disk and DB. */
+  private deleteCachedAvatar(username: string): void {
+    try {
+      const row = this.db.prepare('SELECT filename FROM cached_avatars WHERE username = ?').get(username) as any;
+      if (row && row.filename) {
+        const filePath = path.join(this.dataRoot, 'cached', 'avatars', row.filename);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      }
+      this.db.prepare('DELETE FROM cached_avatars WHERE username = ?').run(username);
+    } catch (e) {
+      console.warn('[deleteCachedAvatar] Failed:', e);
+    }
   }
 
   private storeMessage(message: TypedMessage) {
@@ -1636,6 +1679,151 @@ export class Server {
       res.sendFile(path.resolve(iconPath));
     });
 
+    // ── Cached avatar management ────────────────────────────────────────────
+    // Clients upload their (effective) profile picture when connecting so other
+    // users on this server can view it without hitting the uploader's network.
+    // Images are encrypted at rest using AES-256-GCM.
+
+    const avatarUpload = multer({
+      dest: path.join(this.dataRoot, 'cached', 'avatars'),
+      limits: { fileSize: 256 * 1024 }, // 256 KB max
+      fileFilter: (_req, file, cb) => {
+        const allowed = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+        cb(null, allowed.includes(file.mimetype));
+      },
+    });
+
+    // POST /avatar/cache — upload a profile picture to the server cache.
+    this.app.post('/avatar/cache', avatarUpload.single('avatar'), (req, res) => {
+      const userHeader = req.headers['x-username'];
+      const username = typeof userHeader === 'string'
+        ? userHeader
+        : Array.isArray(userHeader) ? userHeader[0] : (req.body?.username as string);
+
+      if (!username || typeof username !== 'string') {
+        if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ error: 'X-Username header is required' });
+      }
+
+      // Sanitise username for filesystem use
+      const safeUser = path.basename(username).replace(/[^a-zA-Z0-9_-]/g, '_');
+      if (!safeUser) {
+        if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ error: 'Invalid username' });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: 'No avatar file uploaded' });
+      }
+
+      try {
+        const raw = fs.readFileSync(req.file.path);
+
+        // SHA-256 hash for dedup/change detection
+        const hash = crypto.createHash('sha256').update(raw).digest('hex');
+        const existing = this.db.prepare('SELECT hash FROM cached_avatars WHERE username = ?').get(username) as any;
+        if (existing && existing.hash === hash) {
+          // Unchanged — skip re-encryption
+          try { fs.unlinkSync(req.file.path); } catch {}
+          return res.json({ success: true, changed: false });
+        }
+
+        // Determine extension from mimetype
+        const mimeToExt: Record<string, string> = {
+          'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp',
+        };
+        const ext = mimeToExt[req.file.mimetype] || 'png';
+        const encFilename = `avatar-${safeUser}.${ext}.enc`;
+        const encPath = path.join(this.dataRoot, 'cached', 'avatars', encFilename);
+
+        // Remove old cached file if extension changed
+        try {
+          const oldRow = this.db.prepare('SELECT filename FROM cached_avatars WHERE username = ?').get(username) as any;
+          if (oldRow && oldRow.filename && oldRow.filename !== encFilename) {
+            const oldPath = path.join(this.dataRoot, 'cached', 'avatars', oldRow.filename);
+            if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+          }
+        } catch {}
+
+        // Write raw data to a temp plain file, encrypt it, then remove the temp
+        const tmpPlain = req.file.path; // multer already wrote here
+        this.encryptFile(tmpPlain, encPath, this.getAvatarCacheKey());
+        try { fs.unlinkSync(tmpPlain); } catch {}
+
+        // Upsert DB row
+        const now = new Date().toISOString();
+        const upsert = this.db.prepare(`
+          INSERT INTO cached_avatars (username, filename, mimeType, uploadedAt, hash)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(username) DO UPDATE SET
+            filename=excluded.filename, mimeType=excluded.mimeType,
+            uploadedAt=excluded.uploadedAt, hash=excluded.hash
+        `);
+        upsert.run(username, encFilename, req.file.mimetype, now, hash);
+
+        res.json({ success: true, changed: true });
+      } catch (err: any) {
+        console.error('[avatar/cache] Failed to cache avatar:', err);
+        try { if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); } catch {}
+        res.status(500).json({ error: 'Failed to cache avatar' });
+      }
+    });
+
+    // GET /avatar/cached/:username — serve a cached avatar (decrypted on the fly).
+    this.app.get('/avatar/cached/:username', (req, res) => {
+      const { username } = req.params;
+      if (!username) return res.status(400).json({ error: 'username param required' });
+
+      try {
+        const row = this.db.prepare('SELECT filename, mimeType FROM cached_avatars WHERE username = ?').get(username) as any;
+        if (!row) return res.status(404).json({ error: 'No cached avatar for this user' });
+
+        const encPath = path.join(this.dataRoot, 'cached', 'avatars', row.filename);
+        if (!fs.existsSync(encPath)) {
+          // DB row exists but file is missing — clean up
+          this.db.prepare('DELETE FROM cached_avatars WHERE username = ?').run(username);
+          return res.status(404).json({ error: 'Cached avatar file missing' });
+        }
+
+        // Decrypt to a temp file, stream it, then clean up
+        const tmpPath = path.join(this.dataRoot, 'cached', 'avatars', `.tmp-${Date.now()}-${username}`);
+        this.decryptFile(encPath, tmpPath, this.getAvatarCacheKey());
+        res.setHeader('Content-Type', row.mimeType || 'image/png');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.sendFile(path.resolve(tmpPath), () => {
+          try { fs.unlinkSync(tmpPath); } catch {}
+        });
+      } catch (err: any) {
+        console.error('[avatar/cached] Failed to serve cached avatar:', err);
+        res.status(500).json({ error: 'Failed to retrieve cached avatar' });
+      }
+    });
+
+    // DELETE /avatar/cached/:username — remove a cached avatar (admin/owner only).
+    this.app.delete('/avatar/cached/:username', this.requireAdmin((req, res) => {
+      const { username } = req.params;
+      if (!username) return res.status(400).json({ error: 'username param required' });
+      this.deleteCachedAvatar(username);
+      res.json({ success: true });
+    }));
+
+    // POST /admin/settings/retainAvatars — toggle whether cached avatars are
+    // kept when a user permanently leaves the server.
+    this.app.post('/admin/settings/retainAvatars', this.requireAdmin((req, res) => {
+      const { retain } = req.body;
+      if (typeof retain !== 'boolean') {
+        return res.status(400).json({ error: '`retain` (boolean) is required' });
+      }
+      this.retainAvatarsOnLeave = retain;
+      this.saveToDisk();
+      res.json({ success: true, retainAvatarsOnLeave: this.retainAvatarsOnLeave });
+    }));
+
+    // GET /admin/settings/retainAvatars — read the current setting.
+    this.app.get('/admin/settings/retainAvatars', this.requireAdmin((_req, res) => {
+      res.json({ retainAvatarsOnLeave: this.retainAvatarsOnLeave });
+    }));
+
     // Claim owner: sets ownerUsername when no owner is assigned yet.
     // If an admin token is configured on the server, it must be provided in
     // X-Admin-Token header or body.token.  Without an admin token configured
@@ -1720,27 +1908,35 @@ export class Server {
     // GET /members — list all known members with their roles and online status
     this.app.get('/members', (req, res) => {
       try {
-        const stmt = this.db.prepare('SELECT username, role, status FROM members WHERE serverId = ?');
-        const rows = stmt.all(this.serverId) as Array<{ username: string; role?: string; status?: string }>;
-        const members = rows.map(r => ({ username: r.username, role: r.role, status: r.status || 'offline' }));
+        const stmt = this.db.prepare(
+          `SELECT m.username, m.role, m.status, CASE WHEN ca.username IS NOT NULL THEN 1 ELSE 0 END AS hasAvatar
+           FROM members m
+           LEFT JOIN cached_avatars ca ON ca.username = m.username
+           WHERE m.serverId = ?`
+        );
+        const rows = stmt.all(this.serverId) as Array<{ username: string; role?: string; status?: string; hasAvatar: number }>;
+        const members = rows.map(r => ({ username: r.username, role: r.role, status: r.status || 'offline', hasAvatar: !!r.hasAvatar }));
         // Include any online usernames not yet stored in members
         const onlineUsernames = Array.from(this.connectedUsers.values()).map(v => v.username);
         const present = new Set(members.map(m => m.username));
         for (const username of onlineUsernames) {
-          if (!present.has(username)) members.push({ username, role: undefined, status: 'online' });
+          if (!present.has(username)) {
+            const hasRow = this.db.prepare('SELECT 1 FROM cached_avatars WHERE username = ?').get(username);
+            members.push({ username, role: undefined, status: 'online', hasAvatar: !!hasRow });
+          }
         }
         res.json({ members });
       } catch (e) {
         // Fallback to in-memory representation on DB error
         const onlineUsernames = new Set(Array.from(this.connectedUsers.values()).map(v => v.username));
         const seen = new Set<string>();
-        const members: Array<{ username: string; role?: string; status: string }> = [];
+        const members: Array<{ username: string; role?: string; status: string; hasAvatar: boolean }> = [];
         for (const [username, role] of this.userRoles.entries()) {
           seen.add(username);
-          members.push({ username, role, status: onlineUsernames.has(username) ? 'online' : 'offline' });
+          members.push({ username, role, status: onlineUsernames.has(username) ? 'online' : 'offline', hasAvatar: false });
         }
         for (const username of onlineUsernames) {
-          if (!seen.has(username)) members.push({ username, status: 'online' });
+          if (!seen.has(username)) members.push({ username, status: 'online', hasAvatar: false });
         }
         res.json({ members });
       }
@@ -2770,6 +2966,32 @@ export class Server {
       socket.on('leave_channel', (data: { channelId: string }) => {
         socket.leave(`channel_${data.channelId}`);
         console.log(`User left channel: ${data.channelId}`);
+      });
+
+      // Permanent leave: the user is removing this server from their list.
+      // Clean up their member record and cached avatar (unless retention is on).
+      socket.on('leave_server', () => {
+        const conn = this.connectedUsers.get(socket.id);
+        if (!conn?.username) return;
+        const username = conn.username;
+        console.log(`User permanently leaving server: ${username}`);
+
+        // Remove member record
+        try {
+          this.db.prepare('DELETE FROM members WHERE serverId = ? AND username = ?').run(this.serverId, username);
+        } catch (e) {
+          console.warn('Failed to remove member record on leave_server:', e);
+        }
+
+        // Remove cached avatar unless owner opted to retain
+        if (!this.retainAvatarsOnLeave) {
+          this.deleteCachedAvatar(username);
+        }
+
+        // Remove role assignment
+        this.userRoles.delete(username);
+        this.saveToDisk();
+        this.io.emit('user_offline', { username });
       });
 
       socket.on('message', (data, ack) => {

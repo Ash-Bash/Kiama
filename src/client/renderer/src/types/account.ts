@@ -37,6 +37,8 @@ export interface LocalAccount {
   profilePic?: string;      // Filename in the account's media dir
   /** Per-server nicknames: serverId -> nickname */
   serverNicknames?: Record<string, string>;
+  /** Per-server profile pictures: serverId -> filename in media dir */
+  serverProfilePics?: Record<string, string>;
   credentials: {
     token?: string;         // Reserved for future cloud auth
   };

@@ -130,6 +130,8 @@ interface LocalAccount {
   username: string;
   passwordHash: string;      // PBKDF2-SHA256, 100k iterations
   profilePic?: string;       // filename relative to ~/.kiama/accounts/media/
+  serverNicknames?: Record<string, string>;    // serverId → display name
+  serverProfilePics?: Record<string, string>;  // serverId → avatar filename in media/
   credentials: Record<string, unknown>;
   serverList: ServerList;    // { servers: ServerEntry[], folders: ServerFolder[] }
   isBot: false;
@@ -155,7 +157,7 @@ interface BotAccount {
 
 ### Server: `BotAccountManager` (`src/server/src/utils/BotAccountManager.ts`)
 
-Stores **only** bot/owner accounts on the server — user local accounts are never sent to or stored by the server.
+Stores **only** bot/owner accounts on the server — user local accounts are never sent to or stored by the server. However, the server does cache profile picture images uploaded by clients (see avatar caching below).
 
 ```typescript
 // Instantiated inside Server constructor:
@@ -187,6 +189,26 @@ When a local login succeeds, `onLogin` is called with:
 rm -rf ~/.kiama/accounts/   # delete all local accounts
 rm ~/.kiama/accounts/<name>.json.enc  # delete one account
 ```
+
+### Avatar caching on servers
+
+Profile pictures are stored locally on the client, but when a user connects to a server their effective avatar is uploaded to the server's cache so other clients can display it.
+
+**Client flow:**
+1. After socket `identify`, the client calls `AccountManager.getEffectiveProfilePic(username, serverId)` to resolve the per-server or global avatar.
+2. The file is read and uploaded as multipart form data to `POST /avatar/cache` with the `X-Username` header.
+3. On avatar change (global or per-server), the upload is repeated immediately.
+
+**Server flow:**
+1. `POST /avatar/cache` receives the image via multer (256 KB max), computes a SHA-256 hash for deduplication.
+2. The image is encrypted with AES-256-GCM (key from `KIAMA_CACHE_KEY` or `KIAMA_ACCOUNT_SECRET`) and stored in `<data-root>/cached/avatars/`.
+3. Metadata is stored in the `cached_avatars` SQLite table.
+4. `GET /avatar/cached/:username` decrypts and streams the image on the fly.
+5. `GET /members` now includes a `hasAvatar` boolean per member (LEFT JOIN with `cached_avatars`).
+
+**Cleanup:**
+- On `leave_server` socket event, cached avatars are deleted unless the server's `retainAvatarsOnLeave` setting is enabled.
+- Admins can toggle retention via `POST /admin/settings/retainAvatars` and delete individual avatars via `DELETE /avatar/cached/:username`.
 
 ## Development Tasks
 
