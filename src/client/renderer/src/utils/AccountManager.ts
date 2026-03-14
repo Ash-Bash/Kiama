@@ -526,6 +526,134 @@ export class AccountManager {
     return imported;
   }
 
+  /**
+   * Export the raw encrypted account file (`.json.enc`) plus related media
+   * without decrypting. Useful for secure backups where the data must remain
+   * encrypted at rest.
+   */
+  async exportEncryptedBackup(username: string): Promise<Buffer> {
+    const encPath = this.encFilePath(username);
+    if (!fs.existsSync(encPath)) throw new Error(`Account "${username}" not found.`);
+
+    const zip = new JSZip();
+
+    // Include the encrypted account file as-is.
+    zip.file(path.basename(encPath), fs.readFileSync(encPath));
+
+    // Include any media files that reference the username (avatars are named with username).
+    if (fs.existsSync(this.mediaDir)) {
+      const mediaFiles = fs.readdirSync(this.mediaDir).filter(f => f.includes(username));
+      for (const file of mediaFiles) {
+        const full = path.join(this.mediaDir, file);
+        if (fs.existsSync(full)) {
+          zip.file(`media/${file}`, fs.readFileSync(full));
+        }
+      }
+    }
+
+    return zip.generateAsync({ type: 'nodebuffer' });
+  }
+
+  /**
+   * Import a raw encrypted backup previously created with `exportEncryptedBackup`.
+   * Writes the `.json.enc` file and media files to the accounts folder. Returns
+   * the username written.
+   */
+  async importEncryptedBackup(zipBuffer: Buffer): Promise<string> {
+    const zip = await JSZip.loadAsync(zipBuffer);
+
+    const encFileEntry = Object.keys(zip.files).find(f => f.endsWith('.json.enc'));
+    if (!encFileEntry) throw new Error('Invalid encrypted backup: no .json.enc found.');
+
+    const encData = await zip.files[encFileEntry].async('nodebuffer');
+    const username = path.basename(encFileEntry).replace('.json.enc', '');
+    fs.writeFileSync(this.encFilePath(username), encData as Buffer);
+
+    const mediaFiles = Object.keys(zip.files).filter(f => f.startsWith('media/') && !zip.files[f].dir);
+    for (const mediaPath of mediaFiles) {
+      const filename = path.basename(mediaPath);
+      const data = await zip.files[mediaPath].async('nodebuffer');
+      fs.writeFileSync(path.join(this.mediaDir, filename), data as Buffer);
+    }
+
+    return username;
+  }
+
+  /**
+   * Import a backup and auto-detect its type.
+   * - If the ZIP contains `account.json` it is treated as a decrypted export and
+   *   `newPassword` is required (the account will be re-encrypted with it).
+   * - Otherwise if the ZIP contains a `.json.enc` file it is treated as a raw
+   *   encrypted backup and will be restored as-is.
+   */
+  async importBackup(zipBuffer: Buffer, newPassword?: string): Promise<LocalAccount | string> {
+    const zip = await JSZip.loadAsync(zipBuffer);
+    if (zip.file('account.json')) {
+      if (!newPassword) throw new Error('A new password is required for decrypted imports.');
+      return this.importFromZip(zipBuffer, newPassword);
+    }
+
+    const encFileEntry = Object.keys(zip.files).find(f => f.endsWith('.json.enc'));
+    if (encFileEntry) {
+      return this.importEncryptedBackup(zipBuffer);
+    }
+
+    throw new Error('Invalid backup file: no recognizable account export found.');
+  }
+
+  // ── Last-account / auto-login helpers ─────────────────────────────────────
+
+  /** Persist the last-used username to a small file in the accounts directory. */
+  async setLastAccount(username: string | null): Promise<void> {
+    const file = path.join(this.accountsDir, 'last-account');
+    if (!username) {
+      try { if (fs.existsSync(file)) fs.unlinkSync(file); } catch {}
+      return;
+    }
+    fs.writeFileSync(file, username, 'utf8');
+  }
+
+  /** Read the last-used username, or null if none present. */
+  async getLastAccount(): Promise<string | null> {
+    const file = path.join(this.accountsDir, 'last-account');
+    if (!fs.existsSync(file)) return null;
+    try { return fs.readFileSync(file, 'utf8').trim() || null; } catch { return null; }
+  }
+
+  /**
+   * Attempt to auto-login using the OS keychain (keytar). Returns the unlocked
+   * `LocalAccount` on success or `null` if auto-login is not possible.
+   */
+  async tryAutoLogin(): Promise<LocalAccount | null> {
+    const enabled = this.isAutoLoginEnabled();
+    if (!enabled) return null;
+    const last = await this.getLastAccount();
+    if (!last) return null;
+    try {
+      // `getKey` checks cache → keytar; if no key available it throws.
+      const key = await this.getKey(last);
+      const account = await this.loadAccountWithKey(last, key);
+      return account;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Enable or disable auto-login (uses OS keychain). */
+  setAutoLoginEnabled(enabled: boolean): void {
+    const file = path.join(this.accountsDir, 'auto-login');
+    try {
+      if (enabled) fs.writeFileSync(file, '1', 'utf8');
+      else if (fs.existsSync(file)) fs.unlinkSync(file);
+    } catch {}
+  }
+
+  /** Return whether auto-login is enabled. */
+  isAutoLoginEnabled(): boolean {
+    const file = path.join(this.accountsDir, 'auto-login');
+    try { return fs.existsSync(file); } catch { return false; }
+  }
+
   // ── Password helpers ─────────────────────────────────────────────────────────
 
   private hashPassword(password: string): Promise<string> {

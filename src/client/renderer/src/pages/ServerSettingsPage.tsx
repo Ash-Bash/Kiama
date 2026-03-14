@@ -1316,6 +1316,171 @@ const OwnershipSubPage: React.FC<OwnershipSubPageProps> = ({ ownerUsername, owne
   );
 };
 
+// == Edit Server Account Modal ================================================
+
+interface EditServerAccountModalProps {
+  account: ServerAccountEntry;
+  serverUrl: string;
+  avatarRevision: number;
+  onSave: (changes: { newUsername?: string; password?: string; avatarFile?: File | null; removeAvatar?: boolean }) => Promise<void>;
+  onClose: () => void;
+}
+
+const EditServerAccountModal: React.FC<EditServerAccountModalProps> = ({
+  account, serverUrl, avatarRevision, onSave, onClose,
+}) => {
+  const [username, setUsername] = useState(account.username);
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [removeAvatar, setRemoveAvatar] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const currentAvatarUrl = account.hasAvatar && !removeAvatar
+    ? `${serverUrl}/avatar/cached/${encodeURIComponent(account.username)}?r=${avatarRevision}`
+    : null;
+
+  const handleFileSelect = (file: File) => {
+    setAvatarFile(file);
+    setRemoveAvatar(false);
+    const reader = new FileReader();
+    reader.onload = () => setAvatarPreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleSubmit = async () => {
+    setFormError(null);
+    if (!username.trim()) { setFormError('Username is required.'); return; }
+    if (password && password.length < 6) { setFormError('Password must be at least 6 characters.'); return; }
+    setSaving(true);
+    try {
+      await onSave({
+        newUsername: username.trim() !== account.username ? username.trim() : undefined,
+        password: password || undefined,
+        avatarFile: avatarFile,
+        removeAvatar,
+      });
+    } catch (err) {
+      setFormError(`Save failed: ${err}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const displayAvatar = avatarPreview || currentAvatarUrl;
+
+  return (
+    <div className="login-delete-overlay accounts-page__overlay" onClick={() => !saving && onClose()}>
+      <div className="login-delete-container accounts-page__create-modal" onClick={(e) => e.stopPropagation()}>
+        <ModalPanel
+          className="accounts-page__edit-panel"
+          title="Edit Server Account"
+          description={`Editing "${account.username}"`}
+          icon={<i className="fas fa-user-edit" />}
+          showClose
+          onClose={() => !saving && onClose()}
+          footer={
+            <div className="accounts-page__modal-footer">
+              <span className="accounts-page__modal-footer-hint">
+                <i className="fas fa-lock" /> Encrypted at rest
+              </span>
+              <div className="accounts-page__modal-footer-actions">
+                <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+                <Button
+                  variant="primary"
+                  onClick={handleSubmit}
+                  disabled={saving || !username.trim()}
+                  iconLeft={<i className={saving ? 'fas fa-spinner fa-spin' : 'fas fa-save'} />}
+                >
+                  {saving ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </div>
+            </div>
+          }
+        >
+          <div className="accounts-page__modal-form">
+            {/* Avatar */}
+            <div className="accounts-page__edit-avatar-section">
+              <div
+                className="accounts-page__edit-avatar"
+                onClick={() => fileInputRef.current?.click()}
+                title="Change profile picture"
+              >
+                {displayAvatar ? (
+                  <img src={displayAvatar} alt="Avatar" className="accounts-page__edit-avatar-img" />
+                ) : (
+                  <i className="fas fa-robot accounts-page__edit-avatar-placeholder" />
+                )}
+                <div className="accounts-page__edit-avatar-overlay">
+                  <i className="fas fa-camera" />
+                </div>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleFileSelect(f);
+                  e.target.value = '';
+                }}
+              />
+              {(account.hasAvatar || avatarFile) && !removeAvatar && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setRemoveAvatar(true); setAvatarFile(null); setAvatarPreview(null); }}
+                  iconLeft={<i className="fas fa-trash" />}
+                >
+                  Remove Avatar
+                </Button>
+              )}
+              {removeAvatar && (
+                <span className="accounts-page__edit-avatar-removed">
+                  <i className="fas fa-info-circle" /> Avatar will be removed on save
+                </span>
+              )}
+            </div>
+            {/* Username */}
+            <TextField
+              label="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Account username"
+              disabled={saving}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } }}
+            />
+            {/* Password */}
+            <TextField
+              containerClassName="field--grow field--with-icon"
+              label="New Password"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank to keep current"
+              disabled={saving}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } }}
+              hint={password.length > 0 && password.length < 6 ? `${password.length}/6 characters minimum` : undefined}
+              suffix={(
+                <Button className="icon-button" variant="ghost" onClick={() => setShowPassword(v => !v)} iconLeft={<i className={showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'} />} title={showPassword ? 'Hide password' : 'Show password'} />
+              )}
+            />
+            {formError && (
+              <p className="modal-panel__error">
+                <i className="fas fa-exclamation-triangle" /> {formError}
+              </p>
+            )}
+          </div>
+        </ModalPanel>
+      </div>
+    </div>
+  );
+};
+
 // == Server Accounts sub-page =================================================
 
 interface ServerAccountEntry {
@@ -1325,6 +1490,7 @@ interface ServerAccountEntry {
   linkedPlugin?: string;
   createdAt: string;
   updatedAt: string;
+  hasAvatar?: boolean;
 }
 
 const BOT_TYPES = ['chat', 'moderator', 'custom'] as const;
@@ -1360,6 +1526,8 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
   const [createOpen, setCreateOpen] = useState(false);
   const [statusMsg, setStatusMsg]           = useState<{ text: string; ok: boolean } | null>(null);
   const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [editingAccount, setEditingAccount] = useState<ServerAccountEntry | null>(null);
+  const [avatarRevision, setAvatarRevision] = useState(0);
 
   const authHeaders = useCallback((): Record<string, string> => {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -1423,19 +1591,49 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
     }
   };
 
-  const handleResetPassword = async (username: string, newPass: string) => {
-    try {
-      const res = await fetch(`${serverUrl}/admin/accounts/bots/${encodeURIComponent(username)}`, {
-        method: 'PATCH',
-        headers: authHeaders(),
-        body: JSON.stringify({ password: newPass }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `${res.status}`);
-      showStatus(`Password reset for "${username}".`, true);
-    } catch (err) {
-      showStatus(`Failed to reset password: ${err}`, false);
+  const handleEditAccount = async (
+    originalUsername: string,
+    changes: { newUsername?: string; password?: string; avatarFile?: File | null; removeAvatar?: boolean },
+  ) => {
+    const h = authHeaders();
+    // Update username/password via PATCH
+    if (changes.newUsername || changes.password) {
+      try {
+        const body: Record<string, string> = {};
+        if (changes.password) body.password = changes.password;
+        if (changes.newUsername && changes.newUsername !== originalUsername) body.newUsername = changes.newUsername;
+        const res = await fetch(`${serverUrl}/admin/accounts/bots/${encodeURIComponent(originalUsername)}`, {
+          method: 'PATCH', headers: h, body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `${res.status}`);
+      } catch (err) {
+        showStatus(`Failed to update account: ${err}`, false);
+        return;
+      }
     }
+    const effectiveUsername = changes.newUsername && changes.newUsername !== originalUsername ? changes.newUsername : originalUsername;
+    // Upload or remove avatar
+    if (changes.removeAvatar) {
+      try {
+        const dh: Record<string, string> = {};
+        if (token) dh['x-admin-token'] = token;
+        if (ownerIsCurrent && currentUsername) dh['x-username'] = currentUsername;
+        await fetch(`${serverUrl}/avatar/cached/${encodeURIComponent(effectiveUsername)}`, { method: 'DELETE', headers: dh });
+      } catch {}
+    } else if (changes.avatarFile) {
+      const form = new FormData();
+      form.append('avatar', changes.avatarFile);
+      try {
+        const uh: Record<string, string> = { 'X-Username': effectiveUsername };
+        if (token) uh['x-admin-token'] = token;
+        if (ownerIsCurrent && currentUsername) uh['x-username'] = currentUsername;
+        await fetch(`${serverUrl}/avatar/cache`, { method: 'POST', headers: uh, body: form });
+      } catch {}
+    }
+    showStatus(`Account "${effectiveUsername}" updated.`, true);
+    setAvatarRevision(r => r + 1);
+    fetchAccounts();
   };
 
   const botTypeLabel = (t: BotType) =>
@@ -1558,6 +1756,7 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
               </div>
               <div className="accounts-page__table">
                 <div className="accounts-page__table-head">
+                  <div className="accounts-page__table-col accounts-page__table-col--avatar" />
                   <div className="accounts-page__table-col accounts-page__table-col--username">Username</div>
                   <div className="accounts-page__table-col accounts-page__table-col--type">Type</div>
                   <div className="accounts-page__table-col accounts-page__table-col--plugin">Plugin</div>
@@ -1567,8 +1766,20 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
                 {loading && <div className="accounts-page__loading">Loading...</div>}
                 {accounts.map(a => (
                   <div key={a.id} className="accounts-page__table-row">
+                    <div className="accounts-page__table-col accounts-page__table-col--avatar">
+                      <div className="accounts-page__avatar-thumb">
+                        {a.hasAvatar ? (
+                          <img
+                            src={`${serverUrl}/avatar/cached/${encodeURIComponent(a.username)}?r=${avatarRevision}`}
+                            alt={a.username}
+                            className="accounts-page__avatar-img"
+                          />
+                        ) : (
+                          <i className="fas fa-robot accounts-page__avatar-placeholder" />
+                        )}
+                      </div>
+                    </div>
                     <div className="accounts-page__table-col accounts-page__table-col--username">
-                      <i className="fas fa-robot accounts-page__account-icon" />
                       <span className="accounts-page__account-username">{a.username}</span>
                     </div>
                     <div className="accounts-page__table-col accounts-page__table-col--type">
@@ -1583,15 +1794,11 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
                     <div className="accounts-page__table-col accounts-page__table-col--actions">
                       <button
                         className="accounts-page__row-action"
-                        onClick={async () => {
-                          const p = prompt(`New password for "${a.username}" (min. 6 chars):`);
-                          if (p && p.length >= 6) await handleResetPassword(a.username, p);
-                          else if (p !== null) alert('Password must be at least 6 characters.');
-                        }}
+                        onClick={() => setEditingAccount(a)}
                         disabled={!!deleting}
-                        title="Reset password"
+                        title="Edit account"
                       >
-                        <i className="fas fa-key" />
+                        <i className="fas fa-pen" />
                       </button>
                       <button
                         className="accounts-page__row-delete"
@@ -1608,6 +1815,20 @@ const ServerAccountsSubPage: React.FC<ServerAccountsSubPageProps> = ({
                 ))}
               </div>
             </>
+          )}
+
+          {/* Edit account modal */}
+          {editingAccount && (
+            <EditServerAccountModal
+              account={editingAccount}
+              serverUrl={serverUrl}
+              avatarRevision={avatarRevision}
+              onSave={async (changes) => {
+                await handleEditAccount(editingAccount.username, changes);
+                setEditingAccount(null);
+              }}
+              onClose={() => setEditingAccount(null)}
+            />
           )}
 
           {!ownerIsCurrent && (

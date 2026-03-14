@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ModalPanel from './ModalPanel';
+import Button from './Button';
 import { sharedAccountManager as accountManager } from '../utils/sharedAccountManager';
 import '../styles/Login.scss';
 
@@ -34,6 +35,20 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     }
   }, []);
 
+  // Try auto-login on mount (if enabled).
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const acct = await accountManager.tryAutoLogin();
+        if (mounted && acct) {
+          onLogin(`local:${acct.id}`, { ...acct, accountType: 'local' });
+        }
+      } catch (e) { /* ignore */ }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
   // ── Handlers ───────────────────────────────────────────────────────────────
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -42,6 +57,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setLoading(true);
     try {
       const account = await accountManager.createAccount({ username, password });
+      try { await accountManager.setLastAccount(account.username); } catch {}
       setLocalAccounts(accountManager.listAccounts());
       onLogin(`local:${account.id}`, { ...account, accountType: 'local' });
     } catch (err: any) {
@@ -58,6 +74,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     try {
       const result = await accountManager.login(username, password);
       if (result.success && result.account) {
+        try { await accountManager.setLastAccount(result.account.username); } catch {}
         onLogin(`local:${result.account.id}`, { ...result.account, accountType: 'local' });
       } else {
         setError(result.error ?? 'Invalid username or password');
@@ -75,6 +92,58 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setPassword('');
     setMode('login');
     setError('');
+  };
+
+  // Import account backup (from login screen)
+  const handleImportBackupFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    try {
+      const ab = await file.arrayBuffer();
+      try {
+        const res = await accountManager.importBackup(Buffer.from(new Uint8Array(ab) as any));
+        if (typeof res === 'string') {
+          // raw encrypted restore — select the restored account
+          const restored = res;
+          setLocalAccounts(accountManager.listAccounts());
+          setUsername(restored);
+          setPassword('');
+          setMode('login');
+          setError(`Restored ${restored}. Enter your password to unlock.`);
+        } else {
+          // decrypted import returned an unlocked LocalAccount
+          await accountManager.setLastAccount(res.username);
+          setLocalAccounts(accountManager.listAccounts());
+          onLogin(`local:${res.id}`, { ...res, accountType: 'local' });
+        }
+      } catch (err: any) {
+        if ((err?.message || '').includes('new password')) {
+          const newPw = prompt('This backup is decrypted. Enter a new password to secure the account on this device:');
+          if (!newPw) { alert('Import cancelled.'); return; }
+          const res = await accountManager.importBackup(Buffer.from(new Uint8Array(ab) as any), newPw);
+          if (typeof res === 'string') {
+            setLocalAccounts(accountManager.listAccounts());
+            setUsername(res);
+            setPassword('');
+            setMode('login');
+            setError(`Restored ${res}. Enter your new password to unlock.`);
+          } else {
+            await accountManager.setLastAccount(res.username);
+            setLocalAccounts(accountManager.listAccounts());
+            onLogin(`local:${res.id}`, { ...res, accountType: 'local' });
+          }
+        } else {
+          throw err;
+        }
+      }
+    } catch (err: any) {
+      console.error('Import failed', err);
+      setError(err?.message ?? 'Import failed');
+    } finally {
+      setLoading(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   // Open delete confirmation for a specific account.
@@ -175,6 +244,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   </button>
                 </div>
               ))}
+              {/* import button removed from saved accounts — moved under sign in form */}
             </div>
           )}
 
@@ -218,6 +288,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             <button type="submit" className="primary-btn" disabled={loading}>
               {loading ? 'Please wait…' : mode === 'create' ? 'Create account' : 'Sign in'}
             </button>
+
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', width: '100%' }}>
+              <input id="login-import-backup" type="file" accept=".zip" style={{ display: 'none' }} onChange={handleImportBackupFile} />
+              <Button fullWidth variant="ghost" onClick={() => { const el = document.getElementById('login-import-backup') as HTMLInputElement | null; el?.click(); }}>
+                Import account from backup
+              </Button>
+            </div>
 
             <p className="fine-print">
               Accounts are encrypted and stored only on this device.

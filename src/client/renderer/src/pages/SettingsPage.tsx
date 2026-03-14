@@ -6,6 +6,7 @@ import Select from '../components/Select';
 import TextField from '../components/TextField';
 import SegmentedControl from '../components/SegmentedControl';
 import ModalPanel from '../components/ModalPanel';
+import { sharedAccountManager as accountManager } from '../utils/sharedAccountManager';
 
 // Account settings sub-page IDs
 type AccountTab = 'my-account' | 'appearance';
@@ -356,6 +357,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   useEffect(() => { setStatus(userStatus || 'online'); }, [userStatus]);
   useEffect(() => { setLocalAvatar(userAvatar); }, [userAvatar]);
 
+  // Auto-login preference
+  const [autoLoginEnabled, setAutoLoginEnabled] = useState<boolean>(accountManager.isAutoLoginEnabled());
+  useEffect(() => { setAutoLoginEnabled(accountManager.isAutoLoginEnabled()); }, []);
+
   // ── Delete-account state ───────────────────────────────────────────────────
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletePw, setDeletePw] = useState('');
@@ -466,6 +471,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       identity={identity}
     >
       {activeTab === 'my-account' && (
+        <>
         <MyAccountSubPage
           displayName={displayName}
           status={status}
@@ -477,6 +483,73 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           onChangePasswordClick={openChangePwModal}
           onDeleteAccountClick={openDeleteModal}
         />
+        <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+                  <Button variant="ghost" onClick={async () => {
+                    try {
+                      const buf = await accountManager.exportEncryptedBackup(userName ?? '');
+                      const uint8 = new Uint8Array(buf as any);
+                      const blob = new Blob([uint8]);
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${userName ?? 'account'}_encrypted_backup.zip`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch (err: any) { console.error('Export failed', err); alert(err?.message ?? 'Export failed'); }
+                  }} iconLeft={<i className="fas fa-download" />}>Back up (encrypted)</Button>
+
+                  <Button variant="ghost" onClick={async () => {
+                    // Decrypted export: show confirmation first
+                    if (!confirm('Export account in decrypted form? This file will contain readable account data. Only use for transferring to another device and delete it afterwards. Continue?')) return;
+                    try {
+                      const buf = await accountManager.exportToZip(userName ?? '');
+                      const uint8 = new Uint8Array(buf as any);
+                      const blob = new Blob([uint8]);
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${userName ?? 'account'}_export.zip`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch (err: any) { console.error('Export failed', err); alert(err?.message ?? 'Export failed'); }
+                  }} iconLeft={<i className="fas fa-external-link-alt" />}>Export for transfer (decrypted)</Button>
+
+                  <input id="import-backup-input" type="file" accept=".zip" style={{ display: 'none' }} onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      const ab = await file.arrayBuffer();
+                      // Try import — if decrypted import requires a new password, prompt the user
+                      try {
+                        const res = await accountManager.importBackup(Buffer.from(new Uint8Array(ab) as any));
+                        if (typeof res === 'string') alert(`Restored ${res}.`);
+                        else alert(`Imported account ${res.username}.`);
+                      } catch (err: any) {
+                        if ((err?.message || '').includes('new password')) {
+                          const newPw = prompt('This backup is decrypted. Enter a new password to secure the account on this device:');
+                          if (!newPw) { alert('Import cancelled.'); return; }
+                          const res = await accountManager.importBackup(Buffer.from(new Uint8Array(ab) as any), newPw);
+                          if (typeof res === 'string') alert(`Restored ${res}.`);
+                          else alert(`Imported account ${res.username}.`);
+                        } else {
+                          throw err;
+                        }
+                      }
+                    } catch (err: any) { console.error('Import failed', err); alert(err?.message ?? 'Import failed'); }
+                    // clear value so same file can be reselected
+                    (e.target as HTMLInputElement).value = '';
+                  }} />
+                  <Button variant="ghost" onClick={() => { const el = document.getElementById('import-backup-input') as HTMLInputElement | null; el?.click(); }} iconLeft={<i className="fas fa-upload" />}>Import backup</Button>
+                </div>
+
+                <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Toggle checked={autoLoginEnabled} onChange={(v) => { setAutoLoginEnabled(v); accountManager.setAutoLoginEnabled(v); }} />
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <strong>Auto-login</strong>
+                    <span style={{ fontSize: 12 }}>Allow Kiama to use the OS keychain to automatically unlock the last account on startup.</span>
+                  </div>
+                </div>
+                </>
       )}
 
       {/* ── Change-password overlay ────────────────────────────────────────── */}

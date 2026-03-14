@@ -2678,17 +2678,21 @@ export class Server {
 
     // List all bot accounts
     this.app.get('/admin/accounts/bots', this.requireAdmin((_req, res) => {
-      const bots = this.botAccountManager.listAll().map(b => ({
-        id: b.id,
-        username: b.username,
-        botType: b.botType,
-        isBot: b.isBot,
-        isServerCreated: b.isServerCreated,
-        linkedPlugin: b.linkedPlugin,
-        preconfig: b.preconfig,
-        createdAt: b.createdAt,
-        updatedAt: b.updatedAt,
-      }));
+      const bots = this.botAccountManager.listAll().map(b => {
+        const hasAvatar = !!this.db.prepare('SELECT 1 FROM cached_avatars WHERE username = ?').get(b.username);
+        return {
+          id: b.id,
+          username: b.username,
+          botType: b.botType,
+          isBot: b.isBot,
+          isServerCreated: b.isServerCreated,
+          linkedPlugin: b.linkedPlugin,
+          preconfig: b.preconfig,
+          createdAt: b.createdAt,
+          updatedAt: b.updatedAt,
+          hasAvatar,
+        };
+      });
       res.json({ bots });
     }));
 
@@ -2736,7 +2740,7 @@ export class Server {
     // Update a bot account (reset password and/or change type)
     this.app.patch('/admin/accounts/bots/:username', this.requireAdmin((req, res) => {
       const { username } = req.params;
-      const { password, botType } = req.body || {};
+      const { password, botType, newUsername } = req.body || {};
       const account = this.botAccountManager.load(username);
       if (!account) {
         return res.status(404).json({ error: `Bot account "${username}" not found` });
@@ -2756,7 +2760,41 @@ export class Server {
         }
         account.botType = botType;
       }
-      this.botAccountManager.save(account);
+      // Handle username rename
+      if (newUsername !== undefined && typeof newUsername === 'string' && newUsername.trim() && newUsername.trim() !== username) {
+        const trimmed = newUsername.trim();
+        try {
+          this.botAccountManager.rename(username, trimmed);
+        } catch (err) {
+          return res.status(409).json({ error: String(err) });
+        }
+        // Migrate cached avatar to new username
+        const avatarRow = this.db.prepare('SELECT filename, mimeType, uploadedAt, hash FROM cached_avatars WHERE username = ?').get(username) as any;
+        if (avatarRow) {
+          const safeOld = path.basename(username).replace(/[^a-zA-Z0-9_-]/g, '_');
+          const safeNew = path.basename(trimmed).replace(/[^a-zA-Z0-9_-]/g, '_');
+          const newFilename = avatarRow.filename.replace(`avatar-${safeOld}`, `avatar-${safeNew}`);
+          const oldPath = path.join(this.dataRoot, 'cached', 'avatars', avatarRow.filename);
+          const newPath = path.join(this.dataRoot, 'cached', 'avatars', newFilename);
+          try {
+            if (fs.existsSync(oldPath)) fs.renameSync(oldPath, newPath);
+            this.db.prepare('DELETE FROM cached_avatars WHERE username = ?').run(username);
+            this.db.prepare('INSERT INTO cached_avatars (username, filename, mimeType, uploadedAt, hash) VALUES (?, ?, ?, ?, ?)').run(trimmed, newFilename, avatarRow.mimeType, avatarRow.uploadedAt, avatarRow.hash);
+          } catch (e) { console.warn('[patch bot] avatar rename failed:', e); }
+        }
+        // Migrate members table entry
+        this.db.prepare('UPDATE members SET username = ? WHERE username = ? AND serverId = ?').run(trimmed, username, this.serverId);
+        // Save password/botType changes (account was already renamed, so re-load)
+        const updated = this.botAccountManager.load(trimmed);
+        if (updated) {
+          if (password !== undefined) updated.passwordHash = account.passwordHash;
+          if (botType !== undefined) updated.botType = account.botType;
+          this.botAccountManager.save(updated);
+          return res.json({ success: true, account: { id: updated.id, username: updated.username, botType: updated.botType } });
+        }
+      } else {
+        this.botAccountManager.save(account);
+      }
       res.json({ success: true, account: { id: account.id, username: account.username, botType: account.botType } });
     }));
   }

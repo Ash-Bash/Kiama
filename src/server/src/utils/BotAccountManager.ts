@@ -187,6 +187,22 @@ export class BotAccountManager {
   }
 
   /**
+   * Rename a bot account (change username). Deletes old file & saves under new name.
+   * Returns the updated account, or null if the old account doesn't exist.
+   */
+  rename(oldUsername: string, newUsername: string): BotAccount | null {
+    const account = this.load(oldUsername);
+    if (!account) return null;
+    if (fs.existsSync(this.encFilePath(newUsername))) {
+      throw new Error(`Bot account "${newUsername}" already exists.`);
+    }
+    this.delete(oldUsername);
+    account.username = newUsername;
+    this.save(account);
+    return account;
+  }
+
+  /**
    * List all bot account usernames stored on disk.
    */
   list(): string[] {
