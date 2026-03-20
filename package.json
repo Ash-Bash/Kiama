@@ -17,6 +17,12 @@
     "dev:auth": "cd src/auth && npm run dev",
     "install:all": "npm install && cd src/server && npm install && cd ../client && npm install && cd ../auth && npm install",
     "install-cli": "bash ./install"
+    ,
+    "package": "cd src/client && npm run build && npm run package"
+    ,
+    "package:unsigned": "cd src/client && CSC_IDENTITY_AUTO_DISCOVERY=false npm run package"
+    ,
+    "package:all": "cd src/client && npm run build && npm run package:all"
   },
   "keywords": [
     "chat",

@@ -2,18 +2,27 @@
   "name": "kiama-client",
   "version": "0.1.0",
   "description": "KIAMA client component",
-  "main": "../../dist/client/main.js",
+  "main": "dist/client/main.js",
   "scripts": {
     "build": "npm run build:main && webpack --mode production",
+    "postbuild": "node scripts/copyToBinaries.js",
     "build:main": "tsc --project tsconfig.main.json",
     "start": "electron ../../dist/client/main.js",
     "dev": "concurrently \"webpack --mode development --watch\" \"wait-on ../../dist/client/main.js && electron ../../dist/client/main.js\"",
-    "package": "electron-builder"
+    "package": "electron-builder",
+    "package:mac:arm64": "electron-builder --mac --arm64",
+    "package:mac:x64": "electron-builder --mac --x64",
+    "package:mac:universal": "electron-builder --mac --universal",
+    "package:win:x64": "electron-builder --win --x64",
+    "package:win:ia32": "electron-builder --win --ia32",
+    "package:linux:x64": "electron-builder --linux --x64",
+    "package:linux:arm64": "electron-builder --linux --arm64",
+    "package:all": "electron-builder --mac --win --linux --x64 --arm64"
   },
+  "author": "",
   "dependencies": {
     "@fortawesome/fontawesome-free": "^7.2.0",
     "crypto-js": "^4.2.0",
-    "electron": "^25.0.0",
     "jszip": "^3.10.1",
     "keytar": "^7.9.0",
     "react": "^18.0.0",
@@ -32,6 +41,7 @@
     "copy-webpack-plugin": "^13.0.1",
     "css-loader": "^7.1.3",
     "electron-builder": "^24.0.0",
+    "electron": "^25.0.0",
     "html-webpack-plugin": "^5.5.0",
     "node-loader": "^2.1.0",
     "sass": "^1.97.3",
@@ -45,13 +55,49 @@
   },
   "build": {
     "appId": "com.kiama.app",
+    "productName": "Kiama",
     "files": [
-      "dist/**/*",
+      "package.json",
+      {
+        "from": "../../dist/client",
+        "to": "dist/client"
+      },
       "node_modules/**/*",
       "src/server/dist/**/*"
     ],
     "directories": {
-      "output": "dist"
+      "output": "../../dist/binaries"
+    },
+    "extraResources": [
+      {
+        "from": "../../dist/binaries/themes",
+        "to": "themes",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../../dist/binaries/plugins",
+        "to": "plugins",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../../dist/binaries/icons",
+        "to": "icons",
+        "filter": ["**/*"]
+      }
+    ],
+    "extraMetadata": {
+      "main": "dist/client/main.js",
+      "name": "Kiama"
+    },
+    "icon": "../../dist/binaries/icons/KiamaClient_256_Icon.png",
+    "win": {
+      "icon": "../../dist/binaries/icons/KiamaClient_256_icon.ico"
+    },
+    "linux": {
+      "icon": "../../dist/binaries/icons/KiamaClient_256_Icon.png"
+    },
+    "mac": {
+      "icon": "../../dist/binaries/icons/KiamaClient_macOS_512_Icon.png"
     }
   }
 }

@@ -78,6 +78,7 @@ module.exports = {
           from: path.resolve(__dirname, 'electron-package.json'),
           to: 'package.json'
         }
+        
       ]
     }),
   ],

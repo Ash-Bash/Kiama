@@ -1,5 +1,6 @@
 import React from 'react';
 import { PluginAPI, ClientPlugin, ServerPluginMetadata, TypedMessage, MessageInputButton } from '../types/plugin';
+const { ipcRenderer } = (window as any).require ? (window as any).require('electron') : require('electron');
 
 // Client-side plugin manager that loads bundled plugins and server-provided ones.
 class PluginManager {
@@ -21,13 +22,44 @@ class PluginManager {
     const pluginNames = ['messageFormatter', 'darkModeToggle'];
     const require = (window as any).require;
 
+    // First try bundled plugins (from build output)
     for (const name of pluginNames) {
       try {
         const pluginModule = require(`./plugins/${name}.js`);
         this.registerPlugin(pluginModule.default || pluginModule);
       } catch (error) {
-        console.error(`Failed to load plugin ${name}:`, error);
+        // continue; may be available externally
       }
+    }
+
+    // Also search user/app-packaged plugin folders (external JS files)
+    try {
+      const paths = await ipcRenderer.invoke('kiama-get-paths');
+      const pluginDirs: string[] = paths.plugins || [];
+
+      for (const dir of pluginDirs) {
+        try {
+          const fs = (window as any).require('fs');
+          const path = (window as any).require('path');
+          if (!fs.existsSync(dir)) continue;
+
+          for (const name of pluginNames) {
+            const candidate = path.join(dir, `${name}.js`);
+            try {
+              if (fs.existsSync(candidate)) {
+                const pluginModule = require(candidate);
+                this.registerPlugin(pluginModule.default || pluginModule);
+              }
+            } catch (err) {
+              console.error(`Failed to load external plugin ${candidate}:`, err);
+            }
+          }
+        } catch (err) {
+          // ignore missing dirs
+        }
+      }
+    } catch (err) {
+      // ignore ipc failures
     }
   }
 

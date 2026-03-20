@@ -1,0 +1,56 @@
+name: Build Kiama
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            name: mac-x64
+            cmd: npm run package:mac:x64
+          - os: macos-latest
+            name: mac-arm64
+            cmd: npm run package:mac:arm64
+          - os: macos-latest
+            name: mac-universal
+            cmd: npm run package:mac:universal
+          - os: ubuntu-latest
+            name: linux-x64
+            cmd: npm run package:linux:x64
+          - os: ubuntu-latest
+            name: linux-arm64
+            cmd: npm run package:linux:arm64
+          - os: windows-latest
+            name: win-x64
+            cmd: npm run package:win:x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: src/client
+
+      - name: Build and package
+        run: |
+          npm run build
+          ${{ matrix.cmd }}
+        working-directory: src/client
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiama-${{ matrix.name }}
+          path: dist/binaries

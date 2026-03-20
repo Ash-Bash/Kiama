@@ -169,6 +169,10 @@ Kiama/
    npm run build
    ```
 
+### Packaging
+
+See the packaging and distribution guide for build/package commands, artifact locations, themes/plugins handling, and signing details: [Packaging & Distribution](docs/packaging.md).
+
 3. **Start Development Servers:**
    ```bash
    # Terminal 1: Start server
