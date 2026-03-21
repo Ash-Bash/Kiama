@@ -187,3 +187,75 @@ File references:
 - Main IPC path provider: src/client/main/main.ts
 - Renderer theme loader: src/client/renderer/src/components/ThemeProvider.tsx
 - Renderer plugin loader: src/client/renderer/src/utils/PluginManager.ts
+
+## Recent packaging workflow updates
+
+Summary of changes made to simplify packaging and make CI-friendly (applies to current repo state):
+
+- Root-level forwarding scripts: you can now run client build/package commands from the repository root. Examples:
+
+  - `npm run build:client` — runs the client build from repo root
+  - `npm run package:mac:universal` — builds a macOS Universal package (convenience wrapper)
+  - `npm run package` or `npm run package:all` — forward to client packaging, but note `package:all` is intended to be used from CI (see below)
+
+- Portable pre-package copy: `src/client/scripts/copyDistClient.js` copies the repo `dist/client` build into `src/client/dist/client` before `electron-builder` runs. This avoids cross-dir `files.from` issues and ensures packaged files are inside `src/client`.
+
+- `prepackage` and `clean` scripts added to `src/client/package.json` to clear `../../dist/binaries` before packaging.
+
+Recommended developer workflow (local)
+
+- Build and test locally on mac only for mac artifacts. Use the explicit mac universal script:
+
+  ```bash
+  # build and package mac universal from repo root
+  npm run package:mac:universal
+  ```
+
+- Avoid attempting to produce Linux native artifacts on mac hosts — use CI or Docker (below) for Linux builds.
+
+CI / release guidance (recommended)
+
+- Use a matrix of OS-specific jobs in CI so each OS builds the artifacts natively:
+  - macOS job: `npm run package:mac:universal` on `macos-latest` (handles universal mac binary)
+  - linux job(s): run `npm run package -- --linux --x64` and `npm run package -- --linux --arm64` on `ubuntu-latest` (or use dedicated arm runners)
+  - windows job: `npm run package -- --win --x64` on `windows-latest`
+
+- Example minimal GitHub Actions matrix (unsigned artifacts):
+
+```yaml
+name: Build Kiama
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            cmd: npm run package:mac:universal
+          - os: ubuntu-latest
+            cmd: npm run package -- --linux --x64
+          - os: windows-latest
+            cmd: npm run package -- --win --x64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install client deps
+        run: npm ci
+        working-directory: src/client
+      - name: Build & Package
+        run: |
+          npm run build
+          ${{ matrix.cmd }}
+        working-directory: src/client
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiama-${{ matrix.os }}
+          path: dist/binaries
+```
+
+If you'd like, I can add this workflow file under `.github/workflows/ci-packaging.yaml` and update `docs/packaging.md` to point at it.

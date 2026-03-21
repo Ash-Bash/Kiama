@@ -1,6 +1,6 @@
 {
   "name": "kiama-client",
-  "version": "0.1.0",
+  "version": "0.1.0-pre1",
   "description": "KIAMA client component",
   "main": "dist/client/main.js",
   "scripts": {

@@ -37,7 +37,14 @@ fi
 cd "$SERVER_DIR"
 
 INSTALLED_VERSION=""
-if [ -f "$STAMP_FILE" ]; then
+# If an existing `kiama-server` is on PATH, prefer asking it for its version
+if command -v kiama-server >/dev/null 2>&1; then
+  # Use the CLI's own --version output where possible (wrapper supports this)
+  INSTALLED_VERSION=$(kiama-server --version 2>/dev/null || true)
+fi
+
+# Fall back to the install stamp file if the binary didn't respond with a version
+if [ -z "$INSTALLED_VERSION" ] && [ -f "$STAMP_FILE" ]; then
   INSTALLED_VERSION=$(grep '^version:' "$STAMP_FILE" | cut -d: -f2- | tr -d '\n' || true)
 fi
 
@@ -97,6 +104,32 @@ if [ "$DIST_MODE" -eq 0 ]; then
   # This ensures `npm link` installs a small wrapper that invokes the bundled JS in dist.
   BUNDLED_JS_NAME="kiama-server-$PKG_VERSION.js"
   WRAPPER_PATH="$SERVER_DIR/kiama-server"
+  # Remove any old bundled JS files in the dist folder that don't match the
+  # new bundle name. If an owner has already deleted old bundles that's fine.
+  if [ -d "$DIST_DIR" ]; then
+    (cd "$DIST_DIR" && for f in kiama-server-*.js; do
+      [ ! -e "$f" ] && continue
+      if [ "$f" != "$BUNDLED_JS_NAME" ]; then
+        echo "Removing old bundle: $f"
+        rm -f "$f" || true
+        # Also remove any associated LICENSE file left from previous builds
+        if [ -e "${f}.LICENSE.txt" ]; then
+          echo "Removing old license: ${f}.LICENSE.txt"
+          rm -f "${f}.LICENSE.txt" || true
+        fi
+      fi
+    done)
+    # Also remove any leftover LICENSE files whose JS bundle no longer exists
+    (cd "$DIST_DIR" && for L in kiama-server-*.js.LICENSE.txt; do
+      [ ! -e "$L" ] && continue
+      # If this license corresponds to the current bundle, keep it
+      if [ "$L" = "${BUNDLED_JS_NAME}.LICENSE.txt" ]; then
+        continue
+      fi
+      echo "Removing stray license: $L"
+      rm -f "$L" || true
+    done)
+  fi
   echo "Creating wrapper $WRAPPER_PATH -> ../../dist/server/$BUNDLED_JS_NAME"
   cat > "$WRAPPER_PATH" <<EOF
 #!/usr/bin/env bash
@@ -121,6 +154,30 @@ else
     echo "No bundled server JS (kiama-server-*.js) found in $SERVER_DIR" >&2
     exit 1
   fi
+
+  # Remove other bundled JS files in the distribution folder that don't match
+  # the selected bundle. If the owner already removed them, skip silently.
+  (cd "$SERVER_DIR" && for f in kiama-server-*.js; do
+    [ ! -e "$f" ] && continue
+    if [ "$f" != "$BUNDLED_JS" ]; then
+      echo "Removing old bundle from distribution: $f"
+      rm -f "$f" || true
+      # Remove matching LICENSE file if present
+      if [ -e "${f}.LICENSE.txt" ]; then
+        echo "Removing old license from distribution: ${f}.LICENSE.txt"
+        rm -f "${f}.LICENSE.txt" || true
+      fi
+    fi
+  done)
+  # Remove stray LICENSE files even if their JS bundle is already gone
+  (cd "$SERVER_DIR" && for L in kiama-server-*.js.LICENSE.txt; do
+    [ ! -e "$L" ] && continue
+    if [ "$L" = "$BUNDLED_JS.LICENSE.txt" ]; then
+      continue
+    fi
+    echo "Removing stray distribution license: $L"
+    rm -f "$L" || true
+  done)
 
   # If the distribution already includes a package.json (packaged by the
   # build), leave it in place so dependencies from the original manifest

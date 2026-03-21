@@ -1,0 +1,69 @@
+{
+  "version": "0.2.0",
+  "compounds": [
+    {
+      "name": "Client + Server",
+      "configurations": ["Run Built Server", "Launch Client (main)"]
+    }
+  ],
+  "configurations": [
+    {
+      "name": "Debug Server (ts-node)",
+      "type": "pwa-node",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/server/src/index.ts",
+      "cwd": "${workspaceFolder}/src/server",
+      "runtimeArgs": ["-r", "ts-node/register"],
+      "console": "integratedTerminal",
+      "outputCapture": "std"
+    },
+    {
+      "name": "Run Built Server",
+      "type": "pwa-node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "${workspaceFolder}/dist/server/kiama-server-0.1.0.js"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "prepare-server",
+      "console": "integratedTerminal",
+      "outputCapture": "std"
+    },
+    {
+      "name": "Launch Client (main)",
+      "type": "pwa-node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "electron",
+        "${workspaceFolder}/dist/client/main.js",
+        "--remote-debugging-port=9222",
+        "--inspect=5858"
+      ],
+      "cwd": "${workspaceFolder}/src/client",
+      "preLaunchTask": "build-client",
+      "port": 5858,
+      "console": "integratedTerminal",
+      "outputCapture": "std"
+    },
+    {
+      "name": "Attach to Client (main)",
+      "type": "pwa-node",
+      "request": "attach",
+      "port": 5858,
+      "address": "localhost",
+      "restart": false,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "${workspaceFolder}"
+    },
+    {
+      "name": "Attach to Renderer (Chrome)",
+      "type": "pwa-chrome",
+      "request": "attach",
+      "port": 9222,
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}"
+    }
+  ]
+}

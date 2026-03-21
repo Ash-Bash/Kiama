@@ -1,0 +1,31 @@
+#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
+
+// Read package.json next to this script to get the authoritative version
+let version = '0.0.0';
+try {
+  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf8'));
+  if (pkg && pkg.version) version = String(pkg.version);
+} catch (e) {
+  // ignore, keep default
+}
+
+const args = process.argv.slice(2);
+if (args.includes('-v') || args.includes('--version')) {
+  console.log(version);
+  process.exit(0);
+}
+
+// Locate the built server bundle inside the repository `dist/server` folder
+const built = path.resolve(__dirname, '..', '..', 'dist', 'server', `kiama-server-${version}.js`);
+if (fs.existsSync(built)) {
+  const child = spawn(process.execPath, [built, ...args], { stdio: 'inherit' });
+  child.on('exit', (code) => process.exit(code));
+} else {
+  console.error('Could not find built server at:', built);
+  console.error('Build the server with: `npm run build --prefix src/server`');
+  console.error('Then relink with: `npm link --prefix src/server` or run ./install');
+  process.exit(1);
+}

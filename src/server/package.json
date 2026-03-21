@@ -1,6 +1,6 @@
 {
   "name": "kiama-server",
-  "version": "0.1.0",
+  "version": "0.1.0-pre1",
   "description": "KIAMA server component",
   "main": "./kiama-server",
   "bin": {

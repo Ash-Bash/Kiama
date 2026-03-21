@@ -117,6 +117,7 @@ export interface Role {
 
 export interface InitialServerConfig {
   name: string;
+  port?: number;
   ownerUsername?: string; // Username of the server owner account
   ownerAccountId?: string; // Optional account ID of the server owner
   allowClaimOwnership?: boolean; // whether clients should prompt to claim ownership when no owner exists
@@ -129,6 +130,7 @@ export interface InitialServerConfig {
 export interface PersistedServerConfig {
   serverId: string;
   name: string;
+  port?: number;
   mode: 'public' | 'private';
   dataRoot: string;
   configPath: string;
@@ -1009,6 +1011,7 @@ export class Server {
       const payload: PersistedServerConfig = {
         serverId: this.serverId,
         name: this.serverName,
+        port: this.port,
         mode: this.mode,
         dataRoot: this.dataRoot,
         configPath: this.configFilePath,
@@ -2599,6 +2602,22 @@ export class Server {
       res.json(this.getConfigSnapshot());
     }));
 
+    // Allow updating editable config fields such as port.
+    // Changing port is persisted but requires a server restart to take effect.
+    this.app.post('/admin/config', this.requireAdmin((req, res) => {
+      const { port } = req.body || {};
+      if (port !== undefined) {
+        const p = Number.parseInt(port, 10);
+        if (Number.isNaN(p) || p <= 0 || p > 65535) {
+          return res.status(400).json({ error: 'Invalid port. Provide a number between 1 and 65535.' });
+        }
+        this.port = p;
+        this.persistConfigFile();
+        return res.json({ success: true, message: `Port updated to ${p}. Restart the server to bind to the new port.` });
+      }
+      res.status(400).json({ error: 'No recognized fields to update.' });
+    }));
+
     // ── Backup endpoints ─────────────────────────────────────────────────────
 
     // List all backups
@@ -2892,6 +2911,7 @@ export class Server {
     return {
       serverId: this.serverId,
       name: this.serverName,
+      port: this.port,
       sections: Array.from(this.sections.values()),
       channels: Array.from(this.channels.values()),
       roles: Array.from(this.roles.values()),

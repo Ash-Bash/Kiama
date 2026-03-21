@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Command } from 'commander';
-import { Server, InitialServerConfig, PersistedServerConfig } from './server';
+import type { Server, InitialServerConfig, PersistedServerConfig } from './server';
 
 // CLI entry point for starting the KIAMA server and querying stats.
 const program = new Command();
@@ -9,12 +9,35 @@ const program = new Command();
 program
   .name('kiama-server')
   .description('KIAMA decentralized chat server')
-  .version('1.0.0');
+;
+
+// Load version from package.json so CLI reflects the package version when built
+let cliVersion = '0.0.0';
+const tryReadPkg = (p: string) => {
+  try {
+    const raw = fs.readFileSync(p, 'utf-8');
+    const pkg = JSON.parse(raw);
+    if (pkg && pkg.version) return String(pkg.version);
+  } catch (e) {
+    return undefined;
+  }
+  return undefined;
+};
+
+// 1) Try package.json next to the bundled file (dist/server/package.json)
+cliVersion = tryReadPkg(path.resolve(__dirname, 'package.json')) || cliVersion;
+// 2) Try one level up (dist/package.json)
+cliVersion = tryReadPkg(path.resolve(__dirname, '..', 'package.json')) || cliVersion;
+// 3) Fallback to current working directory package.json
+cliVersion = tryReadPkg(path.join(process.cwd(), 'package.json')) || cliVersion;
+
+// Expose both `-v` and `-V` as shorthand for version to match common expectations
+program.version(cliVersion, '-v, -V, --version', 'output the version number');
 
 program
   .command('start')
   .description('Start the server')
-  .option('-p, --port <port>', 'Port to listen on', '3000')
+  .option('-p, --port <port>', 'Port to listen on')
   .option('--public', 'Make server public')
   .option('--private', 'Make server private')
   .option('--token <token>', 'Admin token used to protect management endpoints (falls back to KIAMA_ADMIN_TOKEN env)')
@@ -22,7 +45,9 @@ program
   .option('--force', 'Start server without an initial config (not recommended)')
   .option('--owner <username>', 'Username of the account that owns this server (grants full admin role to that user)')
   .action((options) => {
-    const port = Number.parseInt(options.port, 10) || 3000;
+    // Port will be resolved after we load any provided config file so we don't
+    // reference `config` before it's declared.
+    let port = 3000;
     const adminToken = options.token || process.env.KIAMA_ADMIN_TOKEN || '';
     const resolvedConfigPath = options.config
       ? (path.isAbsolute(options.config) ? options.config : path.join(process.cwd(), options.config))
@@ -42,6 +67,13 @@ program
 
     const finalConfigPath = resolvedConfigPath || discoveredConfigPath;
     let config = finalConfigPath ? loadConfig(finalConfigPath) : undefined;
+
+    // Resolve effective port: CLI flag takes precedence, then config file, then default
+    if (options.port !== undefined && String(options.port).trim().length > 0) {
+      port = Number.parseInt(options.port, 10) || 3000;
+    } else if (config && (config as any).port) {
+      port = Number.parseInt((config as any).port, 10) || 3000;
+    }
 
     // If still no config and not forced, instruct user to run init-config first
     if (!config && !options.force) {
@@ -64,7 +96,19 @@ program
       config = { ...(config || { name: 'KIAMA Server' }), ownerUsername: options.owner };
     }
 
-    const server = new Server(port, options.public ? 'public' : 'private', undefined, adminToken, config, resolvedConfigPath);
+    // Lazy-load server implementation to avoid pulling heavy deps when only
+    // asking for `-v`/`--version` or running lightweight CLI commands.
+    let ServerImpl: any;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-assignment
+      const mod = require('./server');
+      ServerImpl = mod.Server;
+    } catch (e) {
+      console.error('Failed to load server implementation:', e instanceof Error ? e.message : String(e));
+      process.exit(1);
+    }
+
+    const server = new ServerImpl(port, options.public ? 'public' : 'private', undefined, adminToken, config, resolvedConfigPath);
     server.start();
 
     if (!adminToken) {
@@ -158,6 +202,7 @@ program
 program
   .command('init-config')
   .description('Generate an initial server configuration file with channels, sections, and roles')
+  .option('--port <port>', 'Port the server should listen on', '3000')
   .option('-n, --name <name>', 'Server name', 'KIAMA Server')
   .option('-o, --output <path>', 'Output file path', 'server.config.json')
   .action((options) => {
@@ -167,6 +212,7 @@ program
 
     const template: InitialServerConfig = {
       name: options.name,
+      port: options.port ? Number.parseInt(options.port, 10) || 3000 : 3000,
       sections: [
         { id: 'general', name: 'General', position: 0, permissions: { view: true, manage: false } },
         { id: 'staff', name: 'Staff', position: 1, permissions: { view: true, manage: true, roles: ['owner'] } }

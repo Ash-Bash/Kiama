@@ -80,6 +80,27 @@ Files you should see in `dist/server`
 - `package.json` / `package-lock.json` (may be present)
 - `node_modules/` (production dependencies if installed)
 
+Port configuration and deployment notes
+-------------------------------------
+
+- The distributable `server.config.json` (if included) may contain a `port` field which the server will use when started with `--config`.
+- You can override the port at start time with `kiama-server start --port <port>`.
+- After installation, an administrator can persist a new port via the management API (`POST /admin/config` with `{"port":<n>}` and `x-admin-token` header). The API call persists the value but requires a server restart to take effect (use your process supervisor to restart safely).
+
+Example quick checks on the target machine:
+
+```bash
+# Start with default or configured port
+kiama-server start --config server.config.json
+
+# Or override on start
+kiama-server start --port 8080 --config server.config.json
+
+# Persist change via management API (requires admin token)
+curl -X POST -H "x-admin-token: <token>" -H "Content-Type: application/json" \
+	-d '{"port":8080}' http://localhost:3000/admin/config
+```
+
 If you'd like, I can:
 
 - Update the main `INSTALL.md` to include a short pointer to this document and the `dist` usage example.

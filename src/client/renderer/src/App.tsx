@@ -28,6 +28,7 @@ import SectionSettingsPage from './pages/SectionSettingsPage';
 import ServerUserSettingsPage from './pages/ServerUserSettingsPage';
 import Button from './components/Button';
 import TextField from './components/TextField';
+import UpdateServerUrlPanel from './panels/UpdateServerUrlPanel';
 import NsfwSplash from './components/NsfwSplash';
 import ContextMenu, { ContextMenuItemDef } from './components/ContextMenu';
 import './styles/App.scss';
@@ -402,6 +403,7 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
   // Tracks which client-side serverId to tag the next channels_list response with.
   const pendingChannelServerIdRef = useRef<string>(currentServerId);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [serverErrorServerId, setServerErrorServerId] = useState<string | null>(null);
 
   // Lightweight ping to determine if a server is reachable before switching.
   const pingServer = async (server: Server): Promise<boolean> => {
@@ -1388,6 +1390,88 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     }
   };
 
+  // Dismiss the server error modal without taking action
+  const handleDismissServerError = () => {
+    setServerError(null);
+    setServerErrorServerId(null);
+  };
+
+  // Remove the given server from the user's list (or the errored server)
+  const handleRemoveServerFromList = (id?: string) => {
+    const sid = id || serverErrorServerId;
+    if (!sid) return;
+    leaveServer(sid);
+    setServerError(null);
+    setServerErrorServerId(null);
+  };
+
+  // Open a modal to update the server URL (replaces the old prompt-based flow)
+  const handleUpdateServerUrl = () => {
+    const sid = serverErrorServerId;
+    if (!sid) return;
+    const srv = servers.find(s => s.id === sid);
+    if (!srv) return;
+
+    // Hide the server-error prompt so the update modal isn't rendered underneath it
+    setServerError(null);
+    setServerErrorServerId(null);
+
+    openModal(
+      <UpdateServerUrlPanel
+        server={srv}
+        onCancel={() => { closeModal(); }}
+        onSave={async (newUrl: string) => {
+          // Verify reachable
+          const tempServer = { id: sid, name: srv.name || sid, url: newUrl } as any;
+          const reachable = await pingServer(tempServer);
+          if (!reachable) return false;
+
+          // Update local state
+          setServers(prev => prev.map(s => s.id === sid ? { ...s, url: newUrl } : s));
+
+          // Persist to account server list if available
+          if (user?.username) {
+            const updatedList = servers.map(s => s.id === sid ? { id: s.id, name: s.name, url: (s.id === sid ? newUrl : s.url) } : { id: s.id, name: s.name, url: s.url }).filter(s => s.id !== 'home');
+            appAccountManager.updateServerList(user.username, updatedList).catch(() => {});
+          }
+
+          // Clear error and retry switching to the server
+          setServerError(null);
+          setServerErrorServerId(null);
+          closeModal();
+          try {
+            await switchServer(sid);
+
+            // After rejoining, perform a full resync to ensure we have the
+            // latest server info, roles and member list (icon, roles, etc.).
+            try { await fetchServerInfo({ id: sid, url: newUrl } as any); } catch (_) {}
+            try { await fetchRolesForServer(sid); } catch (_) {}
+            try { await fetchServerMembers(sid); } catch (_) {}
+
+            // Push local avatar to the server cache so member avatars/icons
+            // are up-to-date and then refresh members again.
+            if (user?.username) {
+              try {
+                const avatarPath = await appAccountManager.getEffectiveProfilePic(user.username, sid);
+                if (avatarPath) {
+                  await uploadAvatarToServer(newUrl || (servers.find(s => s.id === sid)?.url || ''), user.username, avatarPath);
+                  try { await fetchServerMembers(sid); } catch (_) {}
+                }
+              } catch (e) {
+                console.warn('Failed to push avatar after rejoin', e);
+              }
+
+              // Re-identify on socket so presence/role state is recalculated server-side
+              try { socketRef.current?.emit('identify', { username: user.username, accountId: user?.id }); } catch (_) {}
+            }
+          } catch (_) {}
+          return true;
+        }}
+      />,
+      { size: 'small', closable: true }
+    );
+  };
+
   // Choose the first channel in a server to act as the default target.
   const getDefaultChannelIdForServer = (serverId: string) => {
     const serverChannels = channels
@@ -1432,7 +1516,8 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
     const reachable = await pingServer(server);
     if (!reachable) {
       console.warn('[Kiama] switchServer: server unreachable', server.url);
-      setServerError(`Cannot reach server "${server.name}" at ${server.url}.`);
+      setServerError(`Cannot reach server \"${server.name}\" at ${server.url}.`);
+      setServerErrorServerId(server.id);
       // stay on Home for safety
       setActiveView('home');
       setCurrentServerId('home');
@@ -3226,7 +3311,16 @@ function AppContent({ token, user, onLogout }: { token: string; user: any; onLog
             <h2 style={{ marginTop: 0 }}>Cannot reach server</h2>
             <p style={{ marginBottom: 16 }}>{serverError}</p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <Button variant="secondary" onClick={() => { setServerError(null); setActiveView('home'); setCurrentServerId('home'); }}>Back to Home</Button>
+              <Button variant="secondary" onClick={handleDismissServerError}>Cancel</Button>
+              <Button onClick={handleUpdateServerUrl}>Update URL</Button>
+              <Button variant="danger" onClick={() => {
+                const sid = serverErrorServerId;
+                const srv = sid ? servers.find(s => s.id === sid) : null;
+                if (!sid) return;
+                if (confirm(`Remove server "${srv?.name || sid}" from your list?`)) {
+                  handleRemoveServerFromList(sid);
+                }
+              }}>Remove Server</Button>
             </div>
           </div>
         </div>

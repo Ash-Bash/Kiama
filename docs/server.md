@@ -134,6 +134,30 @@ Server configuration shape
 
 - See `src/server/src/index.ts` for the `InitialServerConfig` template used by `init-config` — it includes `name`, `sections`, `channels`, and `roles` with example permissions.
 
+Configurable port
+-----------------
+
+- Default: the server listens on port `3000` when no other value is provided.
+- `init-config` can include a `port` field in the generated `server.config.json` so the server will read it on startup when started with `--config`.
+- `kiama-server start` accepts `--port` to override any configured value.
+- The running server exposes `GET /admin/config` which returns the current configuration (including `port`), and `POST /admin/config` which allows updating editable fields such as `port`. Changing the port via the admin API persists the value to disk but the process must be restarted to bind to the new port.
+
+Examples:
+
+```bash
+# Generate initial config with custom port
+kiama-server init-config --port 8080 --output server.config.json
+
+# Start using the generated config (server will read port from file unless overridden)
+kiama-server start --config server.config.json
+
+# Override at start time
+kiama-server start --port 9090 --config server.config.json
+
+# Persist a new port via admin API (requires admin token)
+curl -X POST -H "x-admin-token: <token>" -H "Content-Type: application/json" -d '{"port":8080}' http://localhost:3000/admin/config
+```
+
 Extending and running in production
 -----------------------------------
 

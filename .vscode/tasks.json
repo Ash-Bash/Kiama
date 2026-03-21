@@ -1,0 +1,57 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build-client-main",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "build:main", "--prefix", "src/client"],
+      "group": "build",
+      "presentation": { "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "build-client-webpack",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "build", "--prefix", "src/client"],
+      "group": "build",
+      "presentation": { "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "build-client",
+      "dependsOn": ["build-client-main", "build-client-webpack"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "build-server",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "build", "--prefix", "src/server"],
+      "group": "build",
+      "presentation": { "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "install-deps",
+      "type": "shell",
+      "command": "npm",
+      "args": ["install"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+    ,
+    {
+      "label": "prepare-client",
+      "dependsOn": ["install-deps", "build-client"],
+      "problemMatcher": []
+    },
+    {
+      "label": "prepare-server",
+      "dependsOn": ["install-deps", "build-server"],
+      "problemMatcher": []
+    }
+  ]
+}
