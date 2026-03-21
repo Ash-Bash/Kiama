@@ -9,15 +9,11 @@
     "build:main": "tsc --project tsconfig.main.json",
     "start": "electron ../../dist/client/main.js",
     "dev": "concurrently \"webpack --mode development --watch\" \"wait-on ../../dist/client/main.js && electron ../../dist/client/main.js\"",
-    "package": "electron-builder",
-    "package:mac:arm64": "electron-builder --mac --arm64",
-    "package:mac:x64": "electron-builder --mac --x64",
-    "package:mac:universal": "electron-builder --mac --universal",
-    "package:win:x64": "electron-builder --win --x64",
-    "package:win:ia32": "electron-builder --win --ia32",
-    "package:linux:x64": "electron-builder --linux --x64",
-    "package:linux:arm64": "electron-builder --linux --arm64",
-    "package:all": "electron-builder --mac --win --linux --x64 --arm64"
+    "prepackage": "rimraf ../../dist/binaries",
+    "clean": "rimraf ../../dist/binaries",
+    "package": "npm run build && node ./scripts/copyDistClient.js && electron-builder",
+    "package:mac:universal": "npm run package -- --mac --universal",
+    "package:all": "npm run package -- --mac --universal --win --linux --x64 --arm64"
   },
   "author": "",
   "dependencies": {
@@ -50,24 +46,15 @@
     "ts-loader": "^9.4.0",
     "typescript": "^5.0.0",
     "wait-on": "^7.0.0",
+    "rimraf": "^6.1.2",
     "webpack": "^5.80.0",
     "webpack-cli": "^5.0.0"
   },
   "build": {
+    "forceCodeSigning": false,
     "appId": "com.kiama.app",
     "productName": "Kiama",
-    "files": [
-      "package.json",
-      {
-        "from": "../../dist/client",
-        "to": "dist/client"
-      },
-      "node_modules/**/*",
-      "src/server/dist/**/*"
-    ],
-    "directories": {
-      "output": "../../dist/binaries"
-    },
+    "icon": "../../dist/binaries/icons/KiamaClient_256_Icon.png",
     "extraResources": [
       {
         "from": "../../dist/binaries/themes",
@@ -85,19 +72,53 @@
         "filter": ["**/*"]
       }
     ],
-    "extraMetadata": {
-      "main": "dist/client/main.js",
-      "name": "Kiama"
-    },
-    "icon": "../../dist/binaries/icons/KiamaClient_256_Icon.png",
+    "files": [
+      "**/*"
+    ],
     "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        }
+      ],
       "icon": "../../dist/binaries/icons/KiamaClient_256_icon.ico"
     },
-    "linux": {
-      "icon": "../../dist/binaries/icons/KiamaClient_256_Icon.png"
-    },
     "mac": {
-      "icon": "../../dist/binaries/icons/KiamaClient_macOS_512_Icon.png"
+      "icon": "../../dist/binaries/icons/KiamaClient_macOS_512_Icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["universal"]
+        }
+      ]
+    },
+    "linux": {
+      "maintainer": "Ashley Chapman <xpsx.fan@gmail.com>",
+      "icon": "../../dist/binaries/icons/KiamaClient_256_Icon.png",
+      "category": "Network;Productivity;",
+      "description": "Kiama desktop client",
+      "target": [
+        { "target": "AppImage", "arch": ["x64","arm64"] },
+        { "target": "deb",     "arch": ["x64","arm64"] },
+        { "target": "rpm",     "arch": ["x64","arm64"] }
+      ],
+      "asarUnpack": ["**/*.node","**/*.so"],
+      "executableName": "kiama"
+    },
+    "directories": {
+      "output": "../../dist/binaries"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Ashley Chapman",
+      "repo": "https://github.com/Ash-Bash/Kiama"
+    },
+    "nsis": {
+      "oneClick": false,
+      "installerIcon": "../../dist/binaries/icons/KiamaClient_256_Icon.png",
+      "uninstallerIcon": "../../dist/binaries/icons/KiamaClient_256_Icon.png",
+      "allowToChangeInstallationDirectory": true
     }
   }
 }

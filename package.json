@@ -4,25 +4,24 @@
   "description": "A decentralized Discord-like chat app",
   "main": "dist/server/kiama-server-0.1.0.js",
   "scripts": {
-    "build": "npm run build:server && npm run build:client",
-    "start": "npm run start:server",
-    "build:server": "cd src/server && npm run build",
-    "build:client": "cd src/client && npm run build",
-    "build:auth": "cd src/auth && npm run build",
-    "start:server": "cd src/server && npm start",
-    "start:client": "cd src/client && npm start",
-    "start:auth": "cd src/auth && npm start",
-    "dev:server": "cd src/server && npm run dev",
-    "dev:client": "cd src/client && npm run dev",
-    "dev:auth": "cd src/auth && npm run dev",
-    "install:all": "npm install && cd src/server && npm install && cd ../client && npm install && cd ../auth && npm install",
+    "build": "npm --prefix src/server run build && npm --prefix src/client run build",
+    "start": "npm --prefix src/server start",
+    "build:server": "npm --prefix src/server run build",
+    "build:client": "npm --prefix src/client run build",
+    "build:auth": "npm --prefix src/auth run build",
+    "start:server": "npm --prefix src/server start",
+    "start:client": "npm --prefix src/client start",
+    "start:auth": "npm --prefix src/auth start",
+    "dev:server": "npm --prefix src/server run dev",
+    "dev:client": "npm --prefix src/client run dev",
+    "dev:auth": "npm --prefix src/auth run dev",
+    "install:all": "npm install && npm --prefix src/server install && npm --prefix src/client install && npm --prefix src/auth install",
     "install-cli": "bash ./install"
     ,
-    "package": "cd src/client && npm run build && npm run package"
-    ,
-    "package:unsigned": "cd src/client && CSC_IDENTITY_AUTO_DISCOVERY=false npm run package"
-    ,
-    "package:all": "cd src/client && npm run build && npm run package:all"
+    "package": "npm --prefix src/client run build && npm --prefix src/client run package --",
+    "package:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false npm --prefix src/client run package --",
+    "package:all": "npm --prefix src/client run package:all"
+    ,"package:mac:universal": "npm --prefix src/client run package:mac:universal"
   },
   "keywords": [
     "chat",
